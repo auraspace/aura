@@ -3,7 +3,7 @@
 #include <string.h>
 
 #define AURA_RUNTIME_NO_MAIN
-#include "../../runtime/aura_rt.c"
+#include "../../runtime/runtime.c"
 
 static void assert_report_text(const AuraRaceReport *report)
 {

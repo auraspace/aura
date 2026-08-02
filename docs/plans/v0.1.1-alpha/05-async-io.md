@@ -39,7 +39,7 @@ filesystem async operations are not part of this slice yet.
 **Objective:** Make file operations suspend safely in async code.
 
 **Implementation status (bounded runtime slice):** `runtime/aura_ffi.h` and
-`runtime/aura_rt.c` expose an opaque POSIX `AuraFile` handle with explicit
+`runtime/runtime.c` expose an opaque POSIX `AuraFile` handle with explicit
 `open`, one-syscall `read`/`write`, `flush`, idempotent `close`, and
 `destroy`. Calls borrow buffers only for their duration and return stable
 `OK`, `EOF`, `PENDING`, `PERMISSION`, `ERROR`, `CLOSED`, or `UNSUPPORTED`
@@ -108,7 +108,7 @@ non-POSIX backends remaining a separate target capability.
 **Objective:** Provide reliable TCP transport for client and server workloads.
 
 **Implementation status:** Complete for the bounded G3 compiler/runtime slice.
-`runtime/aura_rt.c` now exposes an opaque,
+`runtime/runtime.c` now exposes an opaque,
 status-based endpoint-aware TCP listener/stream slice on POSIX targets. Bind creates
 a listening socket (including ephemeral port selection), accept/connect use
 nonblocking descriptors with an explicit millisecond poll bound, and read/write

@@ -164,6 +164,33 @@ mod tests {
         }
     }
 
+    fn copy_runtime_fixture(
+        root: &std::path::Path,
+        stem: &str,
+    ) -> (std::path::PathBuf, std::path::PathBuf) {
+        let runtime_root = std::env::temp_dir().join(format!("{stem}-runtime"));
+        fs::create_dir_all(runtime_root.join("src")).expect("create runtime fixture");
+        fs::copy(
+            root.join("runtime/runtime.c"),
+            runtime_root.join("runtime.c"),
+        )
+        .expect("copy runtime entrypoint");
+        fs::copy(
+            root.join("runtime/aura_ffi.h"),
+            runtime_root.join("aura_ffi.h"),
+        )
+        .expect("copy runtime header");
+        for entry in fs::read_dir(root.join("runtime/src")).expect("read runtime modules") {
+            let entry = entry.expect("runtime module entry");
+            fs::copy(
+                entry.path(),
+                runtime_root.join("src").join(entry.file_name()),
+            )
+            .expect("copy runtime module");
+        }
+        (runtime_root.join("runtime.c"), runtime_root)
+    }
+
     #[test]
     fn legacy_builds_use_current_compile_defaults() {
         let options = CompileOptions::default();
@@ -198,7 +225,7 @@ mod tests {
         build_from_file_with(
             &empty_program(),
             &bin,
-            &root.join("runtime/aura_rt.c"),
+            &root.join("runtime/runtime.c"),
             options,
             crate::ctx::EmitOptions::default(),
         )
@@ -219,7 +246,7 @@ mod tests {
             .parent()
             .and_then(|p| p.parent())
             .expect("workspace root");
-        let runtime = root.join("runtime/aura_rt.c");
+        let runtime = root.join("runtime/runtime.c");
         let dir = std::env::temp_dir();
 
         for profile in [
@@ -290,15 +317,16 @@ mod tests {
         let dir = std::env::temp_dir();
         let stem = format!("aura-abi-mismatch-{}", std::process::id());
         let bin = dir.join(&stem);
-        let runtime = dir.join(format!("{stem}.runtime.c"));
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        let source = fs::read_to_string(root.join("runtime/aura_rt.c")).expect("read runtime");
+        let (runtime, runtime_root) = copy_runtime_fixture(root, &stem);
+        let module = runtime_root.join("src/abi_race.c");
+        let source = fs::read_to_string(&module).expect("read ABI module");
         let mismatched = source.replace(
             "#define AURA_RT_ABI_VERSION 1u",
             "#define AURA_RT_ABI_VERSION 2u",
         );
         assert_ne!(source, mismatched, "test must change runtime ABI version");
-        fs::write(&runtime, mismatched).expect("write mismatched runtime");
+        fs::write(&module, mismatched).expect("write mismatched runtime");
 
         build_from_file(&empty_program(), &bin, &runtime).expect("compile mismatched artifact");
         let output = Command::new(&bin)
@@ -314,8 +342,8 @@ mod tests {
         );
 
         let _ = fs::remove_file(bin);
-        let _ = fs::remove_file(runtime);
         let _ = fs::remove_file(generated_c);
+        let _ = fs::remove_dir_all(runtime_root);
     }
 
     #[test]
@@ -327,15 +355,16 @@ mod tests {
         let dir = std::env::temp_dir();
         let stem = format!("aura-ffi-abi-mismatch-{}", std::process::id());
         let bin = dir.join(&stem);
-        let runtime = dir.join(format!("{stem}.runtime.c"));
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        let source = fs::read_to_string(root.join("runtime/aura_rt.c")).expect("read runtime");
+        let (runtime, runtime_root) = copy_runtime_fixture(root, &stem);
+        let module = runtime_root.join("src/abi_race.c");
+        let source = fs::read_to_string(&module).expect("read ABI module");
         let mismatched = source.replace(
             "aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1",
             "aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=2;type=1",
         );
         assert_ne!(source, mismatched, "test must change the FFI ABI identity");
-        fs::write(&runtime, mismatched).expect("write mismatched runtime");
+        fs::write(&module, mismatched).expect("write mismatched runtime");
 
         build_from_file(&empty_program(), &bin, &runtime).expect("compile mismatched artifact");
         let output = Command::new(&bin)
@@ -352,8 +381,8 @@ mod tests {
         );
 
         let _ = fs::remove_file(bin);
-        let _ = fs::remove_file(runtime);
         let _ = fs::remove_file(generated_c);
+        let _ = fs::remove_dir_all(runtime_root);
     }
 
     #[test]
@@ -366,7 +395,7 @@ mod tests {
         let stem = format!("aura-ffi-linker-failure-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        let runtime = root.join("runtime/aura_rt.c");
+        let runtime = root.join("runtime/runtime.c");
         let _ = fs::remove_file(&bin);
         let _ = fs::remove_file(&generated_c);
 
@@ -472,7 +501,7 @@ fun main() {
         build_from_file_with(
             &file,
             &bin,
-            &root.join("runtime/aura_rt.c"),
+            &root.join("runtime/runtime.c"),
             options,
             crate::ctx::EmitOptions::default(),
         )
@@ -574,7 +603,7 @@ fun main() {
         let dir = std::env::temp_dir();
         let bin = dir.join(format!("aura-c22l-{}", std::process::id()));
         let generated_c = dir.join(format!("aura-c22l-{}.aura.c", std::process::id()));
-        let runtime = root.join("runtime/aura_rt.c");
+        let runtime = root.join("runtime/runtime.c");
         build_from_file(&file, &bin, &runtime).expect("compile generated async C");
         let generated = std::fs::read_to_string(&generated_c).expect("read generated async C");
         assert!(generated.contains("switch (aura_task_frame_resume_state(frame))"));
@@ -614,7 +643,7 @@ fun main() {
         let stem = format!("aura-no-await-scheduler-payload-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile no-await scheduler payload fixture");
         let output = Command::new(&bin)
             .output()
@@ -662,7 +691,7 @@ fun main() {
         let stem = format!("aura-general-cfg-scheduler-payload-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile general CFG scheduler payload fixture");
         let output = Command::new(&bin)
             .output()
@@ -719,7 +748,7 @@ fun main() {
         let stem = format!("aura-no-await-class-frame-root-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile no-await class parameter frame fixture");
         let output = Command::new(&bin)
             .output()
@@ -765,7 +794,7 @@ fun main() {
         let stem = format!("aura-task-struct-outcome-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile struct task outcome fixture");
         let output = Command::new(&bin)
             .output()
@@ -817,7 +846,7 @@ fun main() {
         let stem = format!("aura-task-struct-class-outcome-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile struct heap-class task outcome fixture");
         let output = Command::new(&bin)
             .output()
@@ -870,7 +899,7 @@ fun main() {
         let stem = format!("aura-task-nested-enum-struct-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nested enum-struct-class task outcome fixture");
         let output = Command::new(&bin)
             .output()
@@ -922,7 +951,7 @@ fun main() {
         let stem = format!("aura-task-mixed-generic-enum-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile mixed generic enum task outcome fixture");
         let output = Command::new(&bin)
             .output()
@@ -967,7 +996,7 @@ fun main() {
         let stem = format!("aura-task-optional-outcome-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile optional primitive task outcome fixture");
         let output = Command::new(&bin)
             .output()
@@ -1014,7 +1043,7 @@ fun main() {
         let stem = format!("aura-task-nullable-class-outcome-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nullable class task outcome fixture");
         let output = Command::new(&bin)
             .output()
@@ -1064,7 +1093,7 @@ fun main() {
         let stem = format!("aura-task-nullable-array-outcome-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nullable array task outcome fixture");
         let output = Command::new(&bin)
             .output()
@@ -1116,7 +1145,7 @@ fun main() {
         let stem = format!("aura-nested-class-async-capture-gc-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nested class async capture GC fixture");
         let output = Command::new(&bin)
             .output()
@@ -1169,7 +1198,7 @@ fun main() {
         let stem = format!("aura-async-read-fd-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile generated async readFd fixture");
         let mut child = Command::new(&bin)
             .stdin(Stdio::piped())
@@ -1215,7 +1244,7 @@ fun main() {}
         let stem = format!("aura-async-read-file-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile generated async readFile fixture");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
@@ -1250,7 +1279,7 @@ fun main() {
         let stem = format!("aura-owned-file-handle-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile owned std.io file fixture");
         let output = Command::new(&bin)
             .output()
@@ -1303,7 +1332,7 @@ fun main() {
         let stem = format!("aura-spawn-file-handle-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile spawn file-handle fixture");
         let output = Command::new(&bin)
             .output()
@@ -1393,7 +1422,7 @@ fun main() {{
         let stem = format!("aura-async-file-round-trip-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async file round-trip fixture");
         let output = Command::new(&bin)
             .output()
@@ -1482,7 +1511,7 @@ fun main() {{
         let stem = format!("aura-caller-owned-file-task-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile caller-owned file task fixture");
         let output = Command::new(&bin)
             .output()
@@ -1524,7 +1553,7 @@ fun main() {}
         let stem = format!("aura-async-write-file-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile generated async writeFile fixture");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
@@ -1556,7 +1585,7 @@ fun main() {}
         let stem = format!("aura-async-tcp-stream-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile generated async TCP stream fixture");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
@@ -1589,7 +1618,7 @@ fun main() {
         let stem = format!("aura-async-unit-control-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async Unit control-flow fixture");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
@@ -1629,7 +1658,7 @@ fun main() {
         let stem = format!("aura-async-shadowing-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async incompatible shadowing fixture");
         let output = Command::new(&bin)
             .output()
@@ -1673,7 +1702,7 @@ fun main() {}
         let stem = format!("aura-std-net-connect-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.net.connect fixture");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
@@ -1719,7 +1748,7 @@ fun main() {}
         let stem = format!("aura-std-http-accessors-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.http accessor fixture");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
@@ -1754,7 +1783,7 @@ fun main() {}
         let stem = format!("aura-std-http-read-chunk-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.http async method fixture");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
@@ -1789,7 +1818,7 @@ fun main() {}
         let stem = format!("aura-std-http-write-chunk-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.http response stream fixture");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
@@ -1829,7 +1858,7 @@ fun main() {}
         let stem = format!("aura-generic-async-class-method-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile generic async class method fixture");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
@@ -1863,7 +1892,7 @@ fun main() {
         let stem = format!("aura-generic-async-method-mono-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile generic async class method fixture");
         let output = Command::new(&bin)
             .output()
@@ -1910,7 +1939,7 @@ fun main() {
         let stem = format!("aura-generic-free-async-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile generic free async fixture");
         let output = Command::new(&bin)
             .output()
@@ -1950,7 +1979,7 @@ fun main() { }
         let stem = format!("aura-open-generic-identity-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile open generic async identity fixture");
         let output = Command::new(&bin)
             .output()
@@ -1983,7 +2012,7 @@ fun main() { }
         let stem = format!("aura-open-generic-identity-no-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile no-await open generic identity fixture");
         let output = Command::new(&bin)
             .output()
@@ -2018,7 +2047,7 @@ fun main() { }
         let stem = format!("aura-open-generic-result-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile open generic async result fixture");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
@@ -2049,7 +2078,7 @@ fun main() { }
         let stem = format!("aura-open-generic-forward-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile open generic async forwarding fixture");
         let output = Command::new(&bin)
             .output()
@@ -2086,7 +2115,7 @@ fun main() {
         let stem = format!("aura-async-fun-payload-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async fun payload fixture");
         let output = Command::new(&bin)
             .output()
@@ -2165,7 +2194,7 @@ fun main() {
         let stem = format!("aura-generic-async-class-payload-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile generic async class payload fixture");
         let output = Command::new(&bin)
             .output()
@@ -2221,7 +2250,7 @@ fun main() {
         let stem = format!("aura-async-class-method-branch-loop-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async class method branch-loop fixture");
         let output = Command::new(&bin)
             .output()
@@ -2265,7 +2294,7 @@ fun main() { Handler("ready").dispatch() }
         let stem = format!("aura-async-class-await-condition-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async class await-condition fixture");
         let output = Command::new(&bin)
             .output()
@@ -2313,7 +2342,7 @@ fun main() { Handler().drain(2) }
         );
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async class await-while-condition fixture");
         let output = Command::new(&bin)
             .output()
@@ -2350,7 +2379,7 @@ fun main() {}
         let stem = format!("aura-std-task-is-cancelled-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.task cancellation query fixture");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
@@ -2379,7 +2408,7 @@ fun main() {
         let stem = format!("aura-std-task-cancel-after-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.task cancelAfter fixture");
         let output = Command::new(&bin)
             .output()
@@ -2416,7 +2445,7 @@ fun main() {
         let stem = format!("aura-std-task-link-cancellation-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.task linkCancellation fixture");
         let output = Command::new(&bin)
             .output()
@@ -2452,7 +2481,7 @@ fun main() {
         let stem = format!("aura-std-dns-resolve-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.dns resolver fixture");
         let output = Command::new(&bin)
             .output()
@@ -2494,7 +2523,7 @@ fun main() {
         let stem = format!("aura-std-log-levels-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.log fixture");
         let output = Command::new(&bin).output().expect("run std.log fixture");
         assert!(output.status.success(), "std.log failed: {output:?}");
@@ -2536,7 +2565,7 @@ fun main() {
         let stem = format!("aura-std-metrics-counter-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.metrics fixture");
         let output = Command::new(&bin)
             .output()
@@ -2576,7 +2605,7 @@ fun main() {
         let stem = format!("aura-std-test-assertions-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.test fixture");
         let output = Command::new(&bin).output().expect("run std.test fixture");
         assert!(output.status.success(), "std.test failed: {output:?}");
@@ -2613,7 +2642,7 @@ fun main() {
         let stem = format!("aura-std-json-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.json fixture");
         let output = Command::new(&bin).output().expect("run std.json fixture");
         assert!(output.status.success(), "std.json failed: {output:?}");
@@ -2650,7 +2679,7 @@ fun main() {
         let stem = format!("aura-std-signal-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.signal fixture");
         let output = Command::new(&bin).output().expect("run std.signal fixture");
         assert!(output.status.success(), "std.signal failed: {output:?}");
@@ -2684,7 +2713,7 @@ fun main() {
         let stem = format!("aura-std-error-kind-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.error kind mapping fixture");
         let output = Command::new(&bin)
             .output()
@@ -2747,7 +2776,7 @@ fun main() {
         let stem = format!("aura-std-error-transport-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.error transport classification fixture");
         let output = Command::new(&bin)
             .output()
@@ -2806,7 +2835,7 @@ fun main() {
         let stem = format!("aura-shared-outcome-error-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile shared Outcome class-error fixture");
         let output = Command::new(&bin)
             .output()
@@ -2902,7 +2931,7 @@ fun main() {
         let stem = format!("aura-joined-shared-outcome-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile joined shared Outcome fixture");
         let output = Command::new(&bin)
             .output()
@@ -2954,7 +2983,7 @@ fun main() {
         let stem = format!("aura-joined-plain-enum-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile plain enum task payload fixture");
         let output = Command::new(&bin)
             .output()
@@ -3017,7 +3046,7 @@ fun main() {
         let stem = format!("aura-joined-string-enum-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile String enum task payload fixture");
         let output = Command::new(&bin)
             .output()
@@ -3080,7 +3109,7 @@ fun main() {
         let stem = format!("aura-joined-scheduler-payload-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile scheduler-owned task payload fixture");
         let output = Command::new(&bin)
             .output()
@@ -3128,7 +3157,7 @@ fun main() {
         let stem = format!("aura-joined-channel-payload-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile channel task payload fixture");
         let output = Command::new(&bin)
             .output()
@@ -3166,7 +3195,7 @@ fun main() {
         let stem = format!("aura-unit-channel-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile Unit channel fixture");
         let output = Command::new(&bin)
             .output()
@@ -3200,7 +3229,7 @@ fun main() {
         let stem = format!("aura-nullable-class-channel-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nullable class channel fixture");
         let output = Command::new(&bin)
             .output()
@@ -3255,7 +3284,7 @@ fun main() {
         let stem = format!("aura-array-enum-ownership-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile Array<enum> ownership fixture");
         let output = Command::new(&bin)
             .output()
@@ -3343,7 +3372,7 @@ fun main() {
         let stem = format!("aura-nested-array-enum-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nested Array<enum> ownership fixture");
         let output = Command::new(&bin)
             .output()
@@ -3400,7 +3429,7 @@ fun main() {
         let stem = format!("aura-array-enum-await-gc-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async Array<enum> GC fixture");
         let output = Command::new(&bin)
             .output()
@@ -3470,7 +3499,7 @@ fun main() {
         let stem = format!("aura-nested-typed-failure-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nested typed class failure join fixture");
         let output = Command::new(&bin)
             .output()
@@ -3539,7 +3568,7 @@ fun main() {
         let stem = format!("aura-cfg-string-enum-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile CFG String enum payload fixture");
         let output = Command::new(&bin)
             .output()
@@ -3620,7 +3649,7 @@ fun main() {
         let stem = format!("aura-std-sync-atomic-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.sync AtomicInt fixture");
         let output = Command::new(&bin)
             .output()
@@ -3665,7 +3694,7 @@ fun main() { worker() }
         let stem = format!("aura-async-try-finally-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async try-finally fixture");
         let output = Command::new(&bin)
             .output()
@@ -3706,7 +3735,7 @@ fun main() { worker() }
         let stem = format!("aura-async-catch-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async catch fixture");
         let output = Command::new(&bin)
             .output()
@@ -3783,7 +3812,7 @@ fun main() {
         let stem = format!("aura-async-nested-catch-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nested async catch fixture");
         let output = Command::new(&bin)
             .output()
@@ -3839,7 +3868,7 @@ fun main() {
         let stem = format!("aura-async-non-unit-catch-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async non-unit catch fixture");
         let output = Command::new(&bin)
             .output()
@@ -3894,7 +3923,7 @@ fun main() {
         let stem = format!("aura-async-multi-await-catch-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile multi-await catch fixture");
         let output = Command::new(&bin)
             .output()
@@ -3950,7 +3979,7 @@ fun main() { driver() }
         let stem = format!("aura-async-catch-resuspend-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async catch-resuspend fixture");
         let output = Command::new(&bin)
             .output()
@@ -3988,7 +4017,7 @@ fun main() { worker() }
         let stem = format!("aura-async-awaited-argument-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async awaited-argument fixture");
         let output = Command::new(&bin)
             .output()
@@ -4030,7 +4059,7 @@ fun main() { worker() }
         let stem = format!("aura-async-class-catch-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async class catch fixture");
         let output = Command::new(&bin)
             .output()
@@ -4076,7 +4105,7 @@ fun main() { worker() }
         let stem = format!("aura-async-class-catch-nested-field-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nested-field async class catch fixture");
         let output = Command::new(&bin)
             .output()
@@ -4117,7 +4146,7 @@ fun main() { worker() }
         let stem = format!("aura-async-class-catch-array-field-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile array-field async class catch fixture");
         let output = Command::new(&bin)
             .output()
@@ -4162,7 +4191,7 @@ fun main() { worker() }
         let stem = format!("aura-async-class-catch-class-array-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile class-array async catch fixture");
         let output = Command::new(&bin)
             .output()
@@ -4200,7 +4229,7 @@ fun main() { worker() }
         let stem = format!("aura-async-primitive-catch-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile primitive async catch fixture");
         let output = Command::new(&bin)
             .output()
@@ -4239,7 +4268,7 @@ fun main() { worker() }
         let stem = format!("aura-async-same-name-catch-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile same-name async catch fixture");
         let output = Command::new(&bin)
             .output()
@@ -4310,7 +4339,7 @@ fun main() {
         let stem = format!("aura-async-enum-catch-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async enum catch fixture");
         let output = Command::new(&bin)
             .output()
@@ -4355,7 +4384,7 @@ fun main() { Worker().run() }
         let stem = format!("aura-async-class-method-catch-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async class catch fixture");
         let output = Command::new(&bin)
             .output()
@@ -4408,7 +4437,7 @@ fun main() {
         let stem = format!("aura-async-catch-finally-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async catch-finally fixture");
         let output = Command::new(&bin)
             .output()
@@ -4452,7 +4481,7 @@ fun main() {
         let stem = format!("aura-async-finally-failure-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async finally failure fixture");
         let output = Command::new(&bin)
             .output()
@@ -4497,7 +4526,7 @@ fun main() { worker() }
         let stem = format!("aura-nested-async-finally-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nested async finally fixture");
         let output = Command::new(&bin)
             .output()
@@ -4545,7 +4574,7 @@ fun main() {
         let stem = format!("aura-nested-async-finally-cancel-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nested cancellation finally fixture");
         let output = Command::new(&bin)
             .output()
@@ -4589,7 +4618,7 @@ fun main() {
         let stem = format!("aura-task-handle-live-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile task handle live-across-await fixture");
         let output = Command::new(&bin)
             .output()
@@ -4631,7 +4660,7 @@ fun main() {
         let stem = format!("aura-channel-live-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile channel live-across-await fixture");
         let output = Command::new(&bin)
             .output()
@@ -4670,7 +4699,7 @@ fun main() { fail() }
         let stem = format!("aura-async-class-throw-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async class throw fixture");
         let output = Command::new(&bin)
             .output()
@@ -4787,7 +4816,7 @@ fun main() {
         let stem = format!("aura-std-time-sleep-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.time sleep fixture");
         let output = Command::new(&bin)
             .output()
@@ -4834,7 +4863,7 @@ fun main() {
         let stem = format!("aura-std-encoding-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.encoding fixture");
         let output = Command::new(&bin)
             .output()
@@ -4877,7 +4906,7 @@ fun main() {
         let stem = format!("aura-std-bytes-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.bytes fixture");
         let output = Command::new(&bin).output().expect("run std.bytes fixture");
         assert!(output.status.success(), "std.bytes failed: {output:?}");
@@ -4931,7 +4960,7 @@ fun main() {
         let stem = format!("aura-std-bytes-buffer-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.bytes Buffer fixture");
         let output = Command::new(&bin)
             .output()
@@ -4990,7 +5019,7 @@ fun main() {
         let stem = format!("aura-std-fs-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.fs fixture");
         let output = Command::new(&bin).output().expect("run std.fs fixture");
         assert!(output.status.success(), "std.fs failed: {output:?}");
@@ -5033,7 +5062,7 @@ fun main() {
         let stem = format!("aura-std-os-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.os fixture");
         let output = Command::new(&bin).output().expect("run std.os fixture");
         assert!(output.status.success(), "std.os failed: {output:?}");
@@ -5079,7 +5108,7 @@ fun main() {
         let stem = format!("aura-std-url-mime-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.url/std.mime fixture");
         let output = Command::new(&bin)
             .output()
@@ -5119,7 +5148,7 @@ fun main() {
         let stem = format!("aura-std-mime-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.mime fixture");
         let output = Command::new(&bin).output().expect("run std.mime fixture");
         assert!(output.status.success(), "std.mime failed: {output:?}");
@@ -5155,7 +5184,7 @@ fun main() {}
         let stem = format!("aura-aliased-function-type-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile aliased function type fixture");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
@@ -5204,7 +5233,7 @@ fun main() {
         let stem = format!("aura-async-write-fd-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile generated async writeFd fixture");
         let output = Command::new(&bin)
             .output()
@@ -5241,7 +5270,7 @@ fun main() { fail() }
         let stem = format!("aura-async-failure-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async primitive failure fixture");
         assert!(Command::new(&bin)
             .status()
@@ -5348,7 +5377,7 @@ fun main() { fail() }
         let dir = std::env::temp_dir();
         let bin = dir.join(format!("aura-await-{}", std::process::id()));
         let generated_c = dir.join(format!("aura-await-{}.aura.c", std::process::id()));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile immediate await");
         let generated = fs::read_to_string(&generated_c).expect("read generated await C");
         assert!(generated.contains("aura_task_frame_poll_once(__await)"));
@@ -5407,7 +5436,7 @@ fun main() {}
         let dir = std::env::temp_dir();
         let bin = dir.join(format!("aura-await-hoist-{}", std::process::id()));
         let generated_c = dir.join(format!("aura-await-hoist-{}.aura.c", std::process::id()));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile hoisted single-await fixture");
         let status = Command::new(&bin).status().expect("run hoisted fixture");
         assert!(status.success());
@@ -5441,7 +5470,7 @@ fun main() {}
         let stem = format!("aura-return-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile return-await fixture");
         assert!(Command::new(&bin)
             .status()
@@ -5484,7 +5513,7 @@ fun main() {
         let stem = format!("aura-await-expression-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile scalar await-expression fixture");
         let output = Command::new(&bin)
             .output()
@@ -5530,7 +5559,7 @@ fun main() {
         let stem = format!("aura-await-expression-if-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile expression-if await fixture");
         let output = Command::new(&bin)
             .output()
@@ -5577,7 +5606,7 @@ fun main() {
         let stem = format!("aura-await-expression-if-branches-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile expression-if branch await fixture");
         let output = Command::new(&bin)
             .output()
@@ -5625,7 +5654,7 @@ fun main() {
         let stem = format!("aura-aggregate-await-expression-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile aggregate await-expression fixture");
         let output = Command::new(&bin)
             .output()
@@ -5672,7 +5701,7 @@ fun main() {
         let stem = format!("aura-nested-await-operand-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nested await operand fixture");
         let output = Command::new(&bin)
             .output()
@@ -5720,7 +5749,7 @@ fun main() {
         let stem = format!("aura-multiple-await-expression-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile multiple-await expression fixture");
         let output = Command::new(&bin)
             .output()
@@ -5825,7 +5854,7 @@ fun main() {}
         let stem = format!("aura-await-if-assign-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile if-await assignment fixture");
         assert!(Command::new(&bin)
             .status()
@@ -5890,7 +5919,7 @@ fun main() {}
         let dir = std::env::temp_dir();
         let bin = dir.join(format!("aura-await-two-{}", std::process::id()));
         let generated_c = dir.join(format!("aura-await-two-{}.aura.c", std::process::id()));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile two-await fixture");
         let status = Command::new(&bin).status().expect("run two-await fixture");
         assert!(status.success());
@@ -5951,7 +5980,7 @@ fun main() {}
         let dir = std::env::temp_dir();
         let bin = dir.join(format!("aura-await-three-{}", std::process::id()));
         let generated_c = dir.join(format!("aura-await-three-{}.aura.c", std::process::id()));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile three-await fixture");
         let status = Command::new(&bin)
             .status()
@@ -6029,7 +6058,7 @@ fun main() {
         let stem = format!("aura-await-general-four-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile general four-await fixture");
         let output = Command::new(&bin)
             .output()
@@ -6088,7 +6117,7 @@ fun main() {
         let stem = format!("aura-async-general-eight-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile general eight-await fixture");
         let output = Command::new(&bin)
             .output()
@@ -6140,7 +6169,7 @@ fun main() {
         let stem = format!("aura-async-for-in-nested-array-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nested-array for-in await fixture");
         let output = Command::new(&bin)
             .output()
@@ -6193,7 +6222,7 @@ fun main() {
         let stem = format!("aura-async-general-string-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile general four-await String fixture");
         let output = Command::new(&bin)
             .output()
@@ -6233,7 +6262,7 @@ fun main() { request() }
         let stem = format!("aura-general-cfg-owned-string-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile owned async String fixture");
         let output = Command::new(&bin)
             .output()
@@ -6280,7 +6309,7 @@ fun main() {
         let stem = format!("aura-general-cfg-return-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile awaited return expression fixture");
         let output = Command::new(&bin)
             .output()
@@ -6321,7 +6350,7 @@ fun main() { parse() }
         let stem = format!("aura-general-cfg-nullable-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nullable async CFG fixture");
         let output = Command::new(&bin)
             .output()
@@ -6374,7 +6403,7 @@ fun main() {
         let stem = format!("aura-while-await-int-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile while-await Int fixture with ASAN/UBSAN");
         let output = Command::new(&bin)
             .output()
@@ -6454,7 +6483,7 @@ fun main() {
         let stem = format!("aura-loop-guarded-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile guarded loop-await fixture");
         let output = Command::new(&bin)
             .output()
@@ -6522,7 +6551,7 @@ fun main() {
         let stem = format!("aura-nested-loop-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nested loop-await fixture");
         let output = Command::new(&bin)
             .output()
@@ -6588,7 +6617,7 @@ fun main() {
         let stem = format!("aura-loop-multi-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile multi-await loop fixture");
         let output = Command::new(&bin)
             .output()
@@ -6670,7 +6699,7 @@ fun main() {
         let stem = format!("aura-conditional-loop-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile conditional loop-await fixture");
         let output = Command::new(&bin)
             .output()
@@ -6728,7 +6757,7 @@ fun main() {
         let stem = format!("aura-general-cfg-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile general CFG await fixture");
         let output = Command::new(&bin)
             .output()
@@ -6826,7 +6855,7 @@ fun main() {
         let stem = format!("aura-general-cfg-array-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile aggregate CFG await fixture");
         let output = Command::new(&bin)
             .output()
@@ -6896,7 +6925,7 @@ fun main() {
         let stem = format!("aura-general-cfg-struct-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile general CFG struct fixture");
         let output = Command::new(&bin)
             .output()
@@ -6995,7 +7024,7 @@ fun main() {
         let stem = format!("aura-general-cfg-string-array-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile String array CFG await fixture");
         let output = Command::new(&bin)
             .output()
@@ -7095,7 +7124,7 @@ fun main() {
         let stem = format!("aura-general-cfg-string-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile String CFG await fixture");
         let output = Command::new(&bin)
             .output()
@@ -7142,7 +7171,7 @@ fun main() {}
         let stem = format!("aura-general-cfg-owned-task-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile caller-owned CFG fixture");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
@@ -7203,7 +7232,7 @@ fun main() {{
         let stem = format!("aura-general-cfg-handle-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile general CFG handle fixture");
         let output = Command::new(&bin)
             .output()
@@ -7261,7 +7290,7 @@ fun main() {{
         let stem = format!("aura-async-handle-catch-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile foreign handle throw/catch fixture");
         let output = Command::new(&bin)
             .output()
@@ -7301,7 +7330,7 @@ fun main() {{
         let stem = format!("aura-sync-handle-catch-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile sync foreign handle throw/catch fixture");
         let output = Command::new(&bin)
             .output()
@@ -7393,7 +7422,7 @@ fun main() {{
         let stem = format!("aura-general-cfg-owned-task-handle-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile caller-owned handle CFG fixture");
         let output = Command::new(&bin)
             .output()
@@ -7492,7 +7521,7 @@ fun main() {
         let stem = format!("aura-general-cfg-owned-string-task-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile caller-owned String CFG fixture");
         let output = Command::new(&bin)
             .output()
@@ -7583,7 +7612,7 @@ fun main() {
         let stem = format!("aura-general-cfg-owned-array-task-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile repeated caller-owned Array CFG fixture");
         let output = Command::new(&bin)
             .output()
@@ -7650,7 +7679,7 @@ fun main() {
         let stem = format!("aura-for-range-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile for-range await fixture");
         let output = Command::new(&bin)
             .output()
@@ -7713,7 +7742,7 @@ fun main() {
         let stem = format!("aura-loop-branch-join-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile loop branch-join fixture");
         let output = Command::new(&bin)
             .output()
@@ -7792,7 +7821,7 @@ fun main() {
         let stem = format!("aura-loop-array-branch-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile loop Array payload fixture");
         let output = Command::new(&bin)
             .output()
@@ -7864,7 +7893,7 @@ fun main() {
         let stem = format!("aura-loop-array-enum-branch-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile loop Array<enum> payload fixture");
         let output = Command::new(&bin)
             .output()
@@ -7962,7 +7991,7 @@ fun main() {
         let stem = format!("aura-loop-two-conditional-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile two conditional await fixture");
         let output = Command::new(&bin)
             .output()
@@ -8036,7 +8065,7 @@ fun main() {
         let stem = format!("aura-general-cfg-for-range-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile general CFG for-range await fixture");
         let output = Command::new(&bin)
             .output()
@@ -8126,7 +8155,7 @@ fun main() {
         let stem = format!("aura-general-cfg-for-in-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile general CFG for-in await fixture");
         let output = Command::new(&bin)
             .output()
@@ -8203,7 +8232,7 @@ fun main() {
         );
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile general CFG String for-in await fixture");
         let output = Command::new(&bin)
             .output()
@@ -8288,7 +8317,7 @@ fun main() {
         );
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile general CFG interface for-in await fixture");
         let output = Command::new(&bin)
             .output()
@@ -8340,7 +8369,7 @@ fun main() {
         let stem = format!("aura-owned-interface-task-result-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile owned interface task result fixture");
         let output = Command::new(&bin)
             .output()
@@ -8416,7 +8445,7 @@ fun main() {
         );
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile general CFG String array for-in await fixture");
         let output = Command::new(&bin)
             .output()
@@ -8481,7 +8510,7 @@ fun main() {
         let stem = format!("aura-enum-array-for-in-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile enum-array for-in await fixture");
         let output = Command::new(&bin)
             .output()
@@ -8566,7 +8595,7 @@ fun main() {
         let stem = format!("aura-loop-three-conditional-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile three conditional await fixture");
         let output = Command::new(&bin)
             .output()
@@ -8661,7 +8690,7 @@ fun main() {
         let stem = format!("aura-loop-four-conditional-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile four conditional await fixture");
         let output = Command::new(&bin)
             .output()
@@ -8743,7 +8772,7 @@ fun main() {
         let stem = format!("aura-branch-then-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile branch-then-second-await fixture");
         let output = Command::new(&bin)
             .output()
@@ -8808,7 +8837,7 @@ fun main() {
         let stem = format!("aura-await-branch-join-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile branch-join await fixture");
         let output = Command::new(&bin)
             .output()
@@ -8878,7 +8907,7 @@ fun main() {
         let stem = format!("aura-branch-array-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile branch Array payload fixture");
         let output = Command::new(&bin)
             .output()
@@ -8934,7 +8963,7 @@ fun main() {
         let stem = format!("aura-branch-join-continuation-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile branch-join continuation fixture");
         let output = Command::new(&bin)
             .output()
@@ -8988,7 +9017,7 @@ fun main() {
         let stem = format!("aura-string-branch-join-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile String branch-join fixture");
         let output = Command::new(&bin)
             .output()
@@ -9074,7 +9103,7 @@ fun main() {
         let stem = format!("aura-match-await-state-machine-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile match-await state machine fixture");
         let output = Command::new(&bin)
             .output()
@@ -9138,7 +9167,7 @@ fun main() {
         let stem = format!("aura-match-await-bindings-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile match-await binding fixture");
         let output = Command::new(&bin)
             .output()
@@ -9196,7 +9225,7 @@ fun main() {
         let stem = format!("aura-match-await-string-bindings-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile string match-await binding fixture");
         let output = Command::new(&bin)
             .output()
@@ -9257,7 +9286,7 @@ fun main() {
         let stem = format!("aura-match-await-array-bindings-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile array match-await binding fixture");
         let output = Command::new(&bin)
             .output()
@@ -9324,7 +9353,7 @@ fun main() {
         );
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile string array match-await binding fixture");
         let output = Command::new(&bin)
             .output()
@@ -9382,7 +9411,7 @@ fun main() {
         let stem = format!("aura-match-await-struct-bindings-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile struct match-await binding fixture");
         let output = Command::new(&bin)
             .output()
@@ -9439,7 +9468,7 @@ fun main() {
         let stem = format!("aura-general-cfg-merged-locals-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile merged branch-local CFG fixture");
         let output = Command::new(&bin)
             .output()
@@ -9493,7 +9522,7 @@ fun main() {
         let stem = format!("aura-nested-branch-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nested branch-await fixture");
         let output = Command::new(&bin)
             .output()
@@ -9541,7 +9570,7 @@ fun main() {
         let stem = format!("aura-async-string-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile single-await String fixture");
         assert!(Command::new(&bin)
             .status()
@@ -9580,7 +9609,7 @@ fun main() {
         let stem = format!("aura-async-spawn-string-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile spawned String-await fixture");
         let output = Command::new(&bin)
             .output()
@@ -9648,7 +9677,7 @@ fun main() {
         let stem = format!("aura-typed-spawn-await-string-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile suspended typed String spawn fixture");
         let output = Command::new(&bin)
             .output()
@@ -9703,7 +9732,7 @@ fun main() {
         let stem = format!("aura-typed-spawn-await-int-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile suspended typed Int spawn fixture");
         let output = Command::new(&bin)
             .output()
@@ -9755,7 +9784,7 @@ fun main() {
         let stem = format!("aura-typed-spawn-await-bool-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile suspended typed Bool spawn fixture");
         let output = Command::new(&bin)
             .output()
@@ -9804,7 +9833,7 @@ fun main() {
         let stem = format!("aura-async-branch-string-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile String branch-await fixture");
         let output = Command::new(&bin)
             .output()
@@ -9858,7 +9887,7 @@ fun main() {
         let stem = format!("aura-async-two-string-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile two-await String fixture");
         let output = Command::new(&bin)
             .output()
@@ -9936,7 +9965,7 @@ fun main() {
         let stem = format!("aura-await-general-four-array-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile general four-await Array fixture");
         let output = Command::new(&bin)
             .output()
@@ -10017,7 +10046,7 @@ fun main() {
         );
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile general four-await String array fixture");
         let output = Command::new(&bin)
             .output()
@@ -10051,7 +10080,7 @@ fun main() {
         let stem = format!("aura-corpus-four-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile four-await corpus fixture");
         let output = Command::new(&bin)
             .output()
@@ -10132,7 +10161,7 @@ fun main() {
         let stem = format!("aura-async-general-bool-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile general CFG Bool fixture");
         let output = Command::new(&bin)
             .output()
@@ -10222,7 +10251,7 @@ fun main() {
         let stem = format!("aura-async-general-class-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile general CFG class fixture");
         let output = Command::new(&bin)
             .output()
@@ -10341,7 +10370,7 @@ fun main() {
             .expect("workspace root");
         let dir = std::env::temp_dir();
         let bin = dir.join(format!("aura-c22m-{}", std::process::id()));
-        let runtime = root.join("runtime/aura_rt.c");
+        let runtime = root.join("runtime/runtime.c");
         build_from_file(&file, &bin, &runtime).expect("compile generated C22m");
         let generated =
             std::fs::read_to_string(dir.join(format!("aura-c22m-{}.aura.c", std::process::id())))
@@ -10383,7 +10412,7 @@ fun main() {
         let stem = format!("aura-join-failure-catch-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile catchable join failure fixture");
         let output = Command::new(&bin)
             .output()
@@ -10443,7 +10472,7 @@ fun main() {
         let stem = format!("aura-join-string-failure-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile String join-failure fixture");
         let output = Command::new(&bin)
             .output()
@@ -10507,7 +10536,7 @@ fun main() {
         let stem = format!("aura-cfg-throw-after-await-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile CFG throw-after-await fixture");
         let output = Command::new(&bin)
             .output()
@@ -10578,7 +10607,7 @@ fun main() {
         let stem = format!("aura-nested-suspended-failure-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nested suspended failure fixture");
         let output = Command::new(&bin)
             .output()
@@ -10652,7 +10681,7 @@ fun main() {
         let stem = format!("aura-nested-class-failure-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nested class failure fixture");
         let output = Command::new(&bin)
             .output()
@@ -10723,7 +10752,7 @@ fun main() {
         let stem = format!("aura-typed-spawn-string-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile typed String spawn fixture");
         let output = Command::new(&bin)
             .output()
@@ -10773,7 +10802,7 @@ fun main() {
         let stem = format!("aura-typed-spawn-array-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile typed Array spawn fixture");
         let output = Command::new(&bin)
             .output()
@@ -10814,7 +10843,7 @@ fun main() {
         let dir = std::env::temp_dir();
         let stem = format!("aura-spawn-local-aggregate-{}", std::process::id());
         let bin = dir.join(&stem);
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile local aggregate spawn fixture");
         let output = Command::new(&bin)
             .output()
@@ -10867,7 +10896,7 @@ fun main() {
         let stem = format!("aura-typed-spawn-class-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile typed class spawn fixture");
         let output = Command::new(&bin)
             .output()
@@ -10922,7 +10951,7 @@ fun main() {
         let stem = format!("aura-typed-spawn-await-class-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile suspended typed class spawn fixture");
         let output = Command::new(&bin)
             .output()
@@ -10950,7 +10979,7 @@ fun main() {
         let stem = format!("aura-bounded-spawn-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile bounded non-empty spawn");
         let generated = fs::read_to_string(&generated_c).expect("read generated bounded spawn C");
         assert!(generated.contains("aura_spawn_poll_"));
@@ -10976,7 +11005,7 @@ fun main() {
         let stem = format!("aura-bounded-spawn-await-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile spawn capture across await");
         let generated = fs::read_to_string(&generated_c).expect("read spawn await capture C");
         assert!(generated.contains("AuraTaskFrame *await_task;"));
@@ -11049,7 +11078,7 @@ fun main() {
         let stem = format!("aura-bounded-all-captures-await-gc-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile all bounded capture kinds across await");
         let output = Command::new(&bin)
             .output()
@@ -11077,7 +11106,7 @@ fun main() {
         let stem = format!("aura-bounded-int-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile Int capture spawn");
         let generated = fs::read_to_string(&generated_c).expect("read generated capture C");
         assert!(generated.contains("typedef struct aura_spawn_data_"));
@@ -11104,7 +11133,7 @@ fun main() {
         let stem = format!("aura-bounded-local-int-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile local Int capture spawn");
         let generated = fs::read_to_string(&generated_c).expect("read local capture C");
         assert!(generated.contains("__spawn_data->captured = captured;"));
@@ -11134,7 +11163,7 @@ fun main() {
         );
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile expression local capture spawn");
         let generated = fs::read_to_string(&generated_c).expect("read expression capture C");
         assert!(generated.contains("__spawn_data->captured = captured;"));
@@ -11164,7 +11193,7 @@ fun main() {
         let stem = format!("aura-bounded-generic-local-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile generic local capture spawn");
         let generated = fs::read_to_string(&generated_c).expect("read generic capture C");
         assert!(generated.contains("__spawn_data->captured = captured;"));
@@ -11200,7 +11229,7 @@ fun main() { launch(41) launch("payload") }
         );
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile generic spawn parameter capture");
         let output = Command::new(&bin)
             .output()
@@ -11232,7 +11261,7 @@ fun main() { launch(41) launch("payload") }
         let stem = format!("aura-generic-call-spawn-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile generic call inside spawn capture");
         let output = Command::new(&bin)
             .output()
@@ -11275,7 +11304,7 @@ fun main() {
         );
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile generic aggregate capture spawn");
         let generated = fs::read_to_string(&generated_c).expect("read generic aggregate capture C");
         assert!(generated.contains("aura_method_Array_demo_Box_clone(&values)"));
@@ -11323,7 +11352,7 @@ fun main() {
         );
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nested generic aggregate capture spawn");
         let generated =
             fs::read_to_string(&generated_c).expect("read nested generic aggregate capture C");
@@ -11354,7 +11383,7 @@ fun main() {
         let stem = format!("aura-bounded-string-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile String capture spawn");
         let generated = fs::read_to_string(&generated_c).expect("read generated String capture C");
         assert!(generated.contains("aura_box_str * value;"));
@@ -11383,7 +11412,7 @@ fun main() {
         let stem = format!("aura-bounded-local-string-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile local String capture spawn");
         let generated = fs::read_to_string(&generated_c).expect("read local String capture C");
         assert!(generated.contains("__spawn_data->captured = aura_box_str_new(captured);"));
@@ -11410,7 +11439,7 @@ fun main() {
         let stem = format!("aura-bounded-mutable-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile mutable spawn capture");
         let generated = fs::read_to_string(&generated_c).expect("read mutable capture C");
         assert!(generated.contains("aura_box_i64 * number;"));
@@ -11440,7 +11469,7 @@ fun main() {
         let stem = format!("aura-spawn-control-flow-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile spawn control-flow capture");
         let output = Command::new(&bin)
             .output()
@@ -11465,7 +11494,7 @@ fun main() {
         let stem = format!("aura-spawn-bool-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile mutable Bool spawn capture");
         let output = Command::new(&bin)
             .output()
@@ -11490,7 +11519,7 @@ fun main() {
         let stem = format!("aura-spawn-await-bool-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile Bool spawn await");
         let output = Command::new(&bin).output().expect("run Bool spawn await");
         assert!(output.status.success(), "{output:?}");
@@ -11537,7 +11566,7 @@ fun main() {
         let stem = format!("aura-single-await-bool-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile single-await Bool result");
         let output = Command::new(&bin)
             .output()
@@ -11565,7 +11594,7 @@ fun main() {
         let stem = format!("aura-spawn-forced-gc-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile spawn forced-GC capture");
         let output = Command::new(&bin)
             .output()
@@ -11590,7 +11619,7 @@ fun main() {
         let stem = format!("aura-spawn-cancel-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile spawn cancellation capture");
         let output = Command::new(&bin)
             .output()
@@ -11615,7 +11644,7 @@ fun main() {
         let stem = format!("aura-nested-exception-cause-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nested exception cause fixture");
         let generated = fs::read_to_string(&generated_c).expect("read nested cause C");
         assert!(generated.contains("aura_ex_add_cause(\"Int\""));
@@ -11649,7 +11678,7 @@ fun main() {
         let stem = format!("aura-exception-cause-api-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile exception cause API fixture");
         let output = Command::new(&bin)
             .output()
@@ -11677,7 +11706,7 @@ fun main() {
         let stem = format!("aura-bounded-mutable-array-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile mutable Array spawn capture");
         let generated = fs::read_to_string(&generated_c).expect("read mutable Array capture C");
         assert!(generated.contains("aura_box_ptr * values;"));
@@ -11706,7 +11735,7 @@ fun main() {
         let stem = format!("aura-bounded-class-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile class capture spawn");
         let generated = fs::read_to_string(&generated_c).expect("read generated class capture C");
         assert!(generated.contains("aura_gc_add_root((void **)&__spawn_data->box);"));
@@ -11734,7 +11763,7 @@ fun main() {
         let stem = format!("aura-class-string-ownership-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile class String ownership");
         let generated = fs::read_to_string(&generated_c).expect("read generated class String C");
         assert!(generated.contains("class String field allocation failed"));
@@ -11764,7 +11793,7 @@ fun main() {
         let stem = format!("aura-heap-this-constructor-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile heap this constructor argument");
         let generated = fs::read_to_string(&generated_c).expect("read generated heap this C");
         assert!(generated.contains("aura_new_demo_Handle(this)"));
@@ -11794,7 +11823,7 @@ fun main() {
         let stem = format!("aura-bounded-local-class-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile local class capture spawn");
         let generated = fs::read_to_string(&generated_c).expect("read local class capture C");
         assert!(generated.contains("aura_gc_add_root((void **)&__spawn_data->captured);"));
@@ -11821,7 +11850,7 @@ fun main() {
         let stem = format!("aura-bounded-array-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile Array capture spawn");
         let generated = fs::read_to_string(&generated_c).expect("read generated Array capture C");
         assert!(generated.contains("aura_method_Array_Int_clone(&values)"));
@@ -11849,7 +11878,7 @@ fun main() {
         let stem = format!("aura-bounded-local-array-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile local Array capture spawn");
         let generated = fs::read_to_string(&generated_c).expect("read local Array capture C");
         assert!(
@@ -11891,7 +11920,7 @@ fun main() {
         let stem = format!("aura-spawn-shadowed-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile shadowed spawn capture");
         let output = Command::new(&bin)
             .output()
@@ -11929,7 +11958,7 @@ fun main() {
         let stem = format!("aura-bounded-optional-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile optional spawn capture");
         let output = Command::new(&bin)
             .output()
@@ -11960,7 +11989,7 @@ fun main() {
         let stem = format!("aura-bounded-string-array-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile String Array capture spawn");
         let generated =
             fs::read_to_string(&generated_c).expect("read generated String Array capture C");
@@ -11991,7 +12020,7 @@ fun main() {
         let stem = format!("aura-bounded-class-array-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile Array<class> spawn capture");
         let generated = fs::read_to_string(&generated_c).expect("read Array<class> capture C");
         assert!(generated.contains("aura_gc_add_array_root((void **)&__spawn_data->values.data"));
@@ -12019,7 +12048,7 @@ fun main() {
         let stem = format!("aura-bounded-fun-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile Fun capture spawn");
         let generated = fs::read_to_string(&generated_c).expect("read generated Fun capture C");
         assert!(generated.contains("aura_fun_env_retain(__spawn_data->f.env)"));
@@ -12045,7 +12074,7 @@ fun main() {
         let stem = format!("aura-bounded-local-fun-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile local Fun capture spawn");
         let generated = fs::read_to_string(&generated_c).expect("read local Fun capture C");
         assert!(generated.contains("aura_fun_env_retain(__spawn_data->captured.env)"));
@@ -12081,7 +12110,7 @@ fun main() {
         let stem = format!("aura-string-move-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile string ownership fixture");
         let output = Command::new(&bin)
             .output()
@@ -12138,7 +12167,7 @@ fun main() {
         let stem = format!("aura-owned-rhs-order-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile ownership evaluation-order fixture");
         let generated = fs::read_to_string(&generated_c).expect("read generated ownership C");
         assert!(generated.contains("__aura_string_rhs_"));
@@ -12203,7 +12232,7 @@ fun main() {
         let stem = format!("aura-general-cfg-spawn-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile general CFG spawn fixture");
         let output = Command::new(&bin)
             .output()
@@ -12269,7 +12298,7 @@ fun main() {
         let stem = format!("aura-general-cfg-spawn-aggregate-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile aggregate general CFG spawn fixture");
         let output = Command::new(&bin)
             .output()
@@ -12324,7 +12353,7 @@ fun main() {
         let stem = format!("aura-general-cfg-spawn-owned-array-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile general CFG spawn owned array result fixture");
         let output = Command::new(&bin)
             .output()
@@ -12375,7 +12404,7 @@ fun main() {
         );
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile inferred Array capture CFG spawn fixture");
         let output = Command::new(&bin)
             .output()
@@ -12432,7 +12461,7 @@ fun main() {
         );
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile inferred class capture CFG spawn fixture");
         let output = Command::new(&bin)
             .output()
@@ -12484,7 +12513,7 @@ fun main() {
         );
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile mutable general CFG spawn fixture");
         let output = Command::new(&bin)
             .output()
@@ -12539,7 +12568,7 @@ fun main() {
         );
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile mutable String general CFG spawn fixture");
         let output = Command::new(&bin)
             .output()
@@ -12593,7 +12622,7 @@ fun main() {
         );
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile mutable Array general CFG spawn fixture");
         let output = Command::new(&bin)
             .output()
@@ -12650,7 +12679,7 @@ fun main() {
         );
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile mutable class general CFG spawn fixture");
         let output = Command::new(&bin)
             .output()
@@ -12708,7 +12737,7 @@ fun main() {
         let stem = format!("aura-nullable-class-task-payload-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nullable class task payload fixture");
         let output = Command::new(&bin)
             .output()
@@ -12759,7 +12788,7 @@ fun main() {
         let stem = format!("aura-nullable-string-task-payload-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nullable String task payload fixture");
         let output = Command::new(&bin)
             .output()
@@ -12930,7 +12959,7 @@ fun main() {
             .expect("workspace root");
         let dir = std::env::temp_dir();
         let bin = dir.join(format!("aura-c22o-{}", std::process::id()));
-        let runtime = root.join("runtime/aura_rt.c");
+        let runtime = root.join("runtime/runtime.c");
         build_from_file(&file, &bin, &runtime).expect("compile generated C22o");
         let status = Command::new(&bin)
             .status()
@@ -12973,7 +13002,7 @@ fun main() {{
         let stem = format!("aura-channel-foreign-handle-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile foreign-handle channel fixture");
         let output = Command::new(&bin)
             .output()
@@ -13012,7 +13041,7 @@ fun main() {
         let dir = std::env::temp_dir();
         let stem = format!("aura-channel-enum-{}", std::process::id());
         let bin = dir.join(&stem);
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile enum channel fixture");
         let output = Command::new(&bin)
             .output()
@@ -13053,7 +13082,7 @@ fun main() {
         let dir = std::env::temp_dir();
         let stem = format!("aura-channel-array-{}", std::process::id());
         let bin = dir.join(&stem);
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile array channel fixture");
         let output = Command::new(&bin)
             .output()
@@ -13090,7 +13119,7 @@ fun main() {
         let dir = std::env::temp_dir();
         let stem = format!("aura-channel-bool-{}", std::process::id());
         let bin = dir.join(&stem);
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile bool channel fixture");
         let output = Command::new(&bin)
             .output()
@@ -13133,7 +13162,7 @@ fun main() {
         let stem = format!("aura-channel-task-handle-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile task-handle channel fixture");
         let output = Command::new(&bin)
             .output()
@@ -13173,7 +13202,7 @@ fun main() {
         let stem = format!("aura-spawn-channel-capture-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile channel capture fixture");
         let output = Command::new(&bin)
             .output()
@@ -13217,7 +13246,7 @@ fun main() {
         let stem = format!("aura-channel-channel-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nested channel fixture");
         let output = Command::new(&bin)
             .output()
@@ -13281,7 +13310,7 @@ async fun main() {
         let stem = format!("aura-std-task-select-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile select fixture");
         let output = Command::new(&bin).output().expect("run select fixture");
         assert!(output.status.success(), "select fixture failed: {output:?}");
@@ -13316,7 +13345,7 @@ fun main() {
         let stem = format!("aura-std-task-scope-exception-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile task scope exception fixture");
         let output = Command::new(&bin)
             .output()
@@ -13359,7 +13388,7 @@ fun main() {
         let stem = format!("aura-array-lambda-snapshot-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile immutable Array lambda capture fixture");
         let output = Command::new(&bin)
             .output()
@@ -13404,7 +13433,7 @@ fun main() {
         let stem = format!("aura-array-class-lambda-snapshot-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile immutable class Array lambda capture fixture");
         let output = Command::new(&bin)
             .output()
@@ -13450,7 +13479,7 @@ fun main() {
         );
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile immutable interface Array lambda capture fixture");
         let output = Command::new(&bin)
             .output()
@@ -13490,7 +13519,7 @@ fun main() {
         let stem = format!("aura-nested-array-interface-lambda-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile nested interface Array lambda capture fixture");
         let output = Command::new(&bin)
             .output()
@@ -13532,7 +13561,7 @@ fun main() {
         let stem = format!("aura-array-lambda-mutable-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile mutable Array lambda capture fixture");
         let output = Command::new(&bin)
             .output()
@@ -13576,7 +13605,7 @@ fun main() {
         let stem = format!("aura-array-lambda-two-owners-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile multiple Array closures");
         let output = Command::new(&bin)
             .output()
@@ -13625,7 +13654,7 @@ fun main() { println(make().toString()) }
         let stem = format!("aura-array-lambda-rebinding-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile rebinding Array lambda capture fixture");
         let output = Command::new(&bin)
             .output()
@@ -13683,7 +13712,7 @@ fun main() {
         let stem = format!("aura-enum-heap-payload-await-gc-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile enum heap payload await fixture");
         let output = Command::new(&bin)
             .output()
@@ -13740,7 +13769,7 @@ fun main() {
         let stem = format!("aura-async-array-throw-catch-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
-        build_from_file(&file, &bin, &root.join("runtime/aura_rt.c"))
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile async array throw/catch fixture");
         let output = Command::new(&bin)
             .output()

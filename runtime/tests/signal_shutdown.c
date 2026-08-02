@@ -2,7 +2,7 @@
 #include <signal.h>
 
 #define AURA_RUNTIME_NO_MAIN
-#include "../aura_rt.c"
+#include "../runtime.c"
 
 int main(void)
 {

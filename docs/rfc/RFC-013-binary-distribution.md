@@ -19,7 +19,7 @@
 
 This RFC covers **how Aura ships**: platform matrix for the **toolchain** and for **user applications**, installers, archive layouts, **code signing**, checksums, self-update, and packaging of **single-file app binaries**. Default application deploy remains **one executable** produced by `aura build`.
 
-**Toolchain today (2026-07-28, S2):** **`0.1.1-alpha`** is published after `v0.1.0-alpha`, with artifacts for Linux amd64 and macOS amd64/arm64. The installer uses versioned `$AURA_HOME`; `cargo install --path crates/aura-cli` uses the embedded `aura_rt.c`. Tag `v*` produces multi-OS tarballs, per-archive checksums, an aggregate `SHA256SUMS`, and a detached minisign signature; production tags fail closed unless both signing secrets are configured and the workflow verifies the signature. Windows amd64/arm64 remain tier2 policy targets and are not published.
+**Toolchain today (2026-07-28, S2):** **`0.1.1-alpha`** is published after `v0.1.0-alpha`, with artifacts for Linux amd64 and macOS amd64/arm64. The installer uses versioned `$AURA_HOME`; `cargo install --path crates/aura-cli` uses the embedded `runtime.c`. Tag `v*` produces multi-OS tarballs, per-archive checksums, an aggregate `SHA256SUMS`, and a detached minisign signature; production tags fail closed unless both signing secrets are configured and the workflow verifies the signature. Windows amd64/arm64 remain tier2 policy targets and are not published.
 
 ## 2. Motivation
 

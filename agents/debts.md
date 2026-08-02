@@ -1270,7 +1270,7 @@ TaskError>` locals release their payload at scope exit. Nested
 
 - A bounded native health companion now proves localhost bind, `/health`
   exchange, malformed-request error mapping, async task progress, and
-  deterministic shutdown through `aura_rt.c`; its smoke script records output
+  deterministic shutdown through `runtime.c`; its smoke script records output
   and exit status under ASAN/UBSAN.
 - A bounded `aura run examples/http-health-cli` entrypoint now calls
   the primitive `aura_http_health_smoke(): Int` bridge and is included in the
@@ -2013,7 +2013,7 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
 - Progress (2026-08-02): `runtime/aura_ffi.h` now declares the complete public
   executor/frame lifecycle needed by an external translation unit, including
   poll-state and task construction types. A separately compiled header ABI
-  fixture links against `aura_rt.c` and verifies task transfer through a
+  fixture links against `runtime.c` and verifies task transfer through a
   channel without including runtime implementation internals.
 - Progress (2026-08-01): executor shutdown now detaches frames that still have
   scheduler-owned payload references before freeing the executor. Their final

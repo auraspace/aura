@@ -1,6 +1,6 @@
 /* Compile-only check for the opt-in public TCP declarations.  The runtime
  * source currently owns the same legacy typedefs, so consumers embedding
- * aura_rt.c include this header after the runtime or use its declarations in
+ * runtime.c include this header after the runtime or use its declarations in
  * a separate translation unit. */
 #define AURA_FFI_DECLARE_NET
 #include "../aura_ffi.h"

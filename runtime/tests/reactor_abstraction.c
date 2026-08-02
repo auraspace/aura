@@ -3,7 +3,7 @@
 #include <assert.h>
 
 #define AURA_RUNTIME_NO_MAIN
-#include "../aura_rt.c"
+#include "../runtime.c"
 
 static int custom_poll(void *data, AuraTaskExecutor *executor, int timeout_ms)
 {

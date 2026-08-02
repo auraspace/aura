@@ -2216,13 +2216,13 @@ mod unit {
         build_from_file(
             &old_source,
             &old_binary,
-            &workspace.join("runtime/aura_rt.c"),
+            &workspace.join("runtime/runtime.c"),
         )
         .unwrap();
         build_from_file(
             &new_source,
             &new_binary,
-            &workspace.join("runtime/aura_rt.c"),
+            &workspace.join("runtime/runtime.c"),
         )
         .unwrap();
         let new_payload = fs::read(&new_binary).unwrap();

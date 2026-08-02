@@ -7,7 +7,7 @@
 #   $AURA_HOME/
 #     versions/<version>/
 #       bin/aura
-#       share/aura/aura_rt.c   # if present in the release tarball
+#       share/aura/runtime/   # if present in the release tarball
 #       meta/version, os, arch, installed_at
 #     current -> versions/<version>     # active toolchain
 #     bin/aura -> ../current/bin/aura   # PATH entrypoint
@@ -287,11 +287,13 @@ download_and_install() {
     chmod 755 "${candidate}/bin/aura"
   fi
 
-  # Prefer runtime from tarball share/; else skip (CLI embeds runtime).
-  if [[ -f "${stage}/share/aura/aura_rt.c" ]]; then
-    cp "${stage}/share/aura/aura_rt.c" "${candidate}/share/aura/aura_rt.c"
-  elif [[ -f "${stage}/share/aura_rt.c" ]]; then
-    cp "${stage}/share/aura_rt.c" "${candidate}/share/aura/aura_rt.c"
+  # Prefer the complete runtime tree from the tarball; otherwise use the embedded copy.
+  if [[ -d "${stage}/share/aura/runtime" ]]; then
+    mkdir -p "${candidate}/share/aura/runtime"
+    cp -R "${stage}/share/aura/runtime/." "${candidate}/share/aura/runtime/"
+  elif [[ -d "${stage}/share/runtime" ]]; then
+    mkdir -p "${candidate}/share/aura/runtime"
+    cp -R "${stage}/share/runtime/." "${candidate}/share/aura/runtime/"
   fi
 
   # Std packages (io/assert/collections) when present in the archive.

@@ -1,7 +1,7 @@
 #include <assert.h>
 
 #define AURA_RUNTIME_NO_MAIN
-#include "../aura_rt.c"
+#include "../runtime.c"
 
 static AuraTaskPollState fail_task(AuraTaskFrame *frame)
 {

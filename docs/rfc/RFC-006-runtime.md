@@ -19,7 +19,7 @@
 
 This RFC specifies the **Aura runtime** linked into application binaries: tracing **GC**, **M:N task scheduler**, async I/O reactor, exception personality support, panic/abort paths, timers, and **C ABI FFI** bridges. The runtime is shipped as libraries produced by the Rust toolchain and linked by `aura build`, not installed as a separate end-user package.
 
-**Toolchain today (2026-08-02):** embedded C runtime [`runtime/aura_rt.c`](../../runtime/aura_rt.c) linked by the C backend — console/file/process I/O, exception frames with typed causes, recursive aggregate ownership helpers, executor-coordinated stop-the-world mark/sweep GC, opt-in POSIX M:N workers, a versioned `AuraReactor` poll/timer boundary with POSIX default implementation, task-frame ABI, typed frame mark/drop hooks, bounded channels/select, structured scopes, blocking jobs, task-safe lazy cells, bounded FFI pin retention, and a versioned `AuraTypeErasedOps` clone/drop/mark boundary for open payload transfer. General handler CFG lowering, inferred spawn captures, aggregate ownership, procedural macro sandboxing, and HTTP/1.1 async streaming are implemented. Remaining compiler boundaries are descriptor-aware operations in genuinely open generic bodies, unsupported spawn-body shapes, non-POSIX reactor backends, and a concurrent tracing collector.
+**Toolchain today (2026-08-02):** embedded C runtime [`runtime/runtime.c`](../../runtime/runtime.c) linked by the C backend — console/file/process I/O, exception frames with typed causes, recursive aggregate ownership helpers, executor-coordinated stop-the-world mark/sweep GC, opt-in POSIX M:N workers, a versioned `AuraReactor` poll/timer boundary with POSIX default implementation, task-frame ABI, typed frame mark/drop hooks, bounded channels/select, structured scopes, blocking jobs, task-safe lazy cells, bounded FFI pin retention, and a versioned `AuraTypeErasedOps` clone/drop/mark boundary for open payload transfer. General handler CFG lowering, inferred spawn captures, aggregate ownership, procedural macro sandboxing, and HTTP/1.1 async streaming are implemented. Remaining compiler boundaries are descriptor-aware operations in genuinely open generic bodies, unsupported spawn-body shapes, non-POSIX reactor backends, and a concurrent tracing collector.
 
 ## 2. Motivation
 
@@ -94,7 +94,7 @@ Runtime components may be implemented in **Rust** (and/or C for tiny stubs), exp
 | ------------ | --------------------------------------------------------------------------- |
 | Model        | Tracing GC, precise preferred                                               |
 | Concurrency  | Current: executor-safe precise **STW mark-sweep**; concurrent tracing later |
-| Roots        | Generated frame mark/drop hooks; typed Array roots; global roots registry    |
+| Roots        | Generated frame mark/drop hooks; typed Array roots; global roots registry   |
 | Finalization | Weak; prefer explicit resource management                                   |
 | Tuning       | Env/`AURA_GC_*` or runtime flags: heap size, pacing                         |
 
@@ -314,13 +314,13 @@ frame/channel pointers remain opaque.
 
 ## Changelog
 
-| Date       | Author | Change                                                                                |
-| ---------- | ------ | ------------------------------------------------------------------------------------- |
-| 2026-07-16 |        | Lock GC/preemption; Status → **Accepted**                                             |
-| 2026-07-16 |        | Status → **In Review** — Review: solid runtime design; GC algo + scheduler still open |
-| 2026-07-16 |        | Note C runtime MVP status vs full RFC                                                 |
-| 2026-07-15 |        | Initial skeleton                                                                      |
-| 2026-07-15 |        | Solid draft: GC, M:N, FFI, ABI sketch                                                 |
-| 2026-07-15 |        | Lock static link default, OOM abort MVP                                               |
-| 2026-08-01 |        | Generated inferred-return wrappers use typed terminal fallbacks; HTTP smoke is warning-free |
+| Date       | Author | Change                                                                                                |
+| ---------- | ------ | ----------------------------------------------------------------------------------------------------- |
+| 2026-07-16 |        | Lock GC/preemption; Status → **Accepted**                                                             |
+| 2026-07-16 |        | Status → **In Review** — Review: solid runtime design; GC algo + scheduler still open                 |
+| 2026-07-16 |        | Note C runtime MVP status vs full RFC                                                                 |
+| 2026-07-15 |        | Initial skeleton                                                                                      |
+| 2026-07-15 |        | Solid draft: GC, M:N, FFI, ABI sketch                                                                 |
+| 2026-07-15 |        | Lock static link default, OOM abort MVP                                                               |
+| 2026-08-01 |        | Generated inferred-return wrappers use typed terminal fallbacks; HTTP smoke is warning-free           |
 | 2026-08-02 |        | Chunked request trailers are validated, retained in full snapshots, and consumed before streaming EOF |

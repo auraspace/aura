@@ -1,6 +1,6 @@
 #include <assert.h>
 
-#include "../../runtime/aura_rt.c"
+#include "../../runtime/runtime.c"
 
 typedef struct
 {

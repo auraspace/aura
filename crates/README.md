@@ -14,7 +14,7 @@ Implementation of the Aura compiler and CLI. User programs are written in **Aura
 | `aura-cli`         | `aura` binary (`check` / `build` / `run` / `test` / `emit-c`; multi-file + `aura.toml` + path deps / lock) |
 | `aura-lsp`         | Shared `auralsp` binary and stdio LSP integration (`aura lsp`)                                             |
 
-Runtime: [`runtime/aura_rt.c`](../runtime/aura_rt.c) (println, exceptions, Array helpers, GC mark/sweep).
+Runtime: [`runtime/runtime.c`](../runtime/runtime.c) (println, exceptions, Array helpers, GC mark/sweep).
 
 Milestone status: [docs/roadmap.md](../docs/roadmap.md) (through **C10j**). Language MVP freeze: RFC-001 §6.0; architecture: RFC-004. Corpus: [`corpus/`](../corpus/).
 

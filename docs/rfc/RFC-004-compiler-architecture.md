@@ -240,7 +240,7 @@ when its dump format changes.
 | Phase | Scope                                                                  | Status (2026-07-20)                                                                                  |
 | ----- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | C0    | Parse + typecheck subset → `aura check`                                | **Done**                                                                                             |
-| C1    | Native hello + runtime link                                            | **Done** via interim **C backend** (`emit-c` + system `cc` + `runtime/aura_rt.c`); LLVM still target |
+| C1    | Native hello + runtime link                                            | **Done** via interim **C backend** (`emit-c` + system `cc` + `runtime/runtime.c`); LLVM still target |
 | C2    | Generics mono + classes/interfaces                                     | **Done** (C2a–C2e)                                                                                   |
 | C3    | Packages, Array, exceptions, GC MVP (not full async)                   | **Done** as C3a–C3z slices; async/incremental deferred                                               |
 | C4–C5 | Equality, std, Array/String APIs, GC refinements                       | **Done**                                                                                             |

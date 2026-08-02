@@ -4,7 +4,7 @@
 #include <string.h>
 
 #define AURA_RUNTIME_NO_MAIN
-#include "../../runtime/aura_rt.c"
+#include "../../runtime/runtime.c"
 
 static AuraHttpHandlerResult close_handler(const AuraHttpRequest *request,
                                            AuraHttpResponse *response,

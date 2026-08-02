@@ -2,7 +2,7 @@
 #include <stdlib.h>
 
 #include "../../runtime/aura_ffi.h"
-#include "../../runtime/aura_rt.c"
+#include "../../runtime/runtime.c"
 
 static int drops;
 static int marks;

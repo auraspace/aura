@@ -4,7 +4,7 @@
 #include <string.h>
 
 #define AURA_RUNTIME_NO_MAIN
-#include "../aura_rt.c"
+#include "../runtime.c"
 
 static uint32_t next_seed(uint32_t *state)
 {

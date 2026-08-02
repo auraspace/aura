@@ -309,7 +309,7 @@ mod tests {
     }
 
     fn runtime_path() -> std::path::PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime/aura_rt.c")
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime/runtime.c")
     }
 
     struct FailingBackend {

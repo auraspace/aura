@@ -4,7 +4,7 @@
 #include <string.h>
 
 #define AURA_RUNTIME_NO_MAIN
-#include "../aura_rt.c"
+#include "../runtime.c"
 
 static void test_public_tcp_header_and_lifetime(void)
 {

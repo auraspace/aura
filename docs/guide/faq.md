@@ -25,7 +25,7 @@ Details: [Install](./install.md). Current release notes: [0.1.1-alpha](../releas
 
 ### Why is a C compiler required?
 
-`build` / `run` use a **C backend**: Aura → C → system `cc`, linked with `aura_rt.c`. LLVM is the longer-term backend ([RFC-004](/rfc/004)).
+`build` / `run` use a **C backend**: Aura → C → system `cc`, linked with `runtime.c`. LLVM is the longer-term backend ([RFC-004](/rfc/004)).
 
 ### Where are examples?
 

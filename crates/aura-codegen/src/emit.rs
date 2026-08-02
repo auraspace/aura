@@ -352,7 +352,7 @@ pub fn emit_c_with(checked: &CheckedFile, opts: EmitOptions) -> String {
         crate::runtime_abi::VERSION
     );
     let _ = writeln!(out, "#define AURA_GENERATED_ABI_ID \"{abi_id}\"");
-    // C22 runtime ABI.  The definitions live in runtime/aura_rt.c; generated
+    // C22 runtime ABI.  The definitions live in runtime/runtime.c; generated
     // translation units only need the stable opaque declarations below.
     out.push_str("typedef struct AuraTaskFrame AuraTaskFrame;\n");
     out.push_str("typedef struct AuraTaskExecutor AuraTaskExecutor;\n");
@@ -9308,7 +9308,7 @@ fn emit_async_fun_if_single_await(
 
 /// F3: expose the stable allocation-only structured-value ABI to generated C.
 /// Keep this self-contained because installed builds compile generated source
-/// beside `aura_rt.c` without requiring a system include path.
+/// beside `runtime.c` without requiring a system include path.
 fn emit_ffi_abi_declarations(out: &mut String) {
     out.push_str("#define AURA_FFI_ABI_VERSION 1u\n");
     out.push_str(

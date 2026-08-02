@@ -6,7 +6,7 @@
 #include "../aura_ffi.h"
 
 #define AURA_RUNTIME_NO_MAIN
-#include "../aura_rt.c"
+#include "../runtime.c"
 
 static unsigned environment_destroys;
 static AuraFfiCallback *active_callback;

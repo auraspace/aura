@@ -1,6 +1,6 @@
 //! The compiler-side identity of the C runtime contract.
 
-/// ABI identity shared by generated artifacts and `runtime/aura_rt.c`.
+/// ABI identity shared by generated artifacts and `runtime/runtime.c`.
 ///
 /// The identity covers the currently shipped task, value, exception, channel,
 /// GC, I/O, FFI, and type-erased payload surface. Patch-level runtime fixes

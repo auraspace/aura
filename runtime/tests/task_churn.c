@@ -3,7 +3,7 @@
 #include <stdlib.h>
 
 #define AURA_RUNTIME_NO_MAIN
-#include "../../runtime/aura_rt.c"
+#include "../../runtime/runtime.c"
 
 static size_t frame_destroyed;
 static size_t result_destroyed;

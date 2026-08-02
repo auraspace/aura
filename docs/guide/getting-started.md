@@ -73,7 +73,7 @@ aura build hello -o target/aura/hello
 ./target/aura/hello
 ```
 
-Native builds emit C, compile with the system `cc`, and link `aura_rt.c` (embedded or from the release tree).
+Native builds emit C, compile with the system `cc`, and link `runtime.c` (embedded or from the release tree).
 
 A single-file sample also lives at `corpus/hello/main.aura` if you prefer not to scaffold (monorepo).
 

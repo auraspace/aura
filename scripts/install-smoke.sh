@@ -184,7 +184,7 @@ verify_archive_contract() {
   listing="$(tar -tzf "$tarball")" || die "cannot list release archive: $tarball"
   for required in \
     "$expected_name/bin/aura" \
-    "$expected_name/share/aura/aura_rt.c" \
+    "$expected_name/share/aura/runtime/runtime.c" \
     "$expected_name/share/aura/std/io" \
     "$expected_name/share/aura/std/assert" \
     "$expected_name/share/aura/std/collections" \

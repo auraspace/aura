@@ -6,7 +6,7 @@
 #include <unistd.h>
 
 #define AURA_RUNTIME_NO_MAIN
-#include "../../runtime/aura_rt.c"
+#include "../../runtime/runtime.c"
 
 static void assert_empty_request(const AuraHttpRequest *request, size_t consumed)
 {

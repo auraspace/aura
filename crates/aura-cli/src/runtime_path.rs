@@ -1,9 +1,9 @@
-//! Locate or materialize `aura_rt.c` for the C backend link step.
+//! Locate or materialize `runtime.c` for the C backend link step.
 //!
 //! Search order:
 //! 1. `AURA_RUNTIME` env (file path)
 //! 2. Monorepo / cwd candidates (dev workflow)
-//! 3. Next to the `aura` binary (`share/aura/aura_rt.c`, `aura_rt.c`)
+//! 3. Next to the `aura` binary (`share/aura/runtime/runtime.c`, `runtime.c`)
 //! 4. User cache written from the embedded copy shipped in the CLI
 
 use std::env;
@@ -13,12 +13,142 @@ use std::path::PathBuf;
 /// Exact runtime sources linked into every user binary (compile-time embed).
 pub const EMBEDDED_RUNTIME_C: &str = include_str!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../runtime/aura_rt.c"
+    "/../../runtime/runtime.c"
 ));
+
+const EMBEDDED_RUNTIME_FILES: &[(&str, &str)] = &[
+    (
+        "aura_ffi.h",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/aura_ffi.h"
+        )),
+    ),
+    ("runtime.c", EMBEDDED_RUNTIME_C),
+    (
+        "src/preamble.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/preamble.c"
+        )),
+    ),
+    (
+        "src/core.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/core.c"
+        )),
+    ),
+    (
+        "src/io_file.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/io_file.c"
+        )),
+    ),
+    (
+        "src/io_tcp.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/io_tcp.c"
+        )),
+    ),
+    (
+        "src/http_parser.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/http_parser.c"
+        )),
+    ),
+    (
+        "src/http_response.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/http_response.c"
+        )),
+    ),
+    (
+        "src/http_connection.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/http_connection.c"
+        )),
+    ),
+    (
+        "src/stdlib_io_fs.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/stdlib_io_fs.c"
+        )),
+    ),
+    (
+        "src/exceptions.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/exceptions.c"
+        )),
+    ),
+    (
+        "src/gc_ownership.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/gc_ownership.c"
+        )),
+    ),
+    (
+        "src/ffi.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/ffi.c"
+        )),
+    ),
+    (
+        "src/abi_race.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/abi_race.c"
+        )),
+    ),
+    (
+        "src/task_frame.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/task_frame.c"
+        )),
+    ),
+    (
+        "src/task_executor.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/task_executor.c"
+        )),
+    ),
+    (
+        "src/io_operations.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/io_operations.c"
+        )),
+    ),
+    (
+        "src/task_channel.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/task_channel.c"
+        )),
+    ),
+    (
+        "src/process.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/process.c"
+        )),
+    ),
+];
 
 const AURA_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Resolve a filesystem path to `aura_rt.c` for `cc`.
+/// Resolve a filesystem path to `runtime.c` for `cc`.
 pub fn resolve_runtime_c() -> Result<PathBuf, String> {
     if let Ok(p) = env::var("AURA_RUNTIME") {
         let p = PathBuf::from(p);
@@ -43,19 +173,19 @@ pub fn resolve_runtime_c() -> Result<PathBuf, String> {
 fn disk_candidates() -> Vec<PathBuf> {
     let mut out = vec![
         // In-tree when developing from the monorepo.
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../runtime/aura_rt.c"),
-        PathBuf::from("runtime/aura_rt.c"),
-        PathBuf::from("../runtime/aura_rt.c"),
-        PathBuf::from("../../runtime/aura_rt.c"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../runtime/runtime.c"),
+        PathBuf::from("runtime/runtime.c"),
+        PathBuf::from("../runtime/runtime.c"),
+        PathBuf::from("../../runtime/runtime.c"),
     ];
 
     // Alongside installed binary (optional layout from package-release).
     if let Ok(exe) = env::current_exe() {
         if let Some(dir) = exe.parent() {
-            out.push(dir.join("aura_rt.c"));
-            out.push(dir.join("runtime/aura_rt.c"));
-            out.push(dir.join("../share/aura/aura_rt.c"));
-            out.push(dir.join("share/aura/aura_rt.c"));
+            out.push(dir.join("runtime.c"));
+            out.push(dir.join("runtime/runtime.c"));
+            out.push(dir.join("../share/aura/runtime/runtime.c"));
+            out.push(dir.join("share/aura/runtime/runtime.c"));
         }
     }
     out
@@ -66,22 +196,22 @@ fn cache_file() -> PathBuf {
         return PathBuf::from(xdg)
             .join("aura")
             .join(AURA_VERSION)
-            .join("aura_rt.c");
+            .join("runtime.c");
     }
     if let Ok(home) = env::var("HOME") {
         return PathBuf::from(home)
             .join(".cache")
             .join("aura")
             .join(AURA_VERSION)
-            .join("aura_rt.c");
+            .join("runtime.c");
     }
-    env::temp_dir().join(format!("aura-{AURA_VERSION}-aura_rt.c"))
+    env::temp_dir().join(format!("aura-{AURA_VERSION}-runtime.c"))
 }
 
 fn fallback_cache_file() -> PathBuf {
     env::temp_dir()
         .join(format!("aura-{AURA_VERSION}-{}", std::process::id()))
-        .join("aura_rt.c")
+        .join("runtime.c")
 }
 
 /// Write embedded runtime to the user cache if missing or stale.
@@ -113,19 +243,37 @@ fn materialize_embedded_from(
 }
 
 fn materialize_embedded_at(path: &std::path::Path) -> Result<PathBuf, String> {
-    if path.is_file() {
-        if let Ok(existing) = fs::read_to_string(path) {
-            if existing == EMBEDDED_RUNTIME_C {
-                return Ok(path.to_path_buf());
-            }
+    let root = path
+        .parent()
+        .ok_or_else(|| format!("error: runtime path has no parent: {}", path.display()))?;
+    let complete = EMBEDDED_RUNTIME_FILES.iter().all(|(relative, content)| {
+        fs::read_to_string(root.join(relative))
+            .map(|existing| existing == *content)
+            .unwrap_or(false)
+    });
+    if complete {
+        return Ok(path.to_path_buf());
+    }
+
+    fs::create_dir_all(root)
+        .map_err(|e| format!("error: create runtime cache {}: {e}", root.display()))?;
+    for (relative, content) in EMBEDDED_RUNTIME_FILES {
+        let destination = root.join(relative);
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent).map_err(|e| {
+                format!(
+                    "error: create embedded runtime directory {}: {e}",
+                    parent.display()
+                )
+            })?;
         }
+        fs::write(&destination, content).map_err(|e| {
+            format!(
+                "error: write embedded runtime {}: {e}",
+                destination.display()
+            )
+        })?;
     }
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("error: create runtime cache {}: {e}", parent.display()))?;
-    }
-    fs::write(path, EMBEDDED_RUNTIME_C)
-        .map_err(|e| format!("error: write runtime cache {}: {e}", path.display()))?;
     Ok(path.to_path_buf())
 }
 
@@ -136,13 +284,18 @@ mod tests {
 
     #[test]
     fn embedded_nonempty() {
-        assert!(EMBEDDED_RUNTIME_C.contains("aura_println"));
-        assert!(EMBEDDED_RUNTIME_C.contains("aura_read_file"));
-        assert!(EMBEDDED_RUNTIME_C.contains("aura_try_read_file"));
-        assert!(EMBEDDED_RUNTIME_C.contains("aura_try_write_file"));
-        assert!(EMBEDDED_RUNTIME_C.contains("aura_read_line"));
-        assert!(EMBEDDED_RUNTIME_C.contains("aura_read_all_stdin"));
-        assert!(EMBEDDED_RUNTIME_C.contains("aura_exit"));
+        let embedded = EMBEDDED_RUNTIME_FILES
+            .iter()
+            .map(|(_, source)| *source)
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(embedded.contains("aura_println"));
+        assert!(embedded.contains("aura_read_file"));
+        assert!(embedded.contains("aura_try_read_file"));
+        assert!(embedded.contains("aura_try_write_file"));
+        assert!(embedded.contains("aura_read_line"));
+        assert!(embedded.contains("aura_read_all_stdin"));
+        assert!(embedded.contains("aura_exit"));
     }
 
     #[test]
@@ -150,7 +303,8 @@ mod tests {
         let p = resolve_runtime_c().expect("runtime path");
         assert!(p.is_file(), "{}", p.display());
         let s = fs::read_to_string(&p).unwrap();
-        assert!(s.contains("aura_gc_alloc"));
+        assert!(s.contains("src/gc_ownership.c"));
+        assert!(p.parent().unwrap().join("src/gc_ownership.c").is_file());
     }
 
     #[test]
@@ -175,13 +329,14 @@ mod tests {
         let blocked_parent = root.join("blocked");
         // File (not dir) so create_dir_all(primary.parent()) fails and we fall back.
         fs::write(&blocked_parent, "not a directory").unwrap();
-        let primary = blocked_parent.join("aura_rt.c");
-        let fallback = root.join("fallback").join("aura_rt.c");
+        let primary = blocked_parent.join("runtime.c");
+        let fallback = root.join("fallback").join("runtime.c");
 
         let path = materialize_embedded_from(&primary, &fallback).expect("fallback runtime path");
 
         assert_eq!(path, fallback);
-        assert_eq!(fs::read_to_string(path).unwrap(), EMBEDDED_RUNTIME_C);
+        assert_eq!(fs::read_to_string(&path).unwrap(), EMBEDDED_RUNTIME_C);
+        assert!(path.parent().unwrap().join("src/preamble.c").is_file());
         let _ = fs::remove_dir_all(root);
     }
 }

@@ -37,7 +37,7 @@ including request bodies or credentials.
 
 **Objective:** Parse bounded HTTP requests safely.
 **Implementation status:** The transport-independent parser is implemented in
-`runtime/aura_rt.c` with an owning `AuraHttpRequest` result and explicit
+`runtime/runtime.c` with an owning `AuraHttpRequest` result and explicit
 `OK`/`INCOMPLETE`/400/405/413/error statuses. It parses one request from a
 caller-provided byte buffer, reports the consumed boundary for a later
 keep-alive loop, copies all request fields and body, and releases them through
@@ -62,7 +62,7 @@ fuzzing, and slow-client behavior remain open.
 ## H3. HTTP response builder
 
 **Objective:** Serialize correct and bounded responses.
-**Implementation status:** `runtime/aura_rt.c` now provides a transport-independent
+**Implementation status:** `runtime/runtime.c` now provides a transport-independent
 `AuraHttpResponse` builder. It owns copied headers and body bytes, validates final
 HTTP/1.1 status codes, token/header syntax, duplicate names, reserved framing
 headers, response body limits, and no-body statuses. Serialization is deterministic:
@@ -87,7 +87,7 @@ status/body combinations, size limits, and caller-buffer sizing.
 ## H4. Connection lifecycle
 
 **Objective:** Serve one or more requests safely over a TCP connection.
-**Implementation status:** `runtime/aura_rt.c` now provides opaque
+**Implementation status:** `runtime/runtime.c` now provides opaque
 `AuraHttpServer` and `AuraHttpConnection` helpers over the bounded TCP slice.
 The server enforces a configured active-connection limit, stops accepting on
 graceful shutdown, and reports active connections so callers can drain before

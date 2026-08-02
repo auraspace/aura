@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <stdlib.h>
 
-#include "../../runtime/aura_rt.c"
+#include "../../runtime/runtime.c"
 
 static int destroyed;
 
