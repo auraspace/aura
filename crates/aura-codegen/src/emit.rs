@@ -16203,6 +16203,48 @@ pub(crate) fn emit_fun(
             out.push_str("}\n");
             return;
         }
+        if matches!(f.name.name.as_str(), "fields" | "methods") && f.params.len() == 1 {
+            let value = mangle_ident(&f.params[0].name.name);
+            let element_names = |class: &aura_ast::ClassDecl| {
+                if f.name.name == "fields" {
+                    class
+                        .fields
+                        .iter()
+                        .map(|field| field.name.name.clone())
+                        .collect::<Vec<_>>()
+                } else {
+                    class
+                        .methods
+                        .iter()
+                        .map(|method| method.name.name.clone())
+                        .collect::<Vec<_>>()
+                }
+            };
+            out.push_str("  if (");
+            out.push_str(&value);
+            out.push_str(" == NULL) return aura_new_Array_String(INT64_C(0));\n");
+            for class in &checked.ast.classes {
+                let names = element_names(class);
+                let class_name = &class.name.name;
+                let qualified_name =
+                    type_mono(&class_decl_package(class, checked), class_name, &[]);
+                let _ = writeln!(out, "  if (strcmp({value}, \"{class_name}\") == 0 || strcmp({value}, \"{qualified_name}\") == 0) {{");
+                let _ = writeln!(
+                    out,
+                    "    aura_cls_Array_String __metadata = aura_new_Array_String(INT64_C({}));",
+                    names.len()
+                );
+                for (index, name) in names.iter().enumerate() {
+                    let _ = writeln!(
+                        out,
+                        "    __metadata.data[{index}] = aura_bytes_copy(\"{name}\");"
+                    );
+                }
+                out.push_str("    return __metadata;\n  }\n");
+            }
+            out.push_str("  return aura_new_Array_String(INT64_C(0));\n}\n");
+            return;
+        }
     }
     if pkg == "std.compress" {
         if f.name.name == "compress" && f.params.len() == 2 {

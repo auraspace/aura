@@ -25,11 +25,17 @@ pub class Type(private val placeholder: Int, pub val nameValue: String) {
   }
 
   pub fun methods(): Array<Method> {
-    return Array<Method>(0)
+    val names = methods(this.nameValue)
+    val result: Array<Method> = Array<Method>(0)
+    for (i in 0..names.len) { result.push(Method(names.get(i), "Unknown")) }
+    return result
   }
 
   pub fun fields(): Array<Field> {
-    return Array<Field>(0)
+    val names = fields(this.nameValue)
+    val result: Array<Field> = Array<Field>(0)
+    for (i in 0..names.len) { result.push(Field(names.get(i), "Unknown")) }
+    return result
   }
 }
 

@@ -35,8 +35,8 @@ Aura’s **core** stdlib is intentionally small ([RFC-007](/rfc/007), [RFC-000](
 | `std.log`         | `std/log`         | Bounded level-based and structured text logging                                          |
 | `std.metrics`     | `std/metrics`     | Sequentially consistent counters and Prometheus samples                                  |
 | `std.test`        | `std/test`        | Deterministic assertion helpers for native and corpus tests                              |
-| `std.crypto`      | `std/crypto`      | Locked hash, HMAC, randomness, and TLS placeholder surface                               |
-| `std.reflect`     | `std/reflect`     | Bounded compiler-backed type metadata; declaration members remain empty                  |
+| `std.crypto`      | `std/crypto`      | Bounded hash, HMAC, randomness; TLS remains provider-backed                              |
+| `std.reflect`     | `std/reflect`     | Bounded compiler-backed type/member names; member type strings remain `Unknown`          |
 | `std.tls`         | `std/tls`         | Locked certificate/config/async TLS placeholder surface                                  |
 | `std.udp`         | `std/udp`         | Locked endpoint/datagram/async UDP placeholder surface                                   |
 | `std.websocket`   | `std/websocket`   | Locked message/connection placeholder surface                                            |
@@ -464,9 +464,8 @@ verified platform TLS provider.
 ## `std.reflect`
 
 The package provides compiler-backed `typeOf<T>`, `typeIdOf<T>`, primitive
-`typeInfo`, and `isReflectable`. `Type.fields()`, `Type.methods()`, `fields`,
-and `methods` currently return bounded empty arrays until declaration-level
-metadata emission is implemented.
+`typeInfo`, `isReflectable`, and declaration member names. Member type strings
+remain `Unknown` until full type metadata emission is implemented.
 
 ## Protocol placeholders
 

@@ -2,9 +2,14 @@ package demo.stdreflect
 
 import std.reflect
 
+class Widget(val count: Int, val label: String) {
+  fun reset(): Unit {}
+}
+
 fun main() {
   val intType = typeOf<Int>()
   val stringType = typeOf<String>()
+  val widgetType = typeOf<Widget>()
   val intId = typeIdOf<Int>()
   if (intType.name() != "Int" || stringType.name() != "String") { throw "bad type name" }
   if (intId.value != "Int") { throw "bad type id" }
@@ -12,5 +17,8 @@ fun main() {
   if (info.name != "Int") { throw "bad type info" }
   if (!isReflectable("String") || isReflectable("Widget")) { throw "bad reflectability" }
   if (fields("Int").len != 0 || methods("Int").len != 0) { throw "bad members" }
+  if (fields("Widget").len != 2 || methods("Widget").len != 1) { throw "missing metadata" }
+  if (fields("Widget").get(0) != "count" || methods("Widget").get(0) != "reset") { throw "bad metadata" }
+  if (widgetType.fields().len != 2 || widgetType.methods().len != 1) { throw "bad type metadata" }
   println("reflect-ok")
 }
