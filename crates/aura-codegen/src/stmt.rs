@@ -655,10 +655,31 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
     let p = pad(indent);
     match stmt {
         Stmt::Var(v) => {
-            let raw_ty_name =
-                v.ty.as_ref()
-                    .map(|t| type_ref_local_key_checked(t, ctx))
-                    .unwrap_or_else(|| infer_type_name(&v.init, ctx));
+            let raw_ty_name = if let Some(annotation) = v.ty.as_ref() {
+                type_ref_local_key_checked(annotation, ctx)
+            } else if let Some(semantic_ty) = ctx
+                .checked
+                .expr_tys
+                .get(&(v.init.span().start, v.init.span().end))
+            {
+                // Generic method bodies retain open type parameters in the
+                // semantic expression table. Substitute the enclosing mono
+                // before deriving the C local type, or later method calls
+                // fall back to AuraTypeErasedValue.
+                if !semantic_ty.is_open() {
+                    infer_type_name(&v.init, ctx)
+                } else {
+                    let substitutions = aura_sema::type_subst_map(&ctx.type_params, &ctx.type_args);
+                    let substituted = aura_sema::subst_ty(semantic_ty, &substitutions);
+                    if substituted.is_open() {
+                        infer_type_name(&v.init, ctx)
+                    } else {
+                        full_type_mono(&substituted.mono_suffix(), ctx.checked)
+                    }
+                }
+            } else {
+                infer_type_name(&v.init, ctx)
+            };
             let ty_name = crate::expr::task_payload_repr_key(&raw_ty_name);
             let ty =
                 v.ty.as_ref()
