@@ -22,14 +22,14 @@ commits, RFCs, or release notes instead of appending progress for every change.
 ### API-002 data and contract placeholders (2026-07-31)
 
 - Area: `std.json.Value`, `std.collections.List<T>`, shared errors
-- Symptom: JSON traversal/mapping and duplicate-key policy enforcement, List
-  iterator/clone semantics, package-specific errors, and reflection metadata
-  are incomplete. The bounded JSON value core and std.test assertion/smoke
-  helpers are implemented.
+- Symptom: generic JSON mapping, List iterator semantics, package-specific
+  errors, and reflection metadata are incomplete. Bounded JSON traversal,
+  duplicate-key rejection, and the std.test assertion/smoke helpers are
+  implemented.
 - Why deferred: the ownership, duplicate-key, depth/size, and metadata rules
   need one coherent RFC/runtime pass.
-- Next step: define ownership semantics, then implement JSON traversal and List
-  behavior before expanding reflection and package-specific error APIs.
+- Next step: define generic mapping ownership, then implement List iterators
+  before expanding reflection and package-specific error APIs.
 
 ### API-003 compiler/runtime/tooling boundary inventory (2026-07-31)
 

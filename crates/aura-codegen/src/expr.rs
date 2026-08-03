@@ -178,11 +178,17 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                             .map(|i| i.is_constructor && i.name == id.name)
                             .unwrap_or(false) =>
                 {
+                    let substitutions = aura_sema::type_subst_map(&ctx.type_params, &ctx.type_args);
                     let targs: Vec<Ty> = ctx
                         .checked
                         .call_instantiations
                         .get(&c.span.start)
-                        .map(|i| i.type_args.clone())
+                        .map(|i| {
+                            i.type_args
+                                .iter()
+                                .map(|ty| aura_sema::subst_ty(ty, &substitutions))
+                                .collect()
+                        })
                         .unwrap_or_else(|| {
                             c.type_args
                                 .iter()

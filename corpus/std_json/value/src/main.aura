@@ -22,8 +22,22 @@ fun main() {
     println(bounded!!.clone().byteLength().toString())
     println(bounded!!.depth().toString())
   }
+  val objectValue = parse("{\"name\":\"aura\",\"items\":[1, {\"ok\":true}]}")
+  if (objectValue != null) {
+    val name = objectValue!!.get("name")
+    if (name != null) { println(name!!.asString()!!) }
+    val names = objectValue!!.keys()
+    println(names.len.toString())
+    val items = objectValue!!.get("items")
+    if (items != null) {
+      val nested = items!!.at(1)
+      if (nested != null && nested!!.isObject()) { println("nested") }
+      if (items!!.at(9) == null) { println("oob") }
+    }
+  }
   val result = parseResult("{\"ok\":true}", options)
   if (Errors.isSuccess(result)) { println("typed-ok") }
   val limited = parseWithOptions("{\"nested\":[1]}", parseOptions(64, 1, rejectDuplicateKeys()))
   if (limited == null) { println("depth-limit") }
+  if (parseWithOptions("{\"x\":1,\"x\":2}", options) == null) { println("duplicate") }
 }

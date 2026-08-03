@@ -517,6 +517,26 @@ pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
     let Expr::Call(call) = e else {
         return false;
     };
+    // JSON traversal helpers return freshly allocated strings, including the
+    // optional values that are force-unwrapped by `Value` methods.
+    let is_json_owned = ctx
+        .checked
+        .call_instantiations
+        .get(&call.span.start)
+        .is_some_and(|inst| {
+            inst.package == "std.json"
+                && matches!(
+                    inst.name.as_str(),
+                    "jsonObjectGet"
+                        | "jsonArrayAt"
+                        | "jsonObjectKeys"
+                        | "jsonDecodeString"
+                        | "jsonDuplicateKey"
+                )
+        });
+    if is_json_owned {
+        return true;
+    }
     // Do not infer ownership from a String return type alone: user functions
     // and foreign helpers may return borrowed/static storage.  Only the
     // concrete allocating primitives below establish transfer ownership.

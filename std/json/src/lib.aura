@@ -11,7 +11,7 @@ pub enum DuplicateKeyPolicy {
   case LastWins
 }
 
-/// Bounds and duplicate-key behavior for future tree parsing.
+/// Bounds and duplicate-key behavior for source-backed value parsing.
 pub class ParseOptions(pub val maxBytes: Int,
                        pub val maxDepth: Int,
                        pub val duplicateKeys: DuplicateKeyPolicy) {}
@@ -42,6 +42,23 @@ pub fun lastDuplicateKeyWins(): DuplicateKeyPolicy {
   return LastWins()
 }
 
+// These helpers stay package-private; the C backend replaces them with
+// bounded span operations over the validated JSON source.
+fun jsonObjectGet(value: String, key: String): String? { throw "json object lookup intrinsic" }
+fun jsonArrayAt(value: String, index: Int): String? { throw "json array lookup intrinsic" }
+fun jsonObjectKeys(value: String): String? { throw "json object keys intrinsic" }
+fun jsonArrayCount(value: String): Int { throw "json array count intrinsic" }
+fun jsonDecodeString(value: String): String? { throw "json string decode intrinsic" }
+fun jsonDuplicateKey(value: String): String? { throw "json duplicate key intrinsic" }
+
+fun rejectsDuplicates(policy: DuplicateKeyPolicy): Bool {
+  match (policy) {
+    case Reject => { return true }
+    case FirstWins => { return false }
+    case LastWins => { return false }
+  }
+}
+
 pub fun defaultParseOptions(): ParseOptions {
   return ParseOptions(8 * 1024 * 1024, 64, rejectDuplicateKeys())
 }
@@ -64,7 +81,7 @@ pub fun escapeString(value: String): String? {
 /// Validated, owned JSON value.
 ///
 /// The bounded MVP preserves the input text in `raw` form and exposes
-/// root-node classification; member and array access are locked placeholders.
+/// root-node classification and bounded source-backed traversal.
 pub class Value(private val text: String) {
   /// Return the owned JSON text exactly as parsed.
   pub fun raw(): String {
@@ -76,7 +93,7 @@ pub class Value(private val text: String) {
     return text
   }
 
-  /// Return an independent owned tree copy once tree storage is implemented.
+  /// Return an independent owned value copy.
   pub fun clone(): Value {
     return Value(this.text)
   }
@@ -145,27 +162,45 @@ pub class Value(private val text: String) {
   /// Return true when the root node is JSON null.
   pub fun isNull(): Bool { return this.kind() == "null" }
 
-  /// Look up an object member by exact key. Object traversal is an alpha
-  /// placeholder until the owned value tree and duplicate-key policy land.
+  /// Look up an object member by exact decoded key.
   pub fun get(key: String): Value? {
-    throw "std.json Value.get is a placeholder"
+    val raw = jsonObjectGet(this.text, key)
+    if (raw == null) { return null }
+    return Value(raw!!)
   }
 
-  /// Return one array element by index. Array traversal is an alpha
-  /// placeholder until the owned value tree and bounds contract land.
+  /// Return one array element by zero-based index.
   pub fun at(index: Int): Value? {
-    throw "std.json Value.at is a placeholder"
+    val raw = jsonArrayAt(this.text, index)
+    if (raw == null) { return null }
+    return Value(raw!!)
   }
 
   /// Decode a JSON string root into an owned Aura string.
   pub fun asString(): String? {
-    throw "std.json Value.asString is a placeholder"
+    return jsonDecodeString(this.text)
   }
 
   /// Return the object member names in source order.
   pub fun keys(): Array<String> {
-    throw "std.json Value.keys is a placeholder"
+    val encoded = jsonObjectKeys(this.text)
+    if (encoded == null) { return Array<String>(0) }
+    val count = jsonArrayCount(encoded!!)
+    val result = Array<String>(count)
+    for (i in 0..count) {
+      val item = thisFromRaw(jsonArrayAt(encoded!!, i))
+      if (item != null) {
+        val key = item!!.asString()
+        if (key != null) { result.set(i, key!!) }
+      }
+    }
+    return result
   }
+}
+
+fun thisFromRaw(raw: String?): Value? {
+  if (raw == null) { return null }
+  return Value(raw!!)
 }
 
 /// Parse and retain one complete JSON value, or return null on invalid input.
@@ -184,6 +219,9 @@ pub fun parseWithOptions(value: String, options: ParseOptions): Value? {
   if (value.len > options.maxBytes || !isValid(value)) {
     return null
   }
+  if (rejectsDuplicates(options.duplicateKeys) && jsonDuplicateKey(value) != null) {
+    return null
+  }
   val parsed = Value(value)
   if (parsed.depth() > options.maxDepth) {
     return null
@@ -191,8 +229,7 @@ pub fun parseWithOptions(value: String, options: ParseOptions): Value? {
   return parsed
 }
 
-/// Typed parse result. Mapping and ownership are deferred, but the error
-/// channel is reserved now so callers do not depend on null-only failure.
+/// Typed parse result for bounded validation and traversal.
 pub fun parseResult(value: String,
                     options: ParseOptions): JsonErrs.Outcome<Value, ParseError> {
   if (options.maxBytes < 0 || options.maxDepth < 0 || value.len > options.maxBytes) {
@@ -200,6 +237,10 @@ pub fun parseResult(value: String,
   }
   if (!isValid(value)) {
     return JsonErrs.failure(JsonInvalidInput(errorOffset(value)))
+  }
+  val duplicate = jsonDuplicateKey(value)
+  if (rejectsDuplicates(options.duplicateKeys) && duplicate != null) {
+    return JsonErrs.failure(JsonDuplicateKey(duplicate!!))
   }
   val parsed = Value(value)
   if (parsed.depth() > options.maxDepth) {

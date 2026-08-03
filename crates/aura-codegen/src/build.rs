@@ -2784,6 +2784,48 @@ fun main() {
     }
 
     #[test]
+    fn builds_generic_class_static_constructor_body_with_concrete_substitution() {
+        let file = aura_parser::parse_file(
+            r#"package demo.generic_static
+class Bag<T>(pub val first: T) {
+  pub static fun make(value: T): Bag<T> {
+    val result = Bag<T>(value)
+    result.touch(value)
+    return result
+  }
+
+  pub fun touch(value: T): Unit { }
+}
+fun main() {
+  val bag = Bag.make("ok")
+  println(bag.first)
+}
+"#,
+        )
+        .expect("parse generic static constructor fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-generic-static-constructor-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile generic static constructor fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run generic static constructor fixture");
+        assert!(
+            output.status.success(),
+            "generic static constructor failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "ok\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_std_json_validation_and_escape() {
         let file = aura_parser::parse_file(
             r#"package std.json

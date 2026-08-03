@@ -1,4 +1,4 @@
-// Alpha API smoke: JSON traversal and growable-list contracts are shells.
+// JSON traversal and growable-list integration smoke.
 
 package std_surface_data_placeholders
 

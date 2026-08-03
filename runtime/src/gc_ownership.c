@@ -1116,6 +1116,317 @@ const char *aura_json_escape_string(const char *value)
   return out;
 }
 
+static char *aura_json_copy_range(const unsigned char *data, size_t start, size_t end)
+{
+  if (data == NULL || end < start) return NULL;
+  size_t length = end - start;
+  char *out = (char *)malloc(length + 1);
+  if (out == NULL) return NULL;
+  if (length != 0) memcpy(out, data + start, length);
+  out[length] = '\0';
+  return out;
+}
+
+static int aura_json_parse_value_span(const unsigned char *data, size_t length,
+                                      size_t start, size_t *end)
+{
+  AuraJsonCursor cursor = { data, length, start, 0 };
+  if (!aura_json_value(&cursor)) return 0;
+  if (end != NULL) *end = cursor.index;
+  return 1;
+}
+
+static int aura_json_parse_u16(const unsigned char *data, size_t length,
+                               size_t *index, uint32_t *value)
+{
+  if (*index + 4 > length) return 0;
+  uint32_t out = 0;
+  for (unsigned i = 0; i < 4; i++)
+  {
+    int digit = aura_json_hex(data[(*index)++]);
+    if (digit < 0) return 0;
+    out = (out << 4) | (uint32_t)digit;
+  }
+  *value = out;
+  return 1;
+}
+
+static int aura_json_append_utf8(char *out, size_t capacity, size_t *index,
+                                 uint32_t codepoint)
+{
+  if (codepoint == 0 || codepoint > 0x10ffff ||
+      (codepoint >= 0xd800 && codepoint <= 0xdfff)) return 0;
+  if (codepoint <= 0x7f)
+  {
+    if (*index + 1 >= capacity) return 0;
+    out[(*index)++] = (char)codepoint;
+  }
+  else if (codepoint <= 0x7ff)
+  {
+    if (*index + 2 >= capacity) return 0;
+    out[(*index)++] = (char)(0xc0 | (codepoint >> 6));
+    out[(*index)++] = (char)(0x80 | (codepoint & 0x3f));
+  }
+  else if (codepoint <= 0xffff)
+  {
+    if (*index + 3 >= capacity) return 0;
+    out[(*index)++] = (char)(0xe0 | (codepoint >> 12));
+    out[(*index)++] = (char)(0x80 | ((codepoint >> 6) & 0x3f));
+    out[(*index)++] = (char)(0x80 | (codepoint & 0x3f));
+  }
+  else
+  {
+    if (*index + 4 >= capacity) return 0;
+    out[(*index)++] = (char)(0xf0 | (codepoint >> 18));
+    out[(*index)++] = (char)(0x80 | ((codepoint >> 12) & 0x3f));
+    out[(*index)++] = (char)(0x80 | ((codepoint >> 6) & 0x3f));
+    out[(*index)++] = (char)(0x80 | (codepoint & 0x3f));
+  }
+  return 1;
+}
+
+static char *aura_json_decode_range(const unsigned char *data, size_t start, size_t end)
+{
+  if (data == NULL || end <= start || data[start] != '"' || data[end - 1] != '"') return NULL;
+  size_t capacity = end - start + 1;
+  char *out = (char *)malloc(capacity);
+  if (out == NULL) return NULL;
+  size_t input = start + 1;
+  size_t output = 0;
+  while (input + 1 < end)
+  {
+    unsigned char c = data[input++];
+    if (c != '\\')
+    {
+      if (c < 0x20 || output + 1 >= capacity) { free(out); return NULL; }
+      out[output++] = (char)c;
+      continue;
+    }
+    if (input >= end) { free(out); return NULL; }
+    c = data[input++];
+    switch (c)
+    {
+      case '"': out[output++] = '"'; break;
+      case '\\': out[output++] = '\\'; break;
+      case '/': out[output++] = '/'; break;
+      case 'b': out[output++] = '\b'; break;
+      case 'f': out[output++] = '\f'; break;
+      case 'n': out[output++] = '\n'; break;
+      case 'r': out[output++] = '\r'; break;
+      case 't': out[output++] = '\t'; break;
+      case 'u':
+      {
+        uint32_t codepoint = 0;
+        if (!aura_json_parse_u16(data, end, &input, &codepoint)) { free(out); return NULL; }
+        if (codepoint >= 0xd800 && codepoint <= 0xdbff)
+        {
+          if (input + 6 > end || data[input++] != '\\' || data[input++] != 'u') { free(out); return NULL; }
+          uint32_t low = 0;
+          if (!aura_json_parse_u16(data, end, &input, &low) || low < 0xdc00 || low > 0xdfff)
+          {
+            free(out);
+            return NULL;
+          }
+          codepoint = 0x10000 + ((codepoint - 0xd800) << 10) + (low - 0xdc00);
+        }
+        if (!aura_json_append_utf8(out, capacity, &output, codepoint)) { free(out); return NULL; }
+        break;
+      }
+      default: free(out); return NULL;
+    }
+    if (output >= capacity) { free(out); return NULL; }
+  }
+  out[output] = '\0';
+  return out;
+}
+
+const char *aura_json_decode_string(const char *value)
+{
+  if (value == NULL || !aura_json_is_valid(value) || value[0] != '"') return NULL;
+  size_t length = strlen(value);
+  AuraJsonCursor cursor = { (const unsigned char *)value, length, 0, 0 };
+  if (!aura_json_string(&cursor) || cursor.index != length) return NULL;
+  return aura_json_decode_range((const unsigned char *)value, 0, length);
+}
+
+const char *aura_json_object_get(const char *value, const char *key)
+{
+  if (value == NULL || key == NULL || !aura_json_is_valid(value)) return NULL;
+  size_t length = strlen(value);
+  AuraJsonCursor cursor = { (const unsigned char *)value, length, 0, 0 };
+  aura_json_skip_ws(&cursor);
+  if (cursor.index >= length || cursor.data[cursor.index++] != '{') return NULL;
+  aura_json_skip_ws(&cursor);
+  if (cursor.index < length && cursor.data[cursor.index] == '}') return NULL;
+  for (;;)
+  {
+    size_t key_start = cursor.index;
+    if (!aura_json_string(&cursor)) return NULL;
+    size_t key_end = cursor.index;
+    char *decoded = aura_json_decode_range(cursor.data, key_start, key_end);
+    aura_json_skip_ws(&cursor);
+    if (cursor.index >= length || cursor.data[cursor.index++] != ':') { free(decoded); return NULL; }
+    aura_json_skip_ws(&cursor);
+    size_t value_start = cursor.index;
+    size_t value_end = 0;
+    if (!aura_json_parse_value_span(cursor.data, length, value_start, &value_end)) { free(decoded); return NULL; }
+    cursor.index = value_end;
+    if (decoded != NULL && strcmp(decoded, key) == 0)
+    {
+      free(decoded);
+      return aura_json_copy_range(cursor.data, value_start, value_end);
+    }
+    free(decoded);
+    aura_json_skip_ws(&cursor);
+    if (cursor.index >= length || cursor.data[cursor.index] == '}') return NULL;
+    if (cursor.data[cursor.index++] != ',') return NULL;
+    aura_json_skip_ws(&cursor);
+  }
+}
+
+const char *aura_json_array_at(const char *value, int64_t wanted)
+{
+  if (value == NULL || wanted < 0 || !aura_json_is_valid(value)) return NULL;
+  size_t length = strlen(value);
+  AuraJsonCursor cursor = { (const unsigned char *)value, length, 0, 0 };
+  aura_json_skip_ws(&cursor);
+  if (cursor.index >= length || cursor.data[cursor.index++] != '[') return NULL;
+  aura_json_skip_ws(&cursor);
+  int64_t index = 0;
+  while (cursor.index < length && cursor.data[cursor.index] != ']')
+  {
+    size_t value_start = cursor.index;
+    size_t value_end = 0;
+    if (!aura_json_parse_value_span(cursor.data, length, value_start, &value_end)) return NULL;
+    if (index == wanted) return aura_json_copy_range(cursor.data, value_start, value_end);
+    index++;
+    cursor.index = value_end;
+    aura_json_skip_ws(&cursor);
+    if (cursor.index < length && cursor.data[cursor.index] == ',') { cursor.index++; aura_json_skip_ws(&cursor); }
+  }
+  return NULL;
+}
+
+int64_t aura_json_array_count(const char *value)
+{
+  if (value == NULL || !aura_json_is_valid(value)) return 0;
+  size_t length = strlen(value);
+  AuraJsonCursor cursor = { (const unsigned char *)value, length, 0, 0 };
+  aura_json_skip_ws(&cursor);
+  if (cursor.index >= length || cursor.data[cursor.index++] != '[') return 0;
+  aura_json_skip_ws(&cursor);
+  int64_t count = 0;
+  while (cursor.index < length && cursor.data[cursor.index] != ']')
+  {
+    size_t end = 0;
+    if (!aura_json_parse_value_span(cursor.data, length, cursor.index, &end)) return 0;
+    count++;
+    cursor.index = end;
+    aura_json_skip_ws(&cursor);
+    if (cursor.index < length && cursor.data[cursor.index] == ',') { cursor.index++; aura_json_skip_ws(&cursor); }
+  }
+  return count;
+}
+
+typedef struct AuraJsonBuffer { char *data; size_t length; size_t capacity; } AuraJsonBuffer;
+
+static int aura_json_buffer_append(AuraJsonBuffer *buffer, const unsigned char *data, size_t length)
+{
+  if (length > SIZE_MAX - buffer->length - 1) return 0;
+  size_t needed = buffer->length + length + 1;
+  if (needed > buffer->capacity)
+  {
+    size_t capacity = buffer->capacity == 0 ? 32 : buffer->capacity;
+    while (capacity < needed) {
+      if (capacity > SIZE_MAX / 2) { capacity = needed; break; }
+      capacity *= 2;
+    }
+    char *grown = (char *)realloc(buffer->data, capacity);
+    if (grown == NULL) return 0;
+    buffer->data = grown;
+    buffer->capacity = capacity;
+  }
+  if (length != 0) memcpy(buffer->data + buffer->length, data, length);
+  buffer->length += length;
+  buffer->data[buffer->length] = '\0';
+  return 1;
+}
+
+const char *aura_json_object_keys(const char *value)
+{
+  if (value == NULL || !aura_json_is_valid(value)) return NULL;
+  size_t length = strlen(value);
+  AuraJsonCursor cursor = { (const unsigned char *)value, length, 0, 0 };
+  aura_json_skip_ws(&cursor);
+  if (cursor.index >= length || cursor.data[cursor.index++] != '{') return NULL;
+  AuraJsonBuffer output = { NULL, 0, 0 };
+  if (!aura_json_buffer_append(&output, (const unsigned char *)"[", 1)) return NULL;
+  aura_json_skip_ws(&cursor);
+  int first = 1;
+  while (cursor.index < length && cursor.data[cursor.index] != '}')
+  {
+    size_t key_start = cursor.index;
+    if (!aura_json_string(&cursor)) { free(output.data); return NULL; }
+    size_t key_end = cursor.index;
+    if (!first && !aura_json_buffer_append(&output, (const unsigned char *)",", 1)) { free(output.data); return NULL; }
+    if (!aura_json_buffer_append(&output, cursor.data + key_start, key_end - key_start)) { free(output.data); return NULL; }
+    first = 0;
+    aura_json_skip_ws(&cursor);
+    if (cursor.index >= length || cursor.data[cursor.index++] != ':') { free(output.data); return NULL; }
+    aura_json_skip_ws(&cursor);
+    size_t end = 0;
+    if (!aura_json_parse_value_span(cursor.data, length, cursor.index, &end)) { free(output.data); return NULL; }
+    cursor.index = end;
+    aura_json_skip_ws(&cursor);
+    if (cursor.index < length && cursor.data[cursor.index] == ',') { cursor.index++; aura_json_skip_ws(&cursor); }
+  }
+  if (!aura_json_buffer_append(&output, (const unsigned char *)"]", 1)) { free(output.data); return NULL; }
+  return output.data;
+}
+
+const char *aura_json_duplicate_key(const char *value)
+{
+  if (value == NULL || !aura_json_is_valid(value)) return NULL;
+  size_t length = strlen(value);
+  AuraJsonCursor cursor = { (const unsigned char *)value, length, 0, 0 };
+  aura_json_skip_ws(&cursor);
+  if (cursor.index >= length || cursor.data[cursor.index++] != '{') return NULL;
+  char **seen = NULL;
+  size_t count = 0;
+  aura_json_skip_ws(&cursor);
+  while (cursor.index < length && cursor.data[cursor.index] != '}')
+  {
+    size_t key_start = cursor.index;
+    if (!aura_json_string(&cursor)) break;
+    char *key = aura_json_decode_range(cursor.data, key_start, cursor.index);
+    if (key == NULL) break;
+    for (size_t i = 0; i < count; i++)
+    {
+      if (strcmp(seen[i], key) == 0)
+      {
+        for (size_t j = 0; j < count; j++) free(seen[j]);
+        free(seen);
+        return key;
+      }
+    }
+    char **grown = (char **)realloc(seen, (count + 1) * sizeof(*seen));
+    if (grown == NULL) { free(key); break; }
+    seen = grown;
+    seen[count++] = key;
+    aura_json_skip_ws(&cursor);
+    if (cursor.index >= length || cursor.data[cursor.index++] != ':') break;
+    aura_json_skip_ws(&cursor);
+    size_t end = 0;
+    if (!aura_json_parse_value_span(cursor.data, length, cursor.index, &end)) break;
+    cursor.index = end;
+    aura_json_skip_ws(&cursor);
+    if (cursor.index < length && cursor.data[cursor.index] == ',') { cursor.index++; aura_json_skip_ws(&cursor); }
+  }
+  for (size_t i = 0; i < count; i++) free(seen[i]);
+  free(seen);
+  return NULL;
+}
+
 static int aura_url_target_byte_allowed(unsigned char c)
 {
   return c >= 0x21 && c != 0x23 && c != 0x7f;
@@ -1975,4 +2286,3 @@ void aura_gc_shutdown(void)
 }
 
 /* ---- F3 bounded foreign String/Array ABI ---- */
-

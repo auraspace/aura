@@ -316,6 +316,12 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str("_Bool aura_json_is_valid(const char *value);\n");
     out.push_str("int64_t aura_json_error_offset(const char *value);\n");
     out.push_str("const char *aura_json_escape_string(const char *value);\n");
+    out.push_str("const char *aura_json_object_get(const char *value, const char *key);\n");
+    out.push_str("const char *aura_json_array_at(const char *value, int64_t index);\n");
+    out.push_str("int64_t aura_json_array_count(const char *value);\n");
+    out.push_str("const char *aura_json_object_keys(const char *value);\n");
+    out.push_str("const char *aura_json_decode_string(const char *value);\n");
+    out.push_str("const char *aura_json_duplicate_key(const char *value);\n");
     out.push_str("int aura_signal_install_shutdown(void);\n");
     out.push_str("_Bool aura_signal_shutdown_requested(void);\n");
     out.push_str("void aura_signal_clear_shutdown(void);\n");
@@ -16150,6 +16156,43 @@ pub(crate) fn emit_fun(
             }
             "escapeString" => {
                 let _ = writeln!(out, "  return aura_json_escape_string({value});");
+                out.push_str("}\n");
+                return;
+            }
+            "jsonArrayCount" => {
+                let _ = writeln!(out, "  return aura_json_array_count({value});");
+                out.push_str("}\n");
+                return;
+            }
+            "jsonObjectKeys" => {
+                let _ = writeln!(out, "  return aura_json_object_keys({value});");
+                out.push_str("}\n");
+                return;
+            }
+            "jsonDecodeString" => {
+                let _ = writeln!(out, "  return aura_json_decode_string({value});");
+                out.push_str("}\n");
+                return;
+            }
+            "jsonDuplicateKey" => {
+                let _ = writeln!(out, "  return aura_json_duplicate_key({value});");
+                out.push_str("}\n");
+                return;
+            }
+            _ => {}
+        }
+    }
+    if pkg == "std.json" && f.params.len() == 2 {
+        let value = mangle_ident(&f.params[0].name.name);
+        let second = mangle_ident(&f.params[1].name.name);
+        match f.name.name.as_str() {
+            "jsonObjectGet" => {
+                let _ = writeln!(out, "  return aura_json_object_get({value}, {second});");
+                out.push_str("}\n");
+                return;
+            }
+            "jsonArrayAt" => {
+                let _ = writeln!(out, "  return aura_json_array_at({value}, {second});");
                 out.push_str("}\n");
                 return;
             }
