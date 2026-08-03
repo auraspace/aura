@@ -14,7 +14,7 @@ This repository currently holds:
 | [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
 | [`corpus/`](corpus/)                 | Sample `.aura` programs for the compiler                             |
 | [`examples/`](examples/)             | Dogfood apps (`notes`, `wc` CLI packages)                            |
-| [`std/`](std/)                       | Minimal std packages (`io`, `assert`, `collections`)                 |
+| [`std/`](std/)                       | Standard-library packages                                            |
 | [`runtime/`](runtime/)               | Linked C runtime (`runtime.c`)                                       |
 
 **License:** [MIT](LICENSE)

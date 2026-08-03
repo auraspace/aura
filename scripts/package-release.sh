@@ -109,15 +109,20 @@ cp "$ROOT/runtime/aura_ffi.h" "$STAGE/share/aura/runtime/aura_ffi.h"
 cp -R "$ROOT/runtime/src" "$STAGE/share/aura/runtime/src"
 [[ -s "$ROOT/runtime/runtime.c" ]] || die "runtime source is missing or empty"
 # Std packages for import / auto-prelude outside the monorepo.
-for pkg in io assert collections; do
-  [[ -d "$ROOT/std/$pkg" ]] || die "required std package is missing: std/$pkg"
-  find "$ROOT/std/$pkg" -type f -print -quit | grep -q . || die "required std package is empty: std/$pkg"
+shopt -s nullglob
+std_packages=("$ROOT"/std/*)
+(( ${#std_packages[@]} > 0 )) || die "no std packages found under $ROOT/std"
+for package_dir in "${std_packages[@]}"; do
+  [[ -d "$package_dir" ]] || continue
+  pkg="$(basename "$package_dir")"
+  [[ -f "$package_dir/aura.toml" ]] || die "std package manifest is missing: std/$pkg/aura.toml"
+  find "$package_dir" -type f -print -quit | grep -q . || die "required std package is empty: std/$pkg"
   mkdir -p "$STAGE/share/aura/std/$pkg"
   # Copy package tree without junk.
   if command -v rsync >/dev/null 2>&1; then
-    rsync -a --exclude '.DS_Store' --exclude 'README.md' "$ROOT/std/$pkg/" "$STAGE/share/aura/std/$pkg/"
+    rsync -a --exclude '.DS_Store' --exclude 'README.md' "$package_dir/" "$STAGE/share/aura/std/$pkg/"
   else
-    cp -R "$ROOT/std/$pkg/." "$STAGE/share/aura/std/$pkg/"
+    cp -R "$package_dir/." "$STAGE/share/aura/std/$pkg/"
     find "$STAGE/share/aura/std/$pkg" -name '.DS_Store' -delete 2>/dev/null || true
   fi
   find "$STAGE/share/aura/std/$pkg" -type f -print -quit | grep -q . \
@@ -137,7 +142,7 @@ Runtime:
   Optional: export AURA_RUNTIME="\$PWD/share/aura/runtime/runtime.c"
 
 Standard library:
-  share/aura/std/{io,assert,collections} — used by auto-prelude and \`import std.*\`.
+  share/aura/std/* — all standard-library packages used by auto-prelude and \`import std.*\`.
   Optional: export AURA_STD="\$PWD/share/aura/std"
 
 Docs: https://aura.fadosoft.com
@@ -198,12 +203,14 @@ archive_has_path() {
 for required in \
   "$NAME/bin/aura" \
   "$NAME/share/aura/runtime/runtime.c" \
-  "$NAME/share/aura/std/io" \
-  "$NAME/share/aura/std/assert" \
-  "$NAME/share/aura/std/collections" \
   "$NAME/LICENSE" \
   "$NAME/README.txt"; do
   archive_has_path "$required" || die "archive is missing $required"
+done
+for package_dir in "${std_packages[@]}"; do
+  [[ -d "$package_dir" ]] || continue
+  pkg="$(basename "$package_dir")"
+  archive_has_path "$NAME/share/aura/std/$pkg" || die "archive is missing std/$pkg"
 done
 README_CONTENT="$(tar -xOzf "$TAR" "$NAME/README.txt")"
 [[ "$README_CONTENT" == *"Aura toolchain ${TAG_VERSION} (${OS}/${ARCH})"* ]] \

@@ -296,7 +296,7 @@ download_and_install() {
     cp -R "${stage}/share/runtime/." "${candidate}/share/aura/runtime/"
   fi
 
-  # Std packages (io/assert/collections) when present in the archive.
+  # Copy every standard-library package shipped in the archive.
   if [[ -d "${stage}/share/aura/std" ]]; then
     mkdir -p "${candidate}/share/aura/std"
     if command -v rsync >/dev/null 2>&1; then

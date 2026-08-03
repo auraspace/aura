@@ -185,14 +185,16 @@ verify_archive_contract() {
   for required in \
     "$expected_name/bin/aura" \
     "$expected_name/share/aura/runtime/runtime.c" \
-    "$expected_name/share/aura/std/io" \
-    "$expected_name/share/aura/std/assert" \
-    "$expected_name/share/aura/std/collections" \
     "$expected_name/LICENSE" \
     "$expected_name/README.txt"; do
     archive_has_path "$listing" "$required" \
       || die "archive is missing required path: $required"
   done
+  while IFS= read -r -d '' package_dir; do
+    pkg="$(basename "$package_dir")"
+    archive_has_path "$listing" "$expected_name/share/aura/std/$pkg" \
+      || die "archive is missing required std package: $pkg"
+  done < <(find "$root/std" -mindepth 1 -maxdepth 1 -type d -print0)
   readme="$(tar -xOzf "$tarball" "$expected_name/README.txt")" \
     || die "cannot read archive README"
   [[ "$readme" == *"Aura toolchain ${AURA_VERSION} ("* ]] \
