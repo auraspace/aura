@@ -7,6 +7,7 @@ members = [
     "crates/aura-lexer",
     "crates/aura-parser",
     "crates/aura-sema",
+    "crates/aura-ir",
     "crates/aura-codegen",
     "crates/aura-package",
     "crates/aura-cli",
@@ -28,5 +29,6 @@ aura-analysis = { path = "crates/aura-analysis" }
 aura-lexer = { path = "crates/aura-lexer" }
 aura-parser = { path = "crates/aura-parser" }
 aura-sema = { path = "crates/aura-sema" }
+aura-ir = { path = "crates/aura-ir" }
 aura-codegen = { path = "crates/aura-codegen" }
 aura-package = { path = "crates/aura-package" }

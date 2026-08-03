@@ -1,9 +1,12 @@
-//! Internal async state-machine model shared by CFG lowering and debug output.
+//! C-only compatibility state nodes.
+//!
+//! This is intentionally not part of aura-ir: its payloads are rendered C
+//! fragments and exist only while the alpha backend migrates to MIR.
 
 use std::fmt::Write as _;
 
-#[derive(Clone)]
-pub(crate) enum AsyncCfgNode {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum AsyncCfgNode {
     Action {
         code: String,
         next: usize,
@@ -69,19 +72,44 @@ pub(crate) enum AsyncCfgNode {
     },
 }
 
-pub(crate) struct AsyncFrameField {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AsyncFrameField {
     pub name: String,
     pub type_key: String,
 }
 
-/// A deterministic, backend-neutral view of the generated async machine.
-pub(crate) struct AsyncStateMachine<'a> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AsyncStateMachine {
     pub frame_fields: Vec<AsyncFrameField>,
-    pub nodes: &'a [Option<AsyncCfgNode>],
+    pub nodes: Vec<Option<AsyncCfgNode>>,
 }
 
-impl<'a> AsyncStateMachine<'a> {
-    pub(crate) fn dump_comments(&self, out: &mut String) {
+impl AsyncStateMachine {
+    pub fn validate_edges(&self) -> bool {
+        self.nodes.iter().all(|node| {
+            let Some(node) = node else { return false };
+            let valid = |target: usize| target < self.nodes.len();
+            match node {
+                AsyncCfgNode::Action { next, .. }
+                | AsyncCfgNode::Await { next, .. }
+                | AsyncCfgNode::AwaitUnit { next, .. }
+                | AsyncCfgNode::AwaitCatch { next, .. }
+                | AsyncCfgNode::AwaitCatchValue { next, .. }
+                | AsyncCfgNode::AwaitFinally { next, .. } => valid(*next),
+                AsyncCfgNode::Branch {
+                    then_state,
+                    else_state,
+                    ..
+                } => valid(*then_state) && valid(*else_state),
+                AsyncCfgNode::Return { .. }
+                | AsyncCfgNode::Throw { .. }
+                | AsyncCfgNode::Fail
+                | AsyncCfgNode::Cancel => true,
+            }
+        })
+    }
+
+    pub fn dump_comments(&self, out: &mut String) {
         let _ = writeln!(
             out,
             "/* aura async model version=1 states={} */",
@@ -117,11 +145,7 @@ impl<'a> AsyncStateMachine<'a> {
                 | AsyncCfgNode::AwaitUnit {
                     next, owns_task, ..
                 } => {
-                    let _ = writeln!(
-                        out,
-                        "/* aura async state={state} kind=await next={next} owns_task={} */",
-                        owns_task
-                    );
+                    let _ = writeln!(out, "/* aura async state={state} kind=await next={next} owns_task={owns_task} */");
                 }
                 AsyncCfgNode::AwaitCatch {
                     next,
@@ -135,11 +159,7 @@ impl<'a> AsyncStateMachine<'a> {
                     owns_task,
                     ..
                 } => {
-                    let _ = writeln!(
-                        out,
-                        "/* aura async state={state} kind=await-catch next={next} catch={catch_state} owns_task={} */",
-                        owns_task
-                    );
+                    let _ = writeln!(out, "/* aura async state={state} kind=await-catch next={next} catch={catch_state} owns_task={owns_task} */");
                 }
                 AsyncCfgNode::AwaitFinally {
                     next,
@@ -147,7 +167,7 @@ impl<'a> AsyncStateMachine<'a> {
                     owns_task,
                     ..
                 } => {
-                    let _ = writeln!(out, "/* aura async state={state} kind=await-finally next={next} finally={finally_state} owns_task={} */", owns_task);
+                    let _ = writeln!(out, "/* aura async state={state} kind=await-finally next={next} finally={finally_state} owns_task={owns_task} */");
                 }
                 AsyncCfgNode::Fail => {
                     let _ = writeln!(out, "/* aura async state={state} kind=fail */");

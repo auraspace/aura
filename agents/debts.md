@@ -5,6 +5,297 @@ Standing log of temporary workarounds, incomplete behavior, and deferred follow-
 When you introduce or discover debt, add an entry here in the same change.
 When you resolve debt, update or remove the matching entry.
 
+## Resolved
+
+### IR-001 compiler architecture migration (resolved 2026-08-03)
+
+- Area: aura-ir, alpha C backend
+- Historical issue: the alpha C compatibility path originally shared source
+  lowering state with the backend-neutral pipeline.
+- Progress (2026-08-03): the async CFG node/frame model moved to aura-ir and
+  validates all state edges before C emission. MIR validation and independent
+  async model fixtures now run without compiling C.
+- Progress (2026-08-03): supported linear async bodies now lower into typed
+  MIR during CheckedFile-to-LoweredProgram conversion; unsupported bodies are
+  recorded explicitly in async_mir_unlowered rather than silently treated as
+  complete.
+- Progress (2026-08-03): the typed async lowerer now emits SwitchInt CFG
+  edges for simple conditional branches and validates their targets without
+  involving C syntax.
+- Progress (2026-08-03): the backend trait/driver are public and receive
+  LoweredProgram, so a future LLVM/Cranelift implementation can be added
+  without coupling dispatch to C; only CBackend uses c_source.
+- Progress (2026-08-03): typed MIR binding lowering now emits Move/Clone
+  statements according to the ownership plan, with a semantic fixture proving
+  an owned String local is moved without inspecting generated C.
+- Progress (2026-08-03): call-based await operands now become typed task
+  locals plus Await resume edges in MIR, with no C expression fragments.
+- Progress (2026-08-03): aura-analysis now publishes CheckedIr alongside
+  AST and CheckedFile, making the target-neutral boundary available to CLI,
+  LSP, and future backend hosts.
+- Progress (2026-08-03): MIR CFG lowering also models empty while loops with
+  explicit loop back-edges and exit edges; complex loop bodies remain
+  explicitly listed in async_mir_unlowered.
+- Progress (2026-08-03): checked IR now extracts typed try/catch/finally
+  regions and throw presence before backend emission; exception fixtures do
+  not inspect setjmp/longjmp output.
+- Progress (2026-08-03): simple async throw/catch bodies now lower to typed
+  EnterTry and Throw handler edges in MIR; complex catch/finally shapes remain
+  explicitly rejected by the strict backend gate.
+- Progress (2026-08-03): generic monomorphization requests are collected and
+  deterministically normalized in aura-ir before backend selection, with
+  semantic coverage for generic function instantiation.
+- Progress (2026-08-03): backend options now name LLVM and Cranelift as
+  reserved backend identities; validation rejects them until their MIR
+  implementations are added instead of silently routing them through C.
+- Progress (2026-08-03): backend dispatch rejects incomplete MIR by default;
+  only CBackend explicitly opts into the alpha compatibility bridge.
+- Progress (2026-08-03): driver coverage proves a strict backend is rejected
+  before emission when an async body remains outside the current MIR subset.
+- Progress (2026-08-03): foreign library/link kind metadata is now lowered
+  into `ForeignLibraryIr`; C linker argument construction no longer reads
+  `CheckedFile.ast.foreign_functions`, and the unused source-file accessor was
+  removed from the backend-neutral program API.
+- Progress (2026-08-03): MIR rvalues now represent null, unary, and binary
+  operations with backend-neutral operands; recursive operand lowering and
+  validation are covered without asserting on generated C syntax.
+- Progress (2026-08-03): the common lowering API now accepts an effect and is
+  shared by supported synchronous and async bodies; `FunctionIr.body` and
+  `function_mir_unlowered` make partial sync coverage explicit instead of
+  silently treating C-only statement lowering as complete.
+- Progress (2026-08-03): validated MIR now materializes a separate,
+  backend-neutral state machine with successor edges, suspension metadata,
+  and frame locals; state-machine construction is independently tested.
+- Progress (2026-08-03): side-effecting call statements now lower to a
+  validated MIR `Evaluate` operation and preserve their effect without C
+  syntax; pure-body coverage is tested through the same lowering API.
+- Progress (2026-08-03): C-fragment `AsyncCfgNode`/frame compatibility types
+  were moved out of aura-ir into `aura-codegen::async_compat`; aura-ir now
+  exposes only the validated MIR-derived state-machine contract.
+- Progress (2026-08-03): backend compilation is now an optional capability;
+  the public backend contract supplies a safe default error, so a future
+  MIR-only LLVM/Cranelift backend need not accept C runtime/compiler inputs.
+- Progress (2026-08-03): the C backend now receives `LoweredProgram` through
+  `emit_c_with_program` and renders supported primitive sync function bodies
+  from `FunctionIr.body`; unsupported shapes are explicitly gated back to the
+  alpha compatibility emitter. The renderer and full translation-unit path
+  have independent coverage.
+- Progress (2026-08-03): the MIR renderer preserves `std.*` intrinsic lowering
+  until those runtime operations have explicit IR variants; regression tests
+  cover signal and error-kind intrinsics.
+- Progress (2026-08-03): the same MIR renderer now supplies supported
+  no-suspension async body functions inside the C task wrapper; await-bearing
+  or non-primitive shapes remain explicit compatibility fallbacks.
+- Progress (2026-08-03): supported synchronous function bodies now publish
+  the same typed MIR in `FunctionIr.body` with explicit `function_mir_unlowered`
+  coverage, so strict future backends can gate on all function bodies rather
+  than only async names.
+- Progress (2026-08-03): the primitive C renderer now consumes only
+  `FunctionIr`/MIR for supported synchronous functions and no longer receives
+  `CheckedFile`; it emits validated multi-block branch CFGs as labels and
+  gotos, with source-independent MIR coverage.
+- Progress (2026-08-03): branch lowering now supports primitive local bindings
+  and expression statements before a terminal return, with branch-local MIR
+  scopes and collision-safe local names.
+- Progress (2026-08-03): primitive MIR ownership actions (`Move`, `Clone`,
+  `Drop`) are now consumed by the C MIR renderer; ownership decisions remain
+  represented as MIR actions rather than being inferred again from C syntax.
+- Progress (2026-08-03): MIR `Unreachable` emission uses standard C `abort()`
+  rather than a compiler-specific builtin, keeping the migrated renderer
+  portable across conforming C toolchains.
+- Progress (2026-08-03): generic instantiation IR now preserves the owner kind
+  (function, async function, class, enum, interface, or method) instead of
+  encoding that distinction only in backend-side AST scans.
+- Progress (2026-08-03): MIR call rvalues now carry a neutral `CallTarget`
+  containing declaring package, explicit/method type arguments, constructor and
+  variant metadata; backends no longer need to reconstruct call identity from
+  an AST span.
+- Progress (2026-08-03): typed exception regions now carry the catch payload
+  type in MIR `EnterTry`; catch dispatch no longer has to rediscover that
+  semantic fact from C-emitter syntax.
+- Progress (2026-08-03): transitive closed generic-function discovery now runs
+  in `aura-ir::generics` and feeds the C alpha prototype/body work list from
+  `CheckedIr`; the C emitter no longer contains the transitive AST scan.
+- Progress (2026-08-03): generic free-function instances are now closed and
+  lowered to concrete `FunctionIr` MIR in `aura-ir`; generic async instances
+  likewise publish concrete MIR. C uses those bodies whenever the common
+  renderer supports them, while retaining its explicit alpha fallback for
+  unsupported shapes.
+- Progress (2026-08-03): ordinary call rvalues and side-effecting call
+  statements now lower through MIR and the C primitive renderer can emit
+  user calls with neutral `CallTarget` metadata; `std.*` intrinsics remain
+  explicitly gated until they have dedicated IR operations (including the
+  compiler-generated `gc_collect`/`gc_mark` operations).
+- Progress (2026-08-03): closed generic async bodies now also publish
+  validated state-machine records, keeping suspension/frame topology visible
+  to future non-C backends rather than reconstructing it from source.
+- Progress (2026-08-03): synchronous throwing regions with an empty `finally`
+  now lower to MIR `EnterTry`/handler/finally CFG edges; exception topology is
+  represented before C emission instead of being inferred only by the C
+  compatibility emitter.
+- Progress (2026-08-03): MIR-derived suspension states now publish explicit
+  ownership actions for locals crossing an await (for example `Clone` for an
+  owned String), so future frame backends do not need to recompute lifetime
+  policy from C expressions.
+- Progress (2026-08-03): generic `TypeRef` substitution used by async class
+  method compatibility lowering now lives in `aura-ir::generic_lowering`; the
+  C class emitter no longer owns that recursive type substitution helper.
+- Progress (2026-08-03): the C spawn compatibility path also consumes the
+  shared IR type-reference conversion; its duplicate `Ty`→`TypeRef` mapper
+  was removed from `emit.rs`.
+- Progress (2026-08-03): zero-argument `gc_collect()` now lowers to the
+  backend-neutral `Rvalue::Intrinsic::GcCollect` operation and has a MIR-only
+  semantic test. The C MIR renderer rejects this operation until an explicit
+  runtime capability is added, preventing accidental free-function ABI output.
+- Progress (2026-08-03): discarded async expressions such as `await tick()`
+  now lower to typed `Await` terminators with explicit result locals and
+  separate resume edges, including sequential awaits; this removes another
+  async shape that previously required C compatibility lowering.
+- Progress (2026-08-03): `join` and `cancel` now lower to validated neutral
+  `AsyncOp` MIR values with explicit handle operands. The C MIR renderer rejects
+  these until runtime capability mapping exists, so it cannot infer a C ABI
+  from async source syntax.
+- Progress (2026-08-03): channel create/send/receive/close expressions now
+  lower to the same neutral `AsyncOp` contract with typed channel element
+  metadata and explicit operands; channel runtime ABI selection remains a
+  declared C-alpha capability gap.
+- Progress (2026-08-03): capture-free `spawn { ... }` now embeds a validated
+  nested async `MirBody` in neutral `AsyncOp::Spawn`; captured spawn frames and
+  C runtime capability mapping were then split out as explicit capability
+  boundaries rather than reconstructed from source syntax.
+- Progress (2026-08-03): spawn capture discovery now closes over checked outer
+  locals deterministically, materializes them as nested MIR parameters, and
+  records each boundary ownership action in `SpawnCapture`; shadowed locals are
+  excluded from the capture set.
+- Progress (2026-08-03): the public backend contract now exposes explicit
+  `BackendCapabilities` for complete MIR, alpha source, C runtime, and native
+  compilation requirements. The legacy partial-MIR boolean remains only as a
+  compatibility shim, while driver gating uses the capability contract.
+- Progress (2026-08-03): nested `spawn` MIR bodies are recursively converted
+  into published state-machine records in `CheckedIr`, so future backends can
+  consume scheduler topology without traversing source or re-deriving frames.
+- Progress (2026-08-03): generated C now carries an explicit alpha-backend
+  marker documenting that any source compatibility lowering is a bounded
+  fallback for unsupported MIR capabilities, not the backend-neutral contract.
+- Progress (2026-08-03): general `throw` statements now lower arbitrary
+  backend-neutral expressions through temporary MIR places and materialize
+  ownership cleanup before the `Throw` terminator, including branch bodies.
+- Progress (2026-08-03): pure expression-form `if` branches now lower to a
+  typed MIR `Select` value and the primitive C renderer emits the same merge
+  from MIR. Effectful, multi-statement, or await-bearing expression branches
+  remain explicit CFG-lowering work rather than being misrepresented as eager
+  C expressions.
+- Progress (2026-08-03): force-unwrap and type-test expressions now have
+  explicit neutral MIR operations (`Unwrap` and `TypeTest`) with checked target
+  type metadata; the C alpha renderer rejects them until runtime/type-layout
+  capabilities are declared.
+- Progress (2026-08-03): `Backend::compile_ir` and `BackendBuildOptions` now
+  provide a native artifact boundary without `runtime_c`, C compiler, or C
+  source inputs; the legacy `compile` method is reserved for the alpha C path.
+- Progress (2026-08-03): native backend artifacts can now be constructed with
+  `Artifact::from_backend` and a neutral identity that has no `RuntimeAbi`;
+  LLVM/Cranelift preparation no longer requires manufacturing a C runtime
+  identity merely to report a produced artifact.
+- Progress (2026-08-03): direct `return await expr` normalization now belongs
+  to `aura-ir::lowering` and has a backend-independent test; C only consumes
+  the normalized declaration for its alpha rendering path.
+- Progress (2026-08-03): generic free-function and generic async instances
+  that cannot yet be closed/lowered are now published in explicit unlowered
+  MIR lists. Strict backends therefore reject them instead of treating a
+  silently omitted `filter_map` result as complete MIR.
+- Progress (2026-08-03): C alpha output now lists the deterministic symbols
+  using compatibility fallback lowering, making the remaining source bridge
+  visible in generated artifacts and review logs.
+- Progress (2026-08-03): the neutral MIR driver now has a repeated-lowering
+  equality regression, covering stable block/state serialization rather than
+  only artifact identity.
+- Progress (2026-08-03): generic AST substitution is documented as a
+  frontend Checked IR materialization step, not a temporary backend adapter;
+  C/LLVM/Cranelift backends consume the closed result only.
+- Progress (2026-08-03): non-empty `while` bodies containing the supported
+  linear statement subset now lower to MIR loop CFGs and the C renderer emits
+  them from MIR; loop shape and renderer coverage are independent tests.
+- Progress (2026-08-03): simple exclusive/inclusive integer ranges now lower
+  to typed counter/compare/increment MIR CFGs, with C rendering covered from
+  MIR rather than the range AST.
+- Progress (2026-08-03): a linear `while` body containing one awaited call now
+  lowers to an explicit MIR `Await` resume edge and a state-machine loop-back
+  edge; the suspension topology is tested without C generation.
+- Progress (2026-08-03): the same async loop lowering now supports an awaited
+  value binding followed by a resumed linear statement, preserving the value
+  local and call effect in the post-resume MIR block.
+- Progress (2026-08-03): range loops reuse the same await/resume lowering and
+  route the resumed block through an explicit counter-increment CFG node.
+- Progress (2026-08-03): async `try { val x = await call(); throw x } catch`
+  now lowers to MIR with both suspension unwind and post-resume typed throw
+  edges, making this exception topology backend-neutral.
+- Progress (2026-08-03): MIR now materializes lexical `Drop` operations at
+  ordinary return, throw, branch-join, and implicit scope exits according to
+  the ownership plan; returned places are excluded so ownership transfer is
+  explicit. Semantic tests verify cleanup without inspecting generated C.
+- Progress (2026-08-03): local assignment statements now lower to typed MIR
+  replacement actions, including destination cleanup plus `Move`, `Clone`, or
+  `Retain` according to the checked ownership plan. Primitive and owned-string
+  assignment fixtures validate the IR without inspecting generated C.
+- Progress (2026-08-03): the same assignment path is now used inside lowered
+  branch and loop CFG bodies, removing another source-syntax fallback for
+  primitive control-flow functions.
+- Progress (2026-08-03): `break` and `continue` now lower to validated loop
+  CFG edges, and loop exits clean only locals introduced by the loop body so
+  outer ownership remains live after the edge. MIR tests cover both edges and
+  the outer-local cleanup invariant.
+- Progress (2026-08-03): unit-payload enum matches now lower to a typed
+  `VariantTag` rvalue and multi-target `SwitchTag` terminator. State-machine
+  successor construction and validation cover the new tag-switch contract;
+  payload bindings remain an explicit unsupported MIR shape.
+- Progress (2026-08-03): non-generic primitive enum payload bindings initially
+  lowered to typed variant extraction and arm-local MIR bindings; this
+  was superseded by the ownership-aware extraction operation below.
+- Progress (2026-08-03): `ExtractVariantField` now carries the checked
+  ownership action and supports generic enum type-parameter substitution for
+  concrete primitive/String payloads.
+- Progress (2026-08-03): recursive checked `TypeRef` mapping now covers
+  nullable values, arrays, task/channel handles, and declared class/enum/
+  interface applications for enum payload extraction. Array payload fixtures
+  validate owned `Move` extraction without C syntax.
+- Progress (2026-08-03): Array and String `for-in` now lower to typed MIR
+  `Length`/`LoadIndex` counter loops with explicit condition, increment,
+  ownership action, and break/continue edges. Awaiting/nested iterator protocol
+  bodies remain explicitly outside this slice.
+- Progress (2026-08-03): branch lowering now preserves a lexical scope across
+  an awaited local binding by splitting the branch at `Await` and recursively
+  lowering the post-resume tail. This enables awaited bindings in conditional
+  branches and fixes the CFG invariant that incorrectly rejected a return after
+  a branch merely because continuation blocks had already been allocated.
+- Progress (2026-08-03): nested `if` statements inside branch and loop bodies
+  now lower their post-join tail instead of requiring the conditional to be the
+  final statement. Nested CFG coverage verifies the join remains backend-neutral.
+- Progress (2026-08-03): formal interface iterables and duck-typed class
+  iterables with `len()`/`get(Int)` now lower to receiver-aware neutral method
+  calls, including typed element results and explicit ownership transfer into
+  the loop binding. Class `len` fields, richer iterator objects, and async
+  protocol method calls remain explicit follow-up shapes; class `len` fields are
+  represented by a neutral `Field` rvalue. The alpha C primitive
+  renderer rejects the protocol marker and routes these bodies through its
+  explicitly marked compatibility fallback until receiver dispatch has a C ABI
+  independent implementation.
+- Progress (2026-08-03): the driver now exposes `BackendOptions` and routes
+  emission through `Backend::emit_ir`; the legacy C-shaped `emit` method remains
+  only as a compatibility shim while existing alpha integrations migrate.
+- Progress (2026-08-03): generic class-method closure now materializes both
+  async and synchronous monomorphized method bodies into `aura-ir` MIR; async
+  method state machines and strict unlowered-method lists are published as
+  backend inputs. Receiver-call lowering now represents the receiver as the
+  first neutral call operand, and field reads (`this.item`) use `Field` rvalues;
+  C remains the alpha fallback for unsupported receiver ABIs.
+  Resolution: Checked IR now owns semantic facts, generic closure, ownership
+  plans, exception regions, typed MIR, and MIR-derived async state machines.
+  The public backend contract rejects incomplete MIR by default, and the C-only
+  source view is explicitly isolated as an alpha compatibility input. The
+  backend-neutral `MirBackend` test verifies that emission works without C
+  source, runtime input, or a system compiler. LLVM and Cranelift can therefore
+  implement the same contract without inheriting the C compatibility path.
+
 ## Open
 
 ### API-001 alpha std crypto/reflection placeholders (2026-07-31)
@@ -1640,6 +1931,20 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
   construction still require either a closed monomorph or an explicit
   descriptor operation; the erased representation itself is complete for
   clone/drop/mark/forward transfer.
+- Architecture audit (2026-08-03): open-generic async topology is now
+  represented by symbolic MIR/state machines and strict unlowered diagnostics.
+  The remaining value-inspection and aggregate operations are classified as
+  alpha-runtime descriptor capabilities, not frontend lowering; non-C backends
+  may reject them through the normal capability gate until they provide an
+  equivalent runtime contract.
+- Progress (2026-08-03): open generic async declarations now publish symbolic
+  `Ty::TypeParam` MIR and MIR-derived state machines in `CheckedIr`; unsupported
+  open shapes are tracked by an explicit unlowered list instead of disappearing
+  into the C emitter. Descriptor clone/drop/mark remains a separate runtime
+  capability boundary for the alpha backend.
+- Progress (2026-08-03): the neutral `MirBackend` now serializes open-generic
+  async bodies and state machines without C headers, erased runtime symbols, or
+  compiler input; strict backend rejection still applies to unsupported shapes.
 
 ### ASYNC-006 async catch lowering remains bounded (updated 2026-08-01)
 
@@ -2204,3 +2509,9 @@ TaskError>` ABI, plus cooperative `isCancelled()` inside generated async
   typed C fallback for inferred non-Unit return types. This removes the
   `-Wreturn-type` warnings from the HTTP health/client generated programs
   without changing their terminal success or rethrow paths.
+- Progress (2026-08-03): generic async class-method closure now lives in
+  `aura-ir::generic_lowering::close_async_method`; the C backend retains only
+  synthetic ABI naming and wrapper emission. Generic substitution of `this`,
+  parameter types (including method-level type arguments), result type, and body is therefore shared with
+  backend-neutral IR instead of being reconstructed in `class_emit.rs`; a
+  direct semantic fixture covers the closed declaration.

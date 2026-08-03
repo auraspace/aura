@@ -10,3 +10,4 @@ aura-ast.workspace = true
 aura-diagnostics.workspace = true
 aura-parser.workspace = true
 aura-sema.workspace = true
+aura-ir.workspace = true

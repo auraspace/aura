@@ -6,6 +6,10 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Backend {
     C,
+    /// Reserved backend contract; implementation will consume MIR directly.
+    Llvm,
+    /// Reserved backend contract; implementation will consume MIR directly.
+    Cranelift,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

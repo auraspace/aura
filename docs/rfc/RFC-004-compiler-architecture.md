@@ -80,7 +80,7 @@ Source (.aura)
   → Macro expansion (RFC-010)      (AST')
   → Name resolution                (AST' + resolutions)
   → Type check (RFC-002)           (typed HIR)
-  → HIR lowering
+  → Checked IR (semantic facts, ownership, exceptions, generics)
   → MIR (CFG, async state machines, mono instantiation plan)
   → Optimizations (MIR-level)
   → LLVM IR codegen (+ GC safepoints, personality for exceptions)
@@ -115,15 +115,25 @@ Implementation language: **Rust** crates, e.g. `aura-lexer`, `aura-parser`, `aur
 
 ### 6.5 Intermediate representations
 
-| IR           | Purpose                                                   | Form         |
-| ------------ | --------------------------------------------------------- | ------------ |
-| Token stream | Macros, lex                                               | Linear       |
-| AST          | Syntax, untyped                                           | Tree         |
-| HIR          | Typed high-level, classes resolved                        | Tree + types |
-| MIR          | CFG, lowers async, virtual calls explicit, mono instances | Graph        |
-| LLVM IR      | Backend                                                   | SSA          |
+| IR           | Purpose                                                 | Form         |
+| ------------ | ------------------------------------------------------- | ------------ |
+| Token stream | Macros, lex                                             | Linear       |
+| AST          | Syntax, untyped                                         | Tree         |
+| HIR          | Typed high-level, classes resolved                      | Tree + types |
+| Checked IR   | Backend-neutral semantic facts and closed generic items | Records      |
+| MIR          | CFG, ownership actions, exceptions, async suspension    | Graph        |
+| LLVM IR      | Backend                                                 | SSA          |
 
 **Monomorphization:** MIR/LLVM generation produces specialized copies for concrete generic instantiations; shared code for interface dispatch via vtables/itables.
+
+The current Rust implementation provides this boundary in `aura-ir`:
+`CheckedIr` owns generic closure, ownership plans, exception regions, typed
+MIR, and MIR-derived state machines. Backends receive `LoweredProgram` and
+must reject incomplete MIR by default. The C backend is deliberately alpha:
+it may use its isolated source compatibility view for shapes not yet covered
+by the common MIR renderer, while `MirBackend` proves that a backend can emit
+from IR without a C compiler, runtime source, or C syntax. This compatibility
+view is not part of the IR contract and must not be used by LLVM or Cranelift.
 
 ### 6.6 Macro & plugin integration points
 
@@ -141,12 +151,13 @@ Implementation language: **Rust** crates, e.g. `aura-lexer`, `aura-parser`, `aur
 
 ### 6.8 Backend strategy
 
-| Backend        | v1                |
-| -------------- | ----------------- |
-| **LLVM**       | **Primary — yes** |
-| Cranelift      | Future optional   |
-| Bytecode VM    | Not v1            |
-| Transpile to C | Not planned       |
+| Backend     | Role                                                         |
+| ----------- | ------------------------------------------------------------ |
+| **LLVM**    | Planned native backend; consumes complete MIR/state machines |
+| Cranelift   | Optional native backend; consumes the same boundary          |
+| MIR dump    | Shipped backend probe; consumes IR only                      |
+| C           | Alpha compatibility backend; source fallback is isolated     |
+| Bytecode VM | Not v1                                                       |
 
 **LLVM responsibilities:**
 
@@ -241,6 +252,7 @@ when its dump format changes.
 | ----- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | C0    | Parse + typecheck subset → `aura check`                                | **Done**                                                                                             |
 | C1    | Native hello + runtime link                                            | **Done** via interim **C backend** (`emit-c` + system `cc` + `runtime/runtime.c`); LLVM still target |
+| IR1   | Checked IR + typed MIR + async state-machine contract                  | **Done** in `aura-ir`; semantic/MIR tests do not compile C                                           |
 | C2    | Generics mono + classes/interfaces                                     | **Done** (C2a–C2e)                                                                                   |
 | C3    | Packages, Array, exceptions, GC MVP (not full async)                   | **Done** as C3a–C3z slices; async/incremental deferred                                               |
 | C4–C5 | Equality, std, Array/String APIs, GC refinements                       | **Done**                                                                                             |

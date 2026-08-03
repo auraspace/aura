@@ -812,7 +812,17 @@ pub(crate) fn emit_class_defs(
                 && emit_counter_method(out, c, m, checked, &params, args, &mono)
             {
             } else if is_async_class_method(m) {
-                if !emit_async_class_method(out, c, m, checked, detector, &mono, &params, args) {
+                if !emit_async_class_method(
+                    out,
+                    c,
+                    m,
+                    checked,
+                    detector,
+                    &mono,
+                    &params,
+                    args,
+                    &method_args,
+                ) {
                     emit_method_mono(
                         out,
                         c,
@@ -1170,59 +1180,25 @@ fn emit_async_class_method(
     mono: &str,
     class_params: &[String],
     class_args: &[Ty],
+    method_args: &[Ty],
 ) -> bool {
-    let Some(task_ty) = m.return_type.as_ref() else {
-        return false;
-    };
-    let Some(result_ty) = task_ty.type_args.first() else {
-        return false;
-    };
     let synthetic_name = if class_args.is_empty() {
         format!("{}_{}", c.name.name, m.name.name)
     } else {
         format!("{}_{}_{}", c.name.name, m.name.name, mono)
     };
-    let concrete_this = TypeRef {
-        qualifier: None,
-        name: c.name.clone(),
-        type_args: class_args
-            .iter()
-            .map(|ty| type_ref_from_ty(ty, c.span))
-            .collect(),
-        nullable: false,
-        reference: false,
-        span: c.span,
-        fun: None,
+    let Some(synthetic) = aura_ir::generic_lowering::close_async_method(
+        &c.name,
+        m,
+        class_decl_package(c, checked),
+        synthetic_name.clone(),
+        class_params,
+        class_args,
+        method_args,
+    ) else {
+        return false;
     };
-    let this_param = Param {
-        attributes: Vec::new(),
-        name: Ident {
-            name: "this".into(),
-            span: c.span,
-        },
-        ty: concrete_this,
-        span: c.span,
-    };
-    let mut params = vec![this_param];
-    params.extend(m.params.clone());
-    let mut body = m.body.clone();
-    crate::emit::substitute_async_body(&mut body, class_params, class_args);
-    let synthetic = AsyncFunDecl {
-        is_pub: m.is_pub,
-        origin_package: class_decl_package(c, checked),
-        attributes: m.attributes.clone(),
-        is_test: false,
-        name: Ident {
-            name: synthetic_name.clone(),
-            span: m.name.span,
-        },
-        type_params: Vec::new(),
-        params,
-        return_type: Some(subst_type_ref(result_ty, class_params, class_args, c.span)),
-        body,
-        span: m.span,
-    };
-    crate::emit::emit_async_fun_decl(out, &synthetic, checked, detector);
+    crate::emit::emit_async_fun_decl(out, &synthetic, checked, detector, None);
     let wrapper = c_method_signature_mono(c, m, checked, &[], &[], mono);
     let call_name = c_fun_name(&class_decl_package(c, checked), &synthetic_name, &[]);
     let call_args = std::iter::once("this".to_string())
@@ -1231,56 +1207,6 @@ fn emit_async_class_method(
         .join(", ");
     let _ = writeln!(out, "{wrapper} {{ return {call_name}({call_args}); }}");
     true
-}
-
-fn subst_type_ref(ty: &TypeRef, params: &[String], args: &[Ty], span: Span) -> TypeRef {
-    if let Some(index) = params.iter().position(|param| param == &ty.name.name) {
-        if let Some(arg) = args.get(index) {
-            let mut resolved = type_ref_from_ty(arg, span);
-            resolved.nullable = ty.nullable;
-            resolved.reference = ty.reference;
-            return resolved;
-        }
-    }
-    let mut resolved = ty.clone();
-    resolved.type_args = ty
-        .type_args
-        .iter()
-        .map(|arg| subst_type_ref(arg, params, args, span))
-        .collect();
-    resolved
-}
-
-fn type_ref_from_ty(ty: &Ty, span: Span) -> TypeRef {
-    let (name, type_args) = match ty {
-        Ty::Nullable(inner) => {
-            return {
-                let mut out = type_ref_from_ty(inner, span);
-                out.nullable = true;
-                out
-            }
-        }
-        Ty::ClassApp { name, args }
-        | Ty::EnumApp { name, args }
-        | Ty::InterfaceApp { name, args } => (
-            name.split('@').next().unwrap_or(name).to_string(),
-            args.iter().map(|arg| type_ref_from_ty(arg, span)).collect(),
-        ),
-        Ty::Class(name) | Ty::Enum(name) | Ty::Interface(name) => (
-            name.split('@').next().unwrap_or(name).to_string(),
-            Vec::new(),
-        ),
-        _ => (ty.display(), Vec::new()),
-    };
-    TypeRef {
-        qualifier: None,
-        name: Ident { name, span },
-        type_args,
-        nullable: false,
-        reference: false,
-        span,
-        fun: None,
-    }
 }
 
 fn emit_http_response_write_chunk_method(

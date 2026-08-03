@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use aura_ast::File;
+use aura_ir::LoweredProgram;
 use aura_sema::CheckedFile;
 
 use crate::ctx::EmitOptions;
@@ -15,7 +16,8 @@ pub fn emit_c_from_ast(file: &File) -> Result<String, CodegenError> {
 }
 
 pub fn emit_c_from_checked(checked: &CheckedFile) -> String {
-    crate::emit::emit_c_with(checked, EmitOptions::default())
+    let program = LoweredProgram::from_checked(checked.clone());
+    crate::emit::emit_c_with_program(&program, EmitOptions::default())
 }
 
 pub fn emit_c_tests_from_ast(file: &File) -> Result<String, CodegenError> {

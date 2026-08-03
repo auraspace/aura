@@ -221,9 +221,13 @@ impl AnalysisSnapshot {
         }
         let result = match self.parse(id) {
             Ok(ast) => check_file(&ast)
-                .map(|checked| Analysis {
-                    ast: (*ast).clone(),
-                    checked,
+                .map(|checked| {
+                    let ir = aura_ir::LoweredProgram::from_checked(checked.clone()).ir;
+                    Analysis {
+                        ast: (*ast).clone(),
+                        checked,
+                        ir,
+                    }
                 })
                 .map_err(AnalysisError::Sema)
                 .map(Arc::new),
@@ -303,6 +307,8 @@ impl std::error::Error for QueryError {}
 pub struct Analysis {
     pub ast: File,
     pub checked: CheckedFile,
+    /// Backend-neutral facts produced by the shared analysis path.
+    pub ir: aura_ir::CheckedIr,
 }
 
 /// Failure at one compiler phase while analyzing a source document.
@@ -339,7 +345,8 @@ impl From<SemaErrors> for AnalysisError {
 pub fn analyze_file(source: &str) -> Result<Analysis, AnalysisError> {
     let ast = parse_file(source)?;
     let checked = check_file(&ast)?;
-    Ok(Analysis { ast, checked })
+    let ir = aura_ir::LoweredProgram::from_checked(checked.clone()).ir;
+    Ok(Analysis { ast, checked, ir })
 }
 
 #[cfg(test)]
@@ -352,6 +359,7 @@ mod tests {
         let result = analyze_file("package demo\nfun main() {}\n").unwrap();
         assert_eq!(result.checked.package, "demo");
         assert_eq!(result.checked.functions.len(), 1);
+        assert_eq!(result.ir.package, "demo");
     }
 
     #[test]

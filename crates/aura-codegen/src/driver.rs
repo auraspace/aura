@@ -5,14 +5,15 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use aura_ast::File;
+use aura_ir::{mir::Terminator, ForeignLinkIr, LoweredProgram};
 use aura_sema::{check_file, CheckedFile};
 
 use crate::ctx::EmitOptions;
-use crate::emit::emit_c_with;
+use crate::emit::emit_c_with_program;
 use crate::error::CodegenError;
 use crate::options::{
-    Backend as BackendKind, CompileOptions, Lto, OutputKind, Profile, ProfileSettings, RuntimeAbi,
-    Target,
+    Backend as BackendKind, CompileOptions, Lto, OptimizationLevel, OutputKind, PanicStrategy,
+    Profile, ProfileSettings, RuntimeAbi, Target,
 };
 use crate::validation::{compiler_command, validate_build};
 
@@ -72,11 +73,97 @@ pub struct Artifact {
     identity: BuildIdentity,
 }
 
+/// Options visible at the target-neutral backend boundary.
+///
+/// The alpha C adapter maps these to its legacy emission options. Future
+/// backends can override `Backend::emit_ir` without importing C-only context.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BackendOptions {
+    pub test: bool,
+    pub instrumentation: bool,
+}
+
+/// Declares which inputs a backend is allowed to consume.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BackendCapabilities {
+    pub requires_complete_mir: bool,
+    pub accepts_alpha_source: bool,
+    pub requires_c_runtime: bool,
+    pub supports_native_compile: bool,
+}
+
+/// Build settings shared by native MIR backends. C runtime/compiler details
+/// intentionally stay outside this contract.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BackendBuildOptions {
+    pub backend: BackendKind,
+    pub target: Target,
+    pub profile: Profile,
+    pub optimization: OptimizationLevel,
+    pub debug: bool,
+    pub lto: Lto,
+    pub panic: PanicStrategy,
+    pub output: OutputKind,
+    pub features: Vec<String>,
+}
+
+impl From<&CompileOptions> for BackendBuildOptions {
+    fn from(options: &CompileOptions) -> Self {
+        Self {
+            backend: options.backend,
+            target: options.target,
+            profile: options.profile,
+            optimization: options.profile_settings.optimization,
+            debug: options.profile_settings.debug,
+            lto: options.profile_settings.lto,
+            panic: options.profile_settings.panic,
+            output: options.output,
+            features: options.features.iter().cloned().collect(),
+        }
+    }
+}
+
+impl From<EmitOptions> for BackendOptions {
+    fn from(options: EmitOptions) -> Self {
+        Self {
+            test: options.test,
+            instrumentation: options.detector,
+        }
+    }
+}
+
 impl Artifact {
     fn new(path: PathBuf, options: &CompileOptions) -> Self {
         Self {
             path,
             identity: BuildIdentity::from(options),
+        }
+    }
+
+    /// Construct an artifact identity for a native MIR backend without C
+    /// runtime ABI settings or a C-shaped compile option object.
+    pub fn from_backend(path: PathBuf, options: &BackendBuildOptions) -> Self {
+        Self {
+            path,
+            identity: BuildIdentity {
+                backend: options.backend,
+                target: options.target,
+                profile: options.profile,
+                profile_settings: ProfileSettings {
+                    optimization: options.optimization,
+                    debug: options.debug,
+                    lto: options.lto,
+                    detector: false,
+                    panic: options.panic,
+                    backend: options.backend,
+                    linker: None,
+                },
+                runtime_abi: None,
+                runtime_abi_version: None,
+                runtime_abi_identity: None,
+                output: options.output,
+                features: options.features.clone(),
+            },
         }
     }
 
@@ -94,21 +181,72 @@ impl Artifact {
 }
 
 /// Backend boundary after frontend and semantic checking have completed.
-pub(crate) trait Backend {
-    fn emit(&self, checked: &CheckedFile, opts: EmitOptions) -> String;
+/// Backend contract after frontend, semantic checking, and target-neutral
+/// lowering. Implementations must consume LoweredProgram's IR; only the C
+/// alpha backend may use its compatibility source view.
+pub trait Backend {
+    fn capabilities(&self) -> BackendCapabilities {
+        BackendCapabilities {
+            requires_complete_mir: !self.accepts_partial_mir(),
+            accepts_alpha_source: false,
+            requires_c_runtime: false,
+            supports_native_compile: false,
+        }
+    }
 
+    /// C alpha may accept partial MIR while its compatibility lowering is
+    /// migrated. New backends must consume complete target-neutral MIR.
+    fn accepts_partial_mir(&self) -> bool {
+        false
+    }
+
+    fn emit(&self, program: &LoweredProgram, opts: EmitOptions) -> String;
+
+    /// Neutral native-artifact entrypoint for LLVM/Cranelift-class backends.
+    /// It has no C runtime path, compiler command, or source compatibility
+    /// input. The alpha C backend continues through `compile` below.
+    fn compile_ir(
+        &self,
+        _program: &LoweredProgram,
+        _out_bin: &Path,
+        _options: &BackendBuildOptions,
+        _opts: BackendOptions,
+    ) -> Result<Artifact, CodegenError> {
+        Err(CodegenError::Configuration(
+            "backend does not provide neutral native artifact compilation".into(),
+        ))
+    }
+
+    /// Target-neutral emission entrypoint for future MIR backends.
+    fn emit_ir(&self, program: &LoweredProgram, opts: BackendOptions) -> String {
+        self.emit(
+            program,
+            EmitOptions {
+                test: opts.test,
+                detector: opts.instrumentation,
+            },
+        )
+    }
+
+    /// Build an artifact when the backend has a native artifact path.
+    /// Text/MIR-only backends do not need to depend on C runtime arguments;
+    /// they can implement `emit` alone and keep this default.
     fn compile(
         &self,
-        checked: &CheckedFile,
-        out_bin: &Path,
-        runtime_c: &Path,
-        options: &CompileOptions,
-        opts: EmitOptions,
-    ) -> Result<Artifact, CodegenError>;
+        _program: &LoweredProgram,
+        _out_bin: &Path,
+        _runtime_c: &Path,
+        _options: &CompileOptions,
+        _opts: EmitOptions,
+    ) -> Result<Artifact, CodegenError> {
+        Err(CodegenError::Configuration(
+            "backend does not provide native artifact compilation".into(),
+        ))
+    }
 }
 
 /// Runs frontend/sema once, then delegates emission or compilation to a backend.
-pub(crate) struct Driver<B> {
+pub struct Driver<B> {
     backend: B,
 }
 
@@ -134,20 +272,33 @@ pub fn build_artifact_from_checked(
     opts: EmitOptions,
 ) -> Result<Artifact, CodegenError> {
     validate_build(&options, &compiler_command(), runtime_c)?;
-    CBackend.compile(checked, out_bin, runtime_c, &options, opts)
+    CBackend.compile(
+        &LoweredProgram::from_checked(checked.clone()),
+        out_bin,
+        runtime_c,
+        &options,
+        opts,
+    )
 }
 
 impl<B: Backend> Driver<B> {
-    pub(crate) fn new(backend: B) -> Self {
+    pub fn new(backend: B) -> Self {
         Self { backend }
     }
 
-    pub(crate) fn emit(&self, file: &File, opts: EmitOptions) -> Result<String, CodegenError> {
+    pub fn emit(&self, file: &File, opts: EmitOptions) -> Result<String, CodegenError> {
         let checked = check_file(file)?;
-        Ok(self.backend.emit(&checked, opts))
+        let program = LoweredProgram::from_checked(checked);
+        if self.backend.capabilities().requires_complete_mir && !program.mir_is_complete() {
+            return Err(CodegenError::Configuration(format!(
+                "backend requires complete MIR; unsupported functions: {}",
+                program.unlowered_mir_names().join(", ")
+            )));
+        }
+        Ok(self.backend.emit_ir(&program, opts.into()))
     }
 
-    pub(crate) fn build(
+    pub fn build(
         &self,
         file: &File,
         out_bin: &Path,
@@ -155,23 +306,141 @@ impl<B: Backend> Driver<B> {
         options: CompileOptions,
         opts: EmitOptions,
     ) -> Result<Artifact, CodegenError> {
-        validate_build(&options, &compiler_command(), runtime_c)?;
+        let capabilities = self.backend.capabilities();
+        if capabilities.requires_c_runtime {
+            validate_build(&options, &compiler_command(), runtime_c)?;
+        }
         let checked = check_file(file)?;
-        self.backend
-            .compile(&checked, out_bin, runtime_c, &options, opts)
+        let program = LoweredProgram::from_checked(checked);
+        if self.backend.capabilities().requires_complete_mir && !program.mir_is_complete() {
+            return Err(CodegenError::Configuration(format!(
+                "backend requires complete MIR; unsupported functions: {}",
+                program.unlowered_mir_names().join(", ")
+            )));
+        }
+        if capabilities.requires_c_runtime {
+            self.backend
+                .compile(&program, out_bin, runtime_c, &options, opts)
+        } else {
+            self.backend.compile_ir(
+                &program,
+                out_bin,
+                &BackendBuildOptions::from(&options),
+                opts.into(),
+            )
+        }
     }
 }
 
-pub(crate) struct CBackend;
+pub struct CBackend;
+
+/// A backend probe that consumes only target-neutral IR.
+///
+/// This is intentionally a textual backend rather than a second native
+/// compiler: it proves that backend discovery, validation, and emission do
+/// not require C source or the C runtime ABI.
+pub struct MirBackend;
+
+impl Backend for MirBackend {
+    fn capabilities(&self) -> BackendCapabilities {
+        BackendCapabilities {
+            requires_complete_mir: true,
+            accepts_alpha_source: false,
+            requires_c_runtime: false,
+            supports_native_compile: false,
+        }
+    }
+
+    fn emit(&self, program: &LoweredProgram, _opts: EmitOptions) -> String {
+        let ir = program.checked();
+        let mut out = String::new();
+        out.push_str("aura-mir version=1\n");
+        out.push_str(&format!("package {}\n", ir.package));
+        for function in ir.functions.iter().chain(ir.generic_functions.iter()) {
+            let Some(body) = function.body.as_ref() else {
+                continue;
+            };
+            out.push_str(&format!(
+                "function {} blocks={} locals={} effect={:?}\n",
+                function.name,
+                body.blocks.len(),
+                body.locals.len(),
+                body.effect
+            ));
+            for (index, block) in body.blocks.iter().enumerate() {
+                let terminator = match &block.terminator {
+                    Terminator::Goto { .. } => "goto",
+                    Terminator::SwitchInt { .. } => "switch",
+                    Terminator::SwitchTag { .. } => "switch-tag",
+                    Terminator::Await { .. } => "await",
+                    Terminator::Return { .. } => "return",
+                    Terminator::Throw { .. } => "throw",
+                    Terminator::Cancel => "cancel",
+                    Terminator::Unreachable => "unreachable",
+                };
+                out.push_str(&format!(
+                    "  block {} statements={} terminator={}\n",
+                    index,
+                    block.statements.len(),
+                    terminator
+                ));
+            }
+        }
+        for body in ir
+            .async_mir
+            .iter()
+            .chain(ir.open_generic_async_mir.iter())
+            .chain(ir.generic_async_mir.iter())
+            .chain(ir.generic_async_method_mir.iter())
+        {
+            out.push_str(&format!(
+                "async-body {} blocks={} locals={} effect={:?}\n",
+                body.name,
+                body.blocks.len(),
+                body.locals.len(),
+                body.effect
+            ));
+        }
+        for machine in ir
+            .async_state_machines
+            .iter()
+            .chain(ir.open_generic_async_state_machines.iter())
+            .chain(ir.generic_async_state_machines.iter())
+            .chain(ir.generic_async_method_state_machines.iter())
+            .chain(ir.spawn_state_machines.iter())
+        {
+            out.push_str(&format!(
+                "state-machine {} states={} frame-locals={}\n",
+                machine.function,
+                machine.states.len(),
+                machine.frame_locals.len()
+            ));
+        }
+        out
+    }
+}
 
 impl Backend for CBackend {
-    fn emit(&self, checked: &CheckedFile, opts: EmitOptions) -> String {
-        emit_c_with(checked, opts)
+    fn capabilities(&self) -> BackendCapabilities {
+        BackendCapabilities {
+            requires_complete_mir: false,
+            accepts_alpha_source: true,
+            requires_c_runtime: true,
+            supports_native_compile: true,
+        }
+    }
+
+    fn accepts_partial_mir(&self) -> bool {
+        true
+    }
+
+    fn emit(&self, program: &LoweredProgram, opts: EmitOptions) -> String {
+        emit_c_with_program(program, opts)
     }
 
     fn compile(
         &self,
-        checked: &CheckedFile,
+        program: &LoweredProgram,
         out_bin: &Path,
         runtime_c: &Path,
         options: &CompileOptions,
@@ -189,7 +458,7 @@ impl Backend for CBackend {
         let _output = options.output;
         let mut emit_opts = opts;
         emit_opts.detector = options.profile_settings.detector;
-        let c_src = self.emit(checked, emit_opts);
+        let c_src = self.emit(program, emit_opts);
         let parent = out_bin
             .parent()
             .map(Path::to_path_buf)
@@ -225,21 +494,18 @@ impl Backend for CBackend {
             command.arg("-L").arg(path);
         }
         let mut foreign_link_args = Vec::new();
-        for foreign in &checked.ast.foreign_functions {
-            let (Some(link), Some(library)) = (&foreign.link, &foreign.library) else {
-                continue;
-            };
-            match link.kind {
-                aura_ast::ForeignLinkKind::Dynamic => {
-                    foreign_link_args.push(format!("-l{}", library.name));
+        for foreign in program.foreign_libraries() {
+            match foreign.link {
+                ForeignLinkIr::Dynamic => {
+                    foreign_link_args.push(format!("-l{}", foreign.library));
                 }
-                aura_ast::ForeignLinkKind::Static if cfg!(target_os = "linux") => {
+                ForeignLinkIr::Static if cfg!(target_os = "linux") => {
                     foreign_link_args.push("-Wl,-Bstatic".into());
-                    foreign_link_args.push(format!("-l{}", library.name));
+                    foreign_link_args.push(format!("-l{}", foreign.library));
                     foreign_link_args.push("-Wl,-Bdynamic".into());
                 }
-                aura_ast::ForeignLinkKind::Static if cfg!(target_os = "macos") => {
-                    let archive_name = format!("lib{}.a", library.name);
+                ForeignLinkIr::Static if cfg!(target_os = "macos") => {
+                    let archive_name = format!("lib{}.a", foreign.library);
                     let archive = options
                         .foreign_library_paths
                         .iter()
@@ -249,7 +515,7 @@ impl Backend for CBackend {
                     foreign_link_args
                         .push(format!("-Wl,-force_load,{}", archive.to_string_lossy()));
                 }
-                aura_ast::ForeignLinkKind::Static => {}
+                ForeignLinkIr::Static => {}
             }
         }
         let status = command
@@ -275,12 +541,17 @@ impl Backend for CBackend {
 #[cfg(test)]
 mod tests {
     use std::cell::Cell;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::rc::Rc;
 
     use aura_ast::{File, Ident, Path as AstPath, Span};
+    use aura_ir::LoweredProgram;
+    use aura_parser::parse_file;
 
-    use super::{Artifact, Backend, BuildIdentity, Driver};
+    use super::{
+        Artifact, Backend, BackendBuildOptions, BackendCapabilities, BuildIdentity, Driver,
+        MirBackend,
+    };
     use crate::ctx::EmitOptions;
     use crate::error::CodegenError;
     use crate::options::CompileOptions;
@@ -317,13 +588,22 @@ mod tests {
     }
 
     impl Backend for FailingBackend {
-        fn emit(&self, _checked: &aura_sema::CheckedFile, _opts: EmitOptions) -> String {
+        fn capabilities(&self) -> BackendCapabilities {
+            BackendCapabilities {
+                requires_complete_mir: true,
+                accepts_alpha_source: false,
+                requires_c_runtime: true,
+                supports_native_compile: true,
+            }
+        }
+
+        fn emit(&self, _program: &LoweredProgram, _opts: EmitOptions) -> String {
             String::new()
         }
 
         fn compile(
             &self,
-            _checked: &aura_sema::CheckedFile,
+            _program: &LoweredProgram,
             _out_bin: &std::path::Path,
             _runtime_c: &std::path::Path,
             _options: &CompileOptions,
@@ -392,6 +672,121 @@ mod tests {
     }
 
     #[test]
+    fn strict_backend_rejects_partial_mir_before_emission() {
+        let source =
+            parse_file("package demo\nasync fun work(): Int { while (true) { break } return 1 }\n")
+                .expect("parse");
+        let driver = Driver::new(FailingBackend {
+            compile_calls: Rc::new(Cell::new(0)),
+        });
+        let error = driver
+            .emit(&source, EmitOptions::default())
+            .expect_err("strict backend must reject compatibility lowering");
+        assert!(matches!(
+            error,
+            CodegenError::Configuration(message) if message.contains("requires complete MIR")
+        ));
+    }
+
+    #[test]
+    fn mir_backend_emits_without_c_source_or_runtime() {
+        let source = parse_file(
+            "package demo\nfun touch() { }\nfun spin(flag: Bool) { while (flag) { touch() } }\n",
+        )
+        .expect("parse");
+        let output = Driver::new(MirBackend)
+            .emit(&source, EmitOptions::default())
+            .expect("MIR backend should emit");
+        assert!(output.starts_with("aura-mir version=1\npackage demo\n"));
+        assert!(output.contains("function spin"));
+        assert!(output.contains("terminator=switch"));
+        assert!(!output.contains("#include"));
+        assert!(!output.contains("aura_rt"));
+    }
+
+    #[test]
+    fn mir_backend_output_is_deterministic_for_repeated_lowering() {
+        let source = parse_file(
+            "package demo\nfun touch() { }\nfun spin(flag: Bool) { while (flag) { touch() } }\n",
+        )
+        .expect("parse");
+        let driver = Driver::new(MirBackend);
+        let first = driver
+            .emit(&source, EmitOptions::default())
+            .expect("first MIR emission");
+        let second = driver
+            .emit(&source, EmitOptions::default())
+            .expect("second MIR emission");
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn mir_backend_publishes_open_generic_async_ir_without_c_inputs() {
+        let source =
+            parse_file("package demo\nasync fun identity<T>(value: T): T { return value }\n")
+                .expect("parse");
+        let output = Driver::new(MirBackend)
+            .emit(&source, EmitOptions::default())
+            .expect("open generic MIR emission");
+        assert!(output.contains("async-body identity"));
+        assert!(output.contains("state-machine identity"));
+        assert!(!output.contains("#include"));
+        assert!(!output.contains("aura_type_erased"));
+    }
+
+    #[test]
+    fn backend_capabilities_separate_mir_and_alpha_c_requirements() {
+        let mir = MirBackend.capabilities();
+        assert!(mir.requires_complete_mir);
+        assert!(!mir.accepts_alpha_source);
+        assert!(!mir.requires_c_runtime);
+        assert!(!mir.supports_native_compile);
+
+        let c = super::CBackend.capabilities();
+        assert!(!c.requires_complete_mir);
+        assert!(c.accepts_alpha_source);
+        assert!(c.requires_c_runtime);
+        assert!(c.supports_native_compile);
+    }
+
+    #[test]
+    fn mir_backend_build_does_not_validate_c_runtime_or_compiler() {
+        let error = Driver::new(MirBackend)
+            .build(
+                &empty_file(),
+                Path::new("out"),
+                Path::new("missing-runtime.c"),
+                CompileOptions::default(),
+                EmitOptions::default(),
+            )
+            .expect_err("MIR-only backend has no native artifact path");
+        assert!(matches!(
+            error,
+                CodegenError::Configuration(message)
+                if message.contains("does not provide neutral native artifact")
+        ));
+    }
+
+    #[test]
+    fn native_backend_artifact_identity_needs_no_runtime_abi() {
+        let options = BackendBuildOptions {
+            backend: crate::options::Backend::Llvm,
+            target: crate::options::Target::Native,
+            profile: crate::options::Profile::Release,
+            optimization: crate::options::OptimizationLevel::O2,
+            debug: false,
+            lto: crate::options::Lto::Thin,
+            panic: crate::options::PanicStrategy::Abort,
+            output: crate::options::OutputKind::Executable,
+            features: vec!["mir".into()],
+        };
+        let artifact = Artifact::from_backend(PathBuf::from("aura.llvm"), &options);
+        assert_eq!(artifact.identity().backend, crate::options::Backend::Llvm);
+        assert_eq!(artifact.identity().runtime_abi, None);
+        assert_eq!(artifact.identity().features, vec!["mir"]);
+    }
+
+    #[test]
     fn identity_has_deterministic_equality_and_display() {
         let options = CompileOptions::builder()
             .backend(crate::options::Backend::C)
@@ -421,13 +816,22 @@ mod tests {
     struct IdentityBackend;
 
     impl Backend for IdentityBackend {
-        fn emit(&self, _checked: &aura_sema::CheckedFile, _opts: EmitOptions) -> String {
+        fn capabilities(&self) -> BackendCapabilities {
+            BackendCapabilities {
+                requires_complete_mir: true,
+                accepts_alpha_source: false,
+                requires_c_runtime: true,
+                supports_native_compile: true,
+            }
+        }
+
+        fn emit(&self, _program: &LoweredProgram, _opts: EmitOptions) -> String {
             String::new()
         }
 
         fn compile(
             &self,
-            _checked: &aura_sema::CheckedFile,
+            _program: &LoweredProgram,
             out_bin: &std::path::Path,
             _runtime_c: &std::path::Path,
             options: &CompileOptions,

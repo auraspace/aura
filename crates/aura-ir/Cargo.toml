@@ -1,15 +1,13 @@
 [package]
-name = "aura-codegen"
+name = "aura-ir"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Aura C backend codegen for C1 hello binaries"
+description = "Backend-neutral checked IR and lowering contracts for Aura"
 
 [dependencies]
 aura-ast.workspace = true
 aura-sema.workspace = true
-aura-ir.workspace = true
-sha2 = "0.10"
 
 [dev-dependencies]
 aura-parser.workspace = true
