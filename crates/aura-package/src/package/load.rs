@@ -165,10 +165,7 @@ pub(crate) fn load_from_manifest(
     let text = fs::read_to_string(manifest)
         .map_err(|e| format!("error: read {}: {e}", manifest.display()))?;
     let toml = parse_aura_toml(&text).map_err(|e| format!("error: {}: {e}", manifest.display()))?;
-    let root = manifest
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."));
+    let root = manifest_root(manifest);
 
     let source_root = match &toml.bin_path {
         Some(p) => root.join(p),
@@ -287,6 +284,25 @@ pub(crate) fn load_from_manifest(
         write_lock_entries(&root, &lock_entries)?;
     }
     Ok(pkg)
+}
+
+fn manifest_root(manifest: &Path) -> PathBuf {
+    manifest
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::manifest_root;
+    use std::path::Path;
+
+    #[test]
+    fn relative_manifest_without_parent_uses_current_directory() {
+        assert_eq!(manifest_root(Path::new("aura.toml")), Path::new("."));
+    }
 }
 
 /// Resolve registry deps from the index/lock, ensure cache install, and rewrite
