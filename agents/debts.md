@@ -95,6 +95,18 @@ commits, RFCs, or release notes instead of appending progress for every change.
 - Next step: define one async I/O adapter contract, then migrate file and
   network operations with pending/failure/cancellation tests.
 
+### NET-002 generated accept task path (2026-08-03)
+
+- Area: compiler-generated `std.net.accept` and listener captures
+- Symptom: runtime-native `listen`/`accept` passes, but a generated Aura flow
+  that listens, awaits `accept`, and reads a stream fails before the loopback
+  client connects; generated `connect`/`writeStream`/`closeStream` remains green.
+- Why deferred: the failure is in the generated async task/foreign-handle
+  integration rather than the POSIX listener primitive and needs a focused
+  task-state/error propagation trace.
+- Next step: expose the generated task failure payload, then add a minimal
+  listener-only generated fixture before restoring the end-to-end accept test.
+
 ### LAMBDA-001 richer captures and scheduler policy (MVP)
 
 - Area: lambdas and spawned closures
