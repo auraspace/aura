@@ -272,13 +272,14 @@ byte-oriented and do not perform Unicode normalization.
 | `Value.isObject` / `isArray` / `isString` / `isNumber` / `isBool` / `isNull` | Root-kind predicates                                                       |
 | `Value.get` / `at` / `asString` / `keys`                                     | Bounded source-backed traversal and string access                          |
 | `ParseOptions` / `DuplicateKeyPolicy` / `ParseError`                         | Locked bounds, duplicate-key, and typed-failure contract                   |
-| `parseWithOptions` / `parseResult` / `decode<T>`                             | Bounded parser outcomes and primitive/String decoding                      |
+| `parseWithOptions` / `parseResult` / `decode<T>`                             | Bounded parser outcomes and primitive/flat-class decoding                  |
 | `Value.clone` / `byteLength` / `depth`                                       | Independent clone and bounded source/tree metadata                         |
 
 `Value` exposes bounded object-member and array traversal. `ParseOptions`
 supports `maxBytes`, `maxDepth`, and explicit duplicate-key behavior (`Reject`,
-`FirstWins`, `LastWins`). Application-class mapping remains outside the current
-primitive/String decode contract.
+`FirstWins`, `LastWins`). Typed decoding currently supports primitives and flat
+application classes whose fields are `Int`, `Bool`, or `String`; nested and
+collection mapping remains outside this bounded contract.
 
 ## `std.mime`
 

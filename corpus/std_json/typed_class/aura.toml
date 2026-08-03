@@ -1,0 +1,5 @@
+name = "demo.stdjson.typedclass"
+
+[dependencies]
+std.io = { path = "../../../std/io" }
+std.json = { path = "../../../std/json" }

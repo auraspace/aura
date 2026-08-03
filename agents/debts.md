@@ -18,15 +18,15 @@ commits, RFCs, or release notes instead of appending progress for every change.
 - Next step: implement the TLS/provider and UDP foundations first, then
   add bounded streaming protocols without changing locked signatures.
 
-### API-002 data and contract placeholders (2026-07-31)
+### API-002 package-specific error adapters (2026-07-31)
 
-- Area: generic JSON mapping and package-specific errors
-- Symptom: `std.json.decode<T>` supports primitive values, while application
-  class mapping and package-owned error adapters are still incomplete.
-- Why deferred: both surfaces need an explicit ownership and construction
-  contract rather than inferring behavior from source text.
-- Next step: define the mapping contract and implement owned class decoding,
-  then add package-specific error result wrappers.
+- Area: package-specific error adapters
+- Symptom: `std.json.decode<T>` now owns bounded primitive and flat-class
+  decoding, but filesystem, DNS, and HTTP adapters do not yet expose complete
+  package-owned result wrappers.
+- Why deferred: each adapter must preserve the shared error category while
+  mapping native cleanup and package-specific context without leaking details.
+- Next step: add typed result wrappers for the remaining package boundaries.
 
 ### API-003 compiler/runtime/tooling boundary inventory (2026-07-31)
 

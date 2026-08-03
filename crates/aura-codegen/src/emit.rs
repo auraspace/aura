@@ -16302,6 +16302,114 @@ pub(crate) fn emit_fun(
     if pkg == "std.json" && f.name.name == "decode" && f.params.len() == 1 && args.len() == 1 {
         let value = mangle_ident(&f.params[0].name.name);
         let name = args[0].mono_suffix();
+        if let Some((class_name, class_args)) = match &args[0] {
+            Ty::Class(name) => Some((name.clone(), Vec::new())),
+            Ty::ClassApp { name, args } => Some((name.clone(), args.clone())),
+            _ => None,
+        } {
+            let base = aura_sema::split_nominal(&class_name).0;
+            if let Some(class) = checked.ast.classes.iter().find(|class| {
+                class.name.name == base
+                    && class_decl_package(class, checked) == aura_sema::split_nominal(&class_name).1
+            }) {
+                let params = class
+                    .type_params
+                    .iter()
+                    .map(|param| param.name.name.clone())
+                    .collect::<Vec<_>>();
+                let mono = type_mono(
+                    &class_decl_package(class, checked),
+                    &class.name.name,
+                    &class_args,
+                );
+                let ctor = c_ctor_name(&mono);
+                let mut supported = true;
+                let mut field_keys = Vec::new();
+                for field in &class.fields {
+                    let key = type_ref_local_key_expand(&field.ty, &params, &class_args, checked);
+                    if !matches!(key.as_str(), "Int" | "Bool" | "String") {
+                        supported = false;
+                    }
+                    field_keys.push((field, key));
+                }
+                if supported {
+                    out.push_str(
+                        "  if (value == NULL || !aura_json_is_valid((*value).text)) return NULL;\n",
+                    );
+                    let emit_cleanup = |out: &mut String, end: usize| {
+                        for prior in 0..=end {
+                            let prior_raw = format!("__json_field_{prior}");
+                            let _ = writeln!(out, "    free((void *){prior_raw});");
+                            if prior < end && field_keys[prior].1 == "String" {
+                                let _ = writeln!(out, "    free((void *)__json_string_{prior});");
+                            }
+                        }
+                    };
+                    for (index, (field, key)) in field_keys.iter().enumerate() {
+                        let raw = format!("__json_field_{index}");
+                        let name = field.name.name.replace('\\', "\\\\").replace('"', "\\\"");
+                        let _ = writeln!(
+                            out,
+                            "  const char *{raw} = aura_json_object_get((*{value}).text, \"{name}\");"
+                        );
+                        let _ = writeln!(out, "  if ({raw} == NULL) {{");
+                        emit_cleanup(&mut *out, index);
+                        out.push_str("    return NULL;\n  }\n");
+                        match key.as_str() {
+                            "Int" => {
+                                let _ = writeln!(
+                                    out,
+                                    "  int64_t __json_int_{index} = 0; if (!aura_json_parse_int({raw}, &__json_int_{index})) {{"
+                                );
+                                emit_cleanup(&mut *out, index);
+                                out.push_str("    return NULL;\n  }\n");
+                            }
+                            "Bool" => {
+                                let _ = writeln!(
+                                    out,
+                                    "  bool __json_bool_{index} = false; if (!aura_json_parse_bool({raw}, &__json_bool_{index})) {{"
+                                );
+                                emit_cleanup(&mut *out, index);
+                                out.push_str("    return NULL;\n  }\n");
+                            }
+                            "String" => {
+                                let _ = writeln!(
+                                    out,
+                                    "  const char *__json_string_{index} = aura_json_decode_string({raw}); if (__json_string_{index} == NULL) {{"
+                                );
+                                emit_cleanup(&mut *out, index);
+                                out.push_str("    return NULL;\n  }\n");
+                            }
+                            _ => {}
+                        }
+                    }
+                    let ctor_args = field_keys
+                        .iter()
+                        .enumerate()
+                        .map(|(index, (_, key))| match key.as_str() {
+                            "Int" => format!("__json_int_{index}"),
+                            "Bool" => format!("__json_bool_{index}"),
+                            "String" => format!("__json_string_{index}"),
+                            _ => "0".into(),
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let _ = writeln!(
+                        out,
+                        "  {c_class} *__decoded = {ctor}({ctor_args});",
+                        c_class = c_class_type(&mono)
+                    );
+                    for (index, (_, key)) in field_keys.iter().enumerate() {
+                        let _ = writeln!(out, "  free((void *)__json_field_{index});");
+                        if key == "String" {
+                            let _ = writeln!(out, "  free((void *)__json_string_{index});");
+                        }
+                    }
+                    out.push_str("  return __decoded;\n}\n");
+                    return;
+                }
+            }
+        }
         if name == "String" {
             let _ = writeln!(out, "  return aura_json_decode_string((*{value}).text);");
             out.push_str("}\n");

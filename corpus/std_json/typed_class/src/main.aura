@@ -1,0 +1,17 @@
+package demo.stdjson.typedclass
+
+import std.io
+import std.json
+
+class Config(val name: String, val enabled: Bool, val count: Int) {}
+
+fun main() {
+  val decoded = decode<Config>(Value("{\"name\":\"aura\",\"enabled\":true,\"count\":7}"))
+  if (decoded == null) { throw "typed class decode returned null" }
+  println(decoded!!.name)
+  if (decoded!!.enabled) { println("true") }
+  println(decoded!!.count.toString())
+  if (decode<Config>(Value("{\"name\":\"missing\"}")) != null) {
+    throw "typed class decode accepted a missing field"
+  }
+}
