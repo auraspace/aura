@@ -250,22 +250,51 @@ fn rvalue(value: &mir::Rvalue, body: &mir::MirBody, package: &str) -> String {
         mir::Rvalue::Length(_) | mir::Rvalue::Index { .. } | mir::Rvalue::Field { .. } => {
             "0".into()
         }
-        mir::Rvalue::Call { target, args } => format!(
-            "{}({})",
-            c_fun_name(
-                if target.package.is_empty() {
-                    package
-                } else {
-                    &target.package
-                },
-                &target.name,
-                &target.type_args,
-            ),
-            args.iter()
-                .map(|arg| place(arg, body))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+        mir::Rvalue::Call { target, args } => {
+            let rendered_args = args.iter().map(|arg| place(arg, body)).collect::<Vec<_>>();
+            match (
+                target.package.is_empty(),
+                target.name.as_str(),
+                args.as_slice(),
+            ) {
+                // These source-level builtins are lowered to runtime calls by
+                // the AST emitter; keep the MIR path consistent for primitive tests.
+                (true, "assert", [condition]) if body.locals[condition.local].ty == Ty::Bool => {
+                    format!("aura_assert({})", rendered_args[0])
+                }
+                (true, "assert_eq", [left, right])
+                    if body.locals[left.local].ty == Ty::Int
+                        && body.locals[right.local].ty == Ty::Int =>
+                {
+                    format!(
+                        "aura_assert_eq_int({}, {})",
+                        rendered_args[0], rendered_args[1]
+                    )
+                }
+                (true, "assert_eq", [left, right])
+                    if body.locals[left.local].ty == Ty::Bool
+                        && body.locals[right.local].ty == Ty::Bool =>
+                {
+                    format!(
+                        "aura_assert_eq_bool({}, {})",
+                        rendered_args[0], rendered_args[1]
+                    )
+                }
+                _ => format!(
+                    "{}({})",
+                    c_fun_name(
+                        if target.package.is_empty() {
+                            package
+                        } else {
+                            &target.package
+                        },
+                        &target.name,
+                        &target.type_args,
+                    ),
+                    rendered_args.join(", ")
+                ),
+            }
+        }
         mir::Rvalue::ConstString(_) | mir::Rvalue::ConstNull => "0".into(),
         mir::Rvalue::Intrinsic(_) => "0".into(),
         mir::Rvalue::AsyncOp(_) => "0".into(),
@@ -352,6 +381,28 @@ mod tests {
         let mut output = String::new();
         assert!(emit_function(&mut output, ir));
         assert!(output.contains("aura_fn_demo_one("));
+    }
+
+    #[test]
+    fn renders_primitive_assertions_as_runtime_calls_from_mir() {
+        let file = aura_parser::parse_file(
+            "package demo\nfun checks() { assert_eq(1, 1) assert(true) }\n",
+        )
+        .expect("parse");
+        let checked = aura_sema::check_file(&file).expect("check");
+        let program = LoweredProgram::from_checked(checked);
+        let ir = program
+            .checked()
+            .functions
+            .iter()
+            .find(|function| function.name == "checks")
+            .expect("function IR");
+        let mut output = String::new();
+        assert!(emit_function(&mut output, ir));
+        assert!(output.contains("aura_assert_eq_int("));
+        assert!(output.contains("aura_assert("));
+        assert!(!output.contains("aura_fn_demo_assert_eq("));
+        assert!(!output.contains("aura_fn_demo_assert("));
     }
 
     #[test]
