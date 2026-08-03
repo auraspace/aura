@@ -587,7 +587,8 @@ int aura_task_frame_wait_fd(AuraTaskFrame *frame, int fd, short events)
 {
   if (frame == NULL || fd < 0 || events == 0 || frame->state == AURA_TASK_COMPLETE ||
       frame->state == AURA_TASK_FAILED || frame->state == AURA_TASK_CANCELLED ||
-      frame->waiting_channel != NULL || frame->wait_target != NULL)
+      frame->waiting_channel != NULL || frame->wait_target != NULL ||
+      frame->fd_wait_active)
   {
     return 0;
   }
@@ -2105,4 +2106,3 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
 #endif
   free(frame);
 }
-

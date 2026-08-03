@@ -255,6 +255,12 @@ int aura_io_operation_handle_start(AuraIoOperationHandle *operation,
   }
   if (!aura_task_frame_wait_fd(frame, operation->fd, operation->events))
   {
+    /* A failed registration must not strand a pending handle or its resource. */
+    operation->state = AURA_IO_OPERATION_FAILED;
+    operation->result.state = AURA_IO_OPERATION_FAILED;
+    operation->result.outcome = AURA_IO_OUTCOME_ERROR;
+    operation->result.native_status = EBUSY;
+    aura_io_operation_cleanup_once(operation);
     return 0;
   }
   operation->executor = executor;
@@ -530,4 +536,3 @@ AuraFfiStatus aura_io_operation_handle_check_boundary(
   }
   return AURA_FFI_BOUNDARY_REJECTED;
 }
-

@@ -244,6 +244,60 @@ static void test_cancel_invalidates_boundary_and_cleans_once(void)
   assert(close(pipe_fds[1]) == 0);
 }
 
+static int failed_start_cleanup_count;
+
+static AuraTaskPollState poll_unused_frame(AuraTaskFrame *frame)
+{
+  (void)frame;
+  return AURA_TASK_COMPLETE;
+}
+
+static void count_failed_start_cleanup(void *resource)
+{
+  AuraFile *file = (AuraFile *)resource;
+  assert(file != NULL);
+  failed_start_cleanup_count++;
+  assert(aura_file_close(file) == AURA_FILE_OK);
+}
+
+static void test_failed_start_is_terminal_and_releasable(void)
+{
+  int pipe_fds[2];
+  AuraTaskExecutor *executor;
+  AuraTaskFrame *frame;
+  AuraFile file = {0};
+  AuraIoOperationHandle *operation;
+
+  assert(pipe(pipe_fds) == 0);
+  executor = aura_task_executor_new();
+  assert(executor != NULL);
+  frame = aura_task_frame_new(0, poll_unused_frame, NULL);
+  assert(frame != NULL);
+  file.fd = pipe_fds[0];
+  file.closed = false;
+  operation = aura_file_async_read_handle_new(&file,
+                                              count_failed_start_cleanup);
+  assert(operation != NULL);
+
+  /* Occupy the frame's only readiness slot so operation start must fail. */
+  assert(aura_task_executor_submit(executor, frame) == 1);
+  assert(aura_task_frame_wait_fd(frame, pipe_fds[1], POLLOUT) == 1);
+  assert(aura_io_operation_handle_start(operation, executor, frame) == 0);
+  assert(aura_io_operation_handle_state(operation) == AURA_IO_OPERATION_FAILED);
+  AuraIoOperationResult result = {0};
+  assert(aura_io_operation_handle_result(operation, &result) == 1);
+  assert(result.outcome == AURA_IO_OUTCOME_ERROR);
+  assert(result.native_status == EBUSY);
+  assert(failed_start_cleanup_count == 1);
+  assert(aura_io_operation_handle_release(&operation) == 1);
+  assert(operation == NULL);
+
+  aura_task_frame_clear_waiting(frame);
+  aura_task_executor_release(executor, &frame);
+  aura_task_executor_shutdown(executor);
+  assert(close(pipe_fds[1]) == 0);
+}
+
 typedef struct
 {
   AuraIoOperationHandle *operation;
@@ -491,6 +545,7 @@ int main(void)
   test_scheduler_completion_and_typed_boundary();
   test_typed_file_read_reports_eof();
   test_cancel_invalidates_boundary_and_cleans_once();
+  test_failed_start_is_terminal_and_releasable();
   test_tcp_peer_eof_is_a_typed_completion();
   test_typed_file_write_completes_and_reports_bytes();
   test_tcp_write_backpressure_resumes_to_completion();
