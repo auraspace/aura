@@ -14,6 +14,7 @@
 #include <time.h>
 #include <signal.h>
 #include <sys/stat.h>
+#include <zlib.h>
 #if defined(__unix__) || defined(__APPLE__)
 #include <dirent.h>
 #endif

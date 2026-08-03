@@ -1596,6 +1596,77 @@ const char *aura_crypto_random_bytes(int64_t length)
   for (size_t i = 0; i < n; i++) if (out[i] == 0) out[i] = 1;
   out[n]='\0';return (const char *)out; }
 
+static char *aura_binary_hex(const unsigned char *data, size_t length)
+{
+  static const char digits[] = "0123456789abcdef";
+  if (length > (SIZE_MAX - 1u) / 2u) return NULL;
+  char *out = (char *)malloc(length * 2u + 1u);
+  if (out == NULL) return NULL;
+  for (size_t i = 0; i < length; i++) { out[i * 2u] = digits[data[i] >> 4]; out[i * 2u + 1u] = digits[data[i] & 15u]; }
+  out[length * 2u] = '\0';
+  return out;
+}
+
+static int aura_hex_digit(unsigned char value)
+{
+  if (value >= '0' && value <= '9') return (int)(value - '0');
+  if (value >= 'a' && value <= 'f') return (int)(value - 'a' + 10);
+  if (value >= 'A' && value <= 'F') return (int)(value - 'A' + 10);
+  return -1;
+}
+
+const char *aura_compress_text(const char *value, int64_t codec, int64_t level)
+{
+  const unsigned char *source = (const unsigned char *)(value == NULL ? "" : value);
+  size_t source_len = strlen((const char *)source);
+  uLong bound = compressBound((uLong)source_len);
+  unsigned char *compressed = (unsigned char *)malloc((size_t)bound + 32u);
+  if (compressed == NULL) return NULL;
+  z_stream stream;
+  memset(&stream, 0, sizeof(stream));
+  int window_bits = codec == 0 ? 15 + 16 : 15;
+  int normalized_level = level < 0 ? Z_DEFAULT_COMPRESSION : (level > 9 ? 9 : (int)level);
+  if (deflateInit2(&stream, normalized_level, Z_DEFLATED, window_bits, 8, Z_DEFAULT_STRATEGY) != Z_OK) { free(compressed); return NULL; }
+  stream.next_in = (Bytef *)source; stream.avail_in = (uInt)source_len;
+  stream.next_out = compressed; stream.avail_out = (uInt)(bound + 32u);
+  int result = deflate(&stream, Z_FINISH);
+  size_t written = (size_t)stream.total_out;
+  deflateEnd(&stream);
+  if (result != Z_STREAM_END) { free(compressed); return NULL; }
+  char *encoded = aura_binary_hex(compressed, written);
+  free(compressed);
+  return encoded;
+}
+
+const char *aura_decompress_text(const char *value, int64_t codec)
+{
+  const char *encoded = value == NULL ? "" : value;
+  size_t encoded_len = strlen(encoded);
+  if ((encoded_len & 1u) != 0 || encoded_len > 128u * 1024u * 1024u) return NULL;
+  size_t compressed_len = encoded_len / 2u;
+  unsigned char *compressed = (unsigned char *)malloc(compressed_len == 0 ? 1u : compressed_len);
+  if (compressed == NULL) return NULL;
+  for (size_t i = 0; i < compressed_len; i++) { int hi = aura_hex_digit((unsigned char)encoded[i * 2u]); int lo = aura_hex_digit((unsigned char)encoded[i * 2u + 1u]); if (hi < 0 || lo < 0) { free(compressed); return NULL; } compressed[i] = (unsigned char)((hi << 4) | lo); }
+  size_t capacity = 4096u;
+  unsigned char *output = (unsigned char *)malloc(capacity + 1u);
+  if (output == NULL) { free(compressed); return NULL; }
+  z_stream stream; memset(&stream, 0, sizeof(stream));
+  int window_bits = codec == 0 ? 15 + 16 : 15;
+  if (inflateInit2(&stream, window_bits) != Z_OK) { free(compressed); free(output); return NULL; }
+  stream.next_in = compressed; stream.avail_in = (uInt)compressed_len;
+  int result = Z_OK;
+  while (result == Z_OK) {
+    if (stream.total_out == capacity) { if (capacity >= 64u * 1024u * 1024u) { result = Z_MEM_ERROR; break; } capacity *= 2u; unsigned char *grown = (unsigned char *)realloc(output, capacity + 1u); if (grown == NULL) { result = Z_MEM_ERROR; break; } output = grown; }
+    stream.next_out = output + stream.total_out; stream.avail_out = (uInt)(capacity - stream.total_out);
+    result = inflate(&stream, Z_FINISH);
+  }
+  size_t written = (size_t)stream.total_out;
+  inflateEnd(&stream); free(compressed);
+  if (result != Z_STREAM_END || written > 64u * 1024u * 1024u || memchr(output, 0, written) != NULL) { free(output); return NULL; }
+  output[written] = '\0';
+  return (const char *)output;
+}
+
 static const char *aura_fs_text(const char *path)
 {
   return path == NULL ? "" : path;

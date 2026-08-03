@@ -522,6 +522,7 @@ impl Backend for CBackend {
             .arg(&c_path)
             .arg(runtime_c)
             .args(&foreign_link_args)
+            .arg("-lz")
             .arg("-o")
             .arg(out_bin)
             .status()

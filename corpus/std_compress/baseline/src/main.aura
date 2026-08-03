@@ -1,0 +1,13 @@
+package demo.stdcompress
+
+import std.compress
+
+fun main() {
+  val source = "Aura compression stays text-safe and round-trips."
+  val gzip = compress(source, options(Gzip(), 6))
+  val deflate = compress(source, options(Deflate(), 6))
+  if (decompress(gzip, Gzip())!! != source) { throw "gzip roundtrip failed" }
+  if (decompress(deflate, Deflate())!! != source) { throw "deflate roundtrip failed" }
+  if (decompress("zz", Deflate()) != null) { throw "invalid input accepted" }
+  println("compress-ok")
+}

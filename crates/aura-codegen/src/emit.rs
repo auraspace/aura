@@ -336,6 +336,10 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str("const char *aura_crypto_sha256(const char *value);\n");
     out.push_str("const char *aura_crypto_hmac_sha256(const char *key, const char *value);\n");
     out.push_str("_Bool aura_crypto_constant_time_equals(const char *left, const char *right);\n");
+    out.push_str(
+        "const char *aura_compress_text(const char *value, int64_t codec, int64_t level);\n",
+    );
+    out.push_str("const char *aura_decompress_text(const char *value, int64_t codec);\n");
     out.push_str("const char *aura_fs_join(const char *base, const char *child);\n");
     out.push_str("const char *aura_fs_basename(const char *path);\n");
     out.push_str("const char *aura_fs_dirname(const char *path);\n");
@@ -16161,6 +16165,25 @@ pub(crate) fn emit_fun(
                 return;
             }
             _ => {}
+        }
+    }
+    if pkg == "std.compress" {
+        if f.name.name == "compress" && f.params.len() == 2 {
+            let value = mangle_ident(&f.params[0].name.name);
+            let settings = mangle_ident(&f.params[1].name.name);
+            let _ = writeln!(out, "  return aura_compress_text({value}, (int64_t)((*{settings}).codec.tag), (int64_t)((*{settings}).level));");
+            out.push_str("}\n");
+            return;
+        }
+        if f.name.name == "decompress" && f.params.len() == 2 {
+            let value = mangle_ident(&f.params[0].name.name);
+            let codec = mangle_ident(&f.params[1].name.name);
+            let _ = writeln!(
+                out,
+                "  return aura_decompress_text({value}, (int64_t){codec}.tag);"
+            );
+            out.push_str("}\n");
+            return;
         }
     }
     if pkg == "std.dns" && f.name.name == "resolveHost" && f.params.len() == 2 {

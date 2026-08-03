@@ -547,6 +547,17 @@ pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
     if is_crypto_owned {
         return true;
     }
+    let is_compress_owned = ctx
+        .checked
+        .call_instantiations
+        .get(&call.span.start)
+        .is_some_and(|inst| {
+            inst.package == "std.compress"
+                && matches!(inst.name.as_str(), "compress" | "decompress")
+        });
+    if is_compress_owned {
+        return true;
+    }
     // Do not infer ownership from a String return type alone: user functions
     // and foreign helpers may return borrowed/static storage.  Only the
     // concrete allocating primitives below establish transfer ownership.

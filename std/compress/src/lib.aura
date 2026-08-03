@@ -1,4 +1,4 @@
-// std.compress -- alpha API shell for bounded streaming compression.
+// std.compress -- bounded text compression.
 
 package std.compress
 
@@ -14,9 +14,9 @@ pub fun options(codec: Codec, level: Int): Options {
 }
 
 pub fun compress(value: String, settings: Options): String {
-  throw "std.compress compress is a placeholder"
+  throw "std.compress compress intrinsic"
 }
 
-pub fun decompress(value: String, codec: Codec): String {
-  throw "std.compress decompress is a placeholder"
+pub fun decompress(value: String, codec: Codec): String? {
+  throw "std.compress decompress intrinsic"
 }
