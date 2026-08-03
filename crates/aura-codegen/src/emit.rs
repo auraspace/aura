@@ -332,6 +332,10 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
         "const char *aura_bytes_slice(const char *value, int64_t start, int64_t length);\n",
     );
     out.push_str("_Bool aura_bytes_equals(const char *left, const char *right);\n");
+    out.push_str("const char *aura_crypto_random_bytes(int64_t length);\n");
+    out.push_str("const char *aura_crypto_sha256(const char *value);\n");
+    out.push_str("const char *aura_crypto_hmac_sha256(const char *key, const char *value);\n");
+    out.push_str("_Bool aura_crypto_constant_time_equals(const char *left, const char *right);\n");
     out.push_str("const char *aura_fs_join(const char *base, const char *child);\n");
     out.push_str("const char *aura_fs_basename(const char *path);\n");
     out.push_str("const char *aura_fs_dirname(const char *path);\n");
@@ -16116,6 +16120,44 @@ pub(crate) fn emit_fun(
                 let a = mangle_ident(&f.params[0].name.name);
                 let _ = writeln!(out, "  aura_exit({a});");
                 out.push_str("}\n");
+                return;
+            }
+            _ => {}
+        }
+    }
+    if pkg == "std.crypto" {
+        match (f.name.name.as_str(), f.params.len()) {
+            ("randomBytes", 1) => {
+                let length = mangle_ident(&f.params[0].name.name);
+                let _ = writeln!(out, "  return aura_crypto_random_bytes({length});");
+                out.push_str("}\n");
+                return;
+            }
+            ("constantTimeEquals", 2) => {
+                let left = mangle_ident(&f.params[0].name.name);
+                let right = mangle_ident(&f.params[1].name.name);
+                let _ = writeln!(
+                    out,
+                    "  return aura_crypto_constant_time_equals({left}, {right});"
+                );
+                out.push_str("}\n");
+                return;
+            }
+            ("sha256", 1) => {
+                let value = mangle_ident(&f.params[0].name.name);
+                out.push_str("  const char *__hex = aura_crypto_sha256(");
+                out.push_str(&value);
+                out.push_str(");\n  return aura_new_std_crypto_Digest(\"SHA-256\", __hex);\n}\n");
+                return;
+            }
+            ("hmacSha256", 2) => {
+                let key = mangle_ident(&f.params[0].name.name);
+                let value = mangle_ident(&f.params[1].name.name);
+                let _ = writeln!(
+                    out,
+                    "  const char *__hex = aura_crypto_hmac_sha256({key}, {value});"
+                );
+                out.push_str("  return aura_new_std_crypto_Digest(\"HMAC-SHA-256\", __hex);\n}\n");
                 return;
             }
             _ => {}

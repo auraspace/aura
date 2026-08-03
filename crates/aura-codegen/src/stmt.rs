@@ -537,6 +537,16 @@ pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
     if is_json_owned {
         return true;
     }
+    let is_crypto_owned = ctx
+        .checked
+        .call_instantiations
+        .get(&call.span.start)
+        .is_some_and(|inst| {
+            inst.package == "std.crypto" && matches!(inst.name.as_str(), "randomBytes")
+        });
+    if is_crypto_owned {
+        return true;
+    }
     // Do not infer ownership from a String return type alone: user functions
     // and foreign helpers may return borrowed/static storage.  Only the
     // concrete allocating primitives below establish transfer ownership.

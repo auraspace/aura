@@ -229,14 +229,14 @@ also invalidation-checked.
 Shared non-throwing error surface used by filesystem, OS, DNS, network, and
 HTTP adapters.
 
-| API                                                  | Contract                                                                                                                                                                                          |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ErrorKind`                                          | RFC names: `InvalidInput`, `Unsupported`, `NotFound`, `PermissionDenied`, `WouldBlock`, `TimedOut`, `Cancelled`, `Disconnected`, `LimitExceeded`, `Protocol`, `System` plus legacy alpha variants |
-| `Error(kind, message, code)`                         | Owned error payload; `isRetryable()` identifies transient I/O/network/timeout failures                                                                                                            |
-| `protocol` / `network` / `transport` / `invalidInput` / `notFound` | Error constructors; `transport` classifies timeout, cancellation, and peer-close diagnostics |
-| `kindCode(code)`                                     | Map a native status code to the stable category number                                                                                                                                            |
-| `Outcome<T,E>`                                       | `OutcomeOk(value)` or `OutcomeErr(error)`                                                                                                                                                         |
-| `success` / `failure` / `isSuccess`                  | Import-safe outcome constructors and inspection                                                                                                                                                   |
+| API                                                                | Contract                                                                                                                                                                                          |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ErrorKind`                                                        | RFC names: `InvalidInput`, `Unsupported`, `NotFound`, `PermissionDenied`, `WouldBlock`, `TimedOut`, `Cancelled`, `Disconnected`, `LimitExceeded`, `Protocol`, `System` plus legacy alpha variants |
+| `Error(kind, message, code)`                                       | Owned error payload; `isRetryable()` identifies transient I/O/network/timeout failures                                                                                                            |
+| `protocol` / `network` / `transport` / `invalidInput` / `notFound` | Error constructors; `transport` classifies timeout, cancellation, and peer-close diagnostics                                                                                                      |
+| `kindCode(code)`                                                   | Map a native status code to the stable category number                                                                                                                                            |
+| `Outcome<T,E>`                                                     | `OutcomeOk(value)` or `OutcomeErr(error)`                                                                                                                                                         |
+| `success` / `failure` / `isSuccess`                                | Import-safe outcome constructors and inspection                                                                                                                                                   |
 
 ## `std.bytes`
 
@@ -318,17 +318,17 @@ interfaces or `"[::]:8080"` for IPv6. Handles are owned
 `ForeignHandle<Int>` resources and async operations preserve them across
 suspension.
 
-| API                                                 | Contract                                                                                         |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| API                                                 | Contract                                                                     |
+| --------------------------------------------------- | ---------------------------------------------------------------------------- |
 | `listen(endpoint)` / `connect(endpoint, timeoutMs)` | Legacy throwing handles; `endpoint` is `PORT`, `HOST:PORT`, or `[IPv6]:PORT` |
-| `listenResult` / `connectResult`                         | Typed `Outcome` wrappers returning owned handles or `NetError` |
-| `accept(listener)`                                  | Async accepted-stream operation                                                                  |
-| `closeListener` / `closeStream`                     | Idempotent terminal close operations                                                             |
-| `closeListenerResult` / `closeStreamResult`         | Typed `Outcome<Bool, NetError>` compatibility wrappers                                            |
-| `readStream(stream, capacity)`                      | Async single-chunk read; empty string means EOF                                                  |
-| `readAllStream(stream, capacity)`                   | Async read-until-EOF bounded by aggregate capacity                                               |
-| `writeStream(stream, content)`                      | Async complete write; returns transferred byte count                                             |
-| `readStreamResult` / `writeStreamResult`            | Shared `std.error.Outcome` wrappers                                                              |
+| `listenResult` / `connectResult`                    | Typed `Outcome` wrappers returning owned handles or `NetError`               |
+| `accept(listener)`                                  | Async accepted-stream operation                                              |
+| `closeListener` / `closeStream`                     | Idempotent terminal close operations                                         |
+| `closeListenerResult` / `closeStreamResult`         | Typed `Outcome<Bool, NetError>` compatibility wrappers                       |
+| `readStream(stream, capacity)`                      | Async single-chunk read; empty string means EOF                              |
+| `readAllStream(stream, capacity)`                   | Async read-until-EOF bounded by aggregate capacity                           |
+| `writeStream(stream, content)`                      | Async complete write; returns transferred byte count                         |
+| `readStreamResult` / `writeStreamResult`            | Shared `std.error.Outcome` wrappers                                          |
 
 ## `std.dns`
 
@@ -354,21 +354,21 @@ Bounded HTTP/1.1 values and loopback client/server helpers built on
 `std.net`. Server handlers receive scoped `Request` and `Response` objects;
 raw foreign handles remain package-private.
 
-| API                                                             | Contract                                              |
-| --------------------------------------------------------------- | ----------------------------------------------------- |
-| `Handler`                                                       | `(Request, Response) -> Task<Unit>` handler type      |
-| `serveConnection` / `serve`                                     | Async bounded HTTP server entry points                |
-| `get` / `post`                                                  | Async raw response helpers for loopback servers       |
-| `ClientResponse(status, body)`                                  | Parsed bounded response value                         |
-| `getResponse` / `postResponse`                                  | Raw client helpers returning `ClientResponse`         |
-| `getResponseResult` / `postResponseResult`                      | Typed response helpers returning `std.error.Outcome`, including transport failures |
-| `Request.method` / `target` / `version`                         | Request-line fields                                   |
-| `Request.headerCount` / `headerName` / `headerValue`            | Bounded header snapshot access                        |
-| `Request.body` / `bodyReader`                                   | Body snapshot or single-reader body adapter           |
+| API                                                             | Contract                                                                                           |
+| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `Handler`                                                       | `(Request, Response) -> Task<Unit>` handler type                                                   |
+| `serveConnection` / `serve`                                     | Async bounded HTTP server entry points                                                             |
+| `get` / `post`                                                  | Async raw response helpers for loopback servers                                                    |
+| `ClientResponse(status, body)`                                  | Parsed bounded response value                                                                      |
+| `getResponse` / `postResponse`                                  | Raw client helpers returning `ClientResponse`                                                      |
+| `getResponseResult` / `postResponseResult`                      | Typed response helpers returning `std.error.Outcome`, including transport failures                 |
+| `Request.method` / `target` / `version`                         | Request-line fields                                                                                |
+| `Request.headerCount` / `headerName` / `headerValue`            | Bounded header snapshot access                                                                     |
+| `Request.body` / `bodyReader`                                   | Body snapshot or single-reader body adapter                                                        |
 | `RequestBody.readChunk`                                         | Async bounded single-reader chunk read; claim is held across suspension and empty string means EOF |
-| `Response.status` / `keepAlive`                                 | Inspect response state                                |
-| `Response.setStatus` / `setKeepAlive` / `setBody` / `addHeader` | Configure response before commit                      |
-| `Response.writeChunk`                                           | Async chunked response write; commits on first call   |
+| `Response.status` / `keepAlive`                                 | Inspect response state                                                                             |
+| `Response.setStatus` / `setKeepAlive` / `setBody` / `addHeader` | Configure response before commit                                                                   |
+| `Response.writeChunk`                                           | Async chunked response write; commits on first call                                                |
 
 ## `std.stream`
 
@@ -453,14 +453,13 @@ false instead of blocking an async worker.
 | `assert(condition)`                                            | Fail the current test when false  |
 | `assertTrue` / `assertEqual` / `assertNotNull` / `assertFails` | RFC-011 canonical test assertions |
 
-## `std.crypto` (placeholder)
+## `std.crypto`
 
-The alpha contract reserves `Digest`, `TlsConfig`, `TlsConnection`,
-`randomBytes`, `sha256`, `hmacSha256`, `constantTimeEquals`, and
-`connectTls`. The declarations are source-compatible placeholders; every
-cryptographic or TLS operation currently throws an explicit placeholder error.
-No security guarantee should be inferred from this package until a verified
-backend lands.
+The alpha contract provides `Digest`, `TlsConfig`, `TlsConnection`,
+`randomBytes`, `sha256`, `hmacSha256`, and `constantTimeEquals`. Randomness,
+SHA-256, HMAC-SHA256, and constant-time comparison are backed by the native
+runtime. `connectTls` and the `TlsConnection` methods still require a
+verified platform TLS provider.
 
 ## `std.reflect` (placeholder)
 

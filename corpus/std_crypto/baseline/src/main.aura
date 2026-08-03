@@ -1,0 +1,16 @@
+package demo.stdcrypto
+
+import std.crypto as Crypto
+
+fun main() {
+  val digest = Crypto.sha256("abc")
+  if (digest.algorithm != "SHA-256") { throw "bad algorithm" }
+  if (digest.hex != "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") { throw "bad sha256" }
+  val mac = Crypto.hmacSha256("key", "The quick brown fox jumps over the lazy dog")
+  if (mac.hex != "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8") { throw "bad hmac" }
+  if (!Crypto.constantTimeEquals("same", "same")) { throw "bad compare" }
+  if (Crypto.constantTimeEquals("same", "different")) { throw "bad compare mismatch" }
+  val random = Crypto.randomBytes(16)
+  if (random.len != 16) { throw "bad random length" }
+  println("crypto-ok")
+}

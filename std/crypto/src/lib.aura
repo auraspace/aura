@@ -1,7 +1,7 @@
-// std.crypto -- alpha API shell for cryptographic primitives.
+// std.crypto -- bounded cryptographic primitives and TLS contract.
 //
 // The names and value shapes are locked in the alpha contract. Operations
-// intentionally fail until a verified platform backend is selected.
+// TLS remains provider-backed; hash/random primitives are compiler intrinsics.
 
 package std.crypto
 
@@ -30,19 +30,19 @@ pub class TlsConnection(pub val endpoint: String) {
 }
 
 pub fun randomBytes(length: Int): String {
-  throw "std.crypto randomBytes is a placeholder"
+  throw "std.crypto randomBytes intrinsic"
 }
 
 pub fun sha256(value: String): Digest {
-  throw "std.crypto sha256 is a placeholder"
+  throw "std.crypto sha256 intrinsic"
 }
 
 pub fun hmacSha256(key: String, value: String): Digest {
-  throw "std.crypto hmacSha256 is a placeholder"
+  throw "std.crypto hmacSha256 intrinsic"
 }
 
 pub fun constantTimeEquals(left: String, right: String): Bool {
-  throw "std.crypto constantTimeEquals is a placeholder"
+  throw "std.crypto constantTimeEquals intrinsic"
 }
 
 pub fun tlsConfig(serverName: String, verifyPeer: Bool): TlsConfig {

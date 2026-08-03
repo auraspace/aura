@@ -75,5 +75,16 @@ int main(void)
   assert(aura_json_duplicate_key("{\"x\":1,\"y\":2}") == NULL);
   assert(aura_url_is_origin_form("/health"));
   assert(aura_mime_is_valid_type("text/plain"));
+  const char *sha = aura_crypto_sha256("abc");
+  assert(sha != NULL && strcmp(sha, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad") == 0);
+  free_result(sha);
+  const char *hmac = aura_crypto_hmac_sha256("key", "The quick brown fox jumps over the lazy dog");
+  assert(hmac != NULL && strcmp(hmac, "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8") == 0);
+  free_result(hmac);
+  assert(aura_crypto_constant_time_equals("same", "same"));
+  assert(!aura_crypto_constant_time_equals("same", "different"));
+  const char *random = aura_crypto_random_bytes(32);
+  assert(random != NULL && strlen(random) == 32);
+  free_result(random);
   return 0;
 }
