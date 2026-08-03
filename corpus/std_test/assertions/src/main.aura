@@ -8,5 +8,12 @@ fun main() {
   assertEqInt(2 + 2, 4)
   assertEqString("ok", "ok")
   assertEqBool(true, true)
+  assertTrue(1 < 2)
+  assertEqual(3, 3)
+  assertNotNull("present")
+  assertFails(() => { throw "expected" })
+  property("stable", 2, () => true)
+  benchmark("smoke", () => { })
+  snapshot("smoke", "value")
   Io.println("tests-ok")
 }

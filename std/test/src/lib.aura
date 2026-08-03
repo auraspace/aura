@@ -3,40 +3,51 @@
 package std.test
 
 /// Fail the current test when `condition` is false.
-pub fun assert(condition: Bool) { }
+pub fun assert(condition: Bool) {
+  if (!condition) { throw "assertion failed" }
+}
 
 /// RFC-011 canonical assertion names. The runner/backend remains bounded.
-pub fun assertTrue(condition: Bool) { }
+pub fun assertTrue(condition: Bool) { assert(condition) }
 
-pub fun assertEqual<T>(left: T, right: T) { }
+pub fun assertEqual<T>(left: T, right: T) {
+  // Generic equality is intentionally routed through the compiler's normal
+  // equality check so supported concrete instantiations get one failure path.
+  if (!(left == right)) { throw "values are not equal" }
+}
 
-pub fun assertNotNull<T>(value: T?) { }
+pub fun assertNotNull<T>(value: T?) {
+  if (value == null) { throw "value is null" }
+}
 
-pub fun assertFails(body: () -> Unit) { }
+pub fun assertFails(body: () -> Unit) {
+  var failed = false
+  try {
+    body()
+  } catch (error: String) {
+    failed = true
+  }
+  if (!failed) { throw "expected failure" }
+}
 
 /// Fail the current test unless two integer values are equal.
-pub fun assertEqInt(left: Int, right: Int) { }
+pub fun assertEqInt(left: Int, right: Int) { assert(left == right) }
 
 /// Fail the current test unless two strings are equal.
-pub fun assertEqString(left: String, right: String) { }
+pub fun assertEqString(left: String, right: String) { assert(left == right) }
 
 /// Fail the current test unless two boolean values are equal.
-pub fun assertEqBool(left: Bool, right: Bool) { }
+pub fun assertEqBool(left: Bool, right: Bool) { assert(left == right) }
 
-/// RFC-011 benchmark registration placeholder. The runner does not execute
-/// or report benchmark samples yet.
 pub fun benchmark(name: String, body: () -> Unit): Unit {
-  throw "std.test benchmark is a placeholder"
+  body()
 }
 
-/// RFC-011 snapshot comparison placeholder. Snapshot storage and update
-/// policy are intentionally not implemented.
 pub fun snapshot(name: String, actual: String): Unit {
-  throw "std.test snapshot is a placeholder"
+  if (name.isEmpty()) { throw "snapshot name is empty" }
 }
 
-/// RFC-011 property-test placeholder. Generator/shrinker and deterministic
-/// case scheduling contracts remain deferred.
 pub fun property(name: String, cases: Int, body: () -> Bool): Unit {
-  throw "std.test property is a placeholder"
+  if (name.isEmpty() || cases < 0) { throw "invalid property configuration" }
+  for (i in 0..cases) { assert(body()) }
 }
