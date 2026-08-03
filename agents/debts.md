@@ -20,13 +20,13 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 ### API-002 data and contract placeholders (2026-07-31)
 
-- Area: shared errors
-- Symptom: package-specific errors are incomplete. Bounded JSON traversal,
-  duplicate-key rejection, and the std.test assertion/smoke helpers are
-  implemented.
-- Why deferred: the ownership, duplicate-key, depth/size, and metadata rules
-  need one coherent RFC/runtime pass.
-- Next step: implement package-specific error APIs.
+- Area: generic JSON mapping and package-specific errors
+- Symptom: `std.json.decode<T>` supports primitive values, while application
+  class mapping and package-owned error adapters are still incomplete.
+- Why deferred: both surfaces need an explicit ownership and construction
+  contract rather than inferring behavior from source text.
+- Next step: define the mapping contract and implement owned class decoding,
+  then add package-specific error result wrappers.
 
 ### API-003 compiler/runtime/tooling boundary inventory (2026-07-31)
 

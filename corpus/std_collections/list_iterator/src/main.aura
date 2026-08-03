@@ -1,0 +1,16 @@
+package demo.stdcollections.listiterator
+
+import std.collections
+import std.io
+
+fun main() {
+  val values = listOf(1, 2, 3)
+  val snapshot = values.iterator()
+  values.push(4)
+  if (snapshot.len() != 3) { throw "list iterator changed after mutation" }
+  if (snapshot.get(2) != 3) { throw "list iterator lost snapshot value" }
+  val copied = values.toArray()
+  copied.set(0, 99)
+  if (values.get(0) != 1) { throw "list array snapshot aliases source" }
+  println("list iterator ok")
+}

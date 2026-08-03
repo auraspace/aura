@@ -10,6 +10,12 @@ pub interface Iterable<E> {
   fun get(i: Int): E
 }
 
+/// Read-only snapshot iterator over a List.
+pub class ListIterator<T>(val items: Array<T>) : Iterable<T> {
+  pub fun len(): Int { return this.items.len }
+  pub fun get(index: Int): T { return this.items.get(index) }
+}
+
 /// Growable list backed by the compiler's owning Array<T> storage.
 pub class List<T>(private val items: Array<T>) : Iterable<T> {
   pub static fun of(first: T, second: T, third: T): List<T> {
@@ -27,6 +33,16 @@ pub class List<T>(private val items: Array<T>) : Iterable<T> {
   pub fun push(value: T): Unit { this.items.push(value) }
   pub fun pop(): T { return this.items.pop() }
   pub fun clear(): Unit { this.items.clear() }
+
+  /// Return a read-only snapshot unaffected by later list mutation.
+  pub fun iterator(): ListIterator<T> {
+    return ListIterator<T>(this.items.clone())
+  }
+
+  /// Return an independent array snapshot of the list contents.
+  pub fun toArray(): Array<T> {
+    return this.items.clone()
+  }
 
   pub fun map<R>(f: (T) -> R): List<R> {
     val result = List<R>(Array<R>(0))

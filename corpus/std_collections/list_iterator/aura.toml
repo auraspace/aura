@@ -1,0 +1,5 @@
+name = "demo.stdcollections.listiterator"
+
+[dependencies]
+std.collections = { path = "../../../std/collections" }
+std.io = { path = "../../../std/io" }
