@@ -151,6 +151,7 @@ struct AuraTaskFrame
   int join_observed;
   int failure_reported;
   int queued;
+  int inline_parked;
   AuraTaskExecutor *executor;
   AuraTaskFrame *queue_next;
   AuraTaskFrame *owned_next;

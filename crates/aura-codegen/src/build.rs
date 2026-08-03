@@ -1764,6 +1764,120 @@ fun main() {{
     }
 
     #[test]
+    fn builds_and_runs_std_net_listen_close_flow() {
+        let reservation = TcpListener::bind("127.0.0.1:0").expect("reserve loopback port");
+        let port = reservation
+            .local_addr()
+            .expect("read reserved loopback port")
+            .port();
+        drop(reservation);
+
+        let source = format!(
+            r#"package std.net
+fun listen(endpoint: String): ForeignHandle<Int> {{ throw "intrinsic" }}
+fun closeListener(listener: ForeignHandle<Int>): Bool {{ throw "intrinsic" }}
+fun main() {{
+  val listener: ForeignHandle<Int> = listen("127.0.0.1:{port}")
+  closeListener(listener)
+}}
+"#
+        );
+        let file = aura_parser::parse_file(&source).expect("parse std.net listen flow");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-std-net-listen-flow-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile std.net listen flow");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run std.net listen flow");
+        assert!(
+            output.status.success(),
+            "std.net listen flow failed: {output:?}"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_std_net_accept_close_flow() {
+        let reservation = TcpListener::bind("127.0.0.1:0").expect("reserve loopback port");
+        let port = reservation
+            .local_addr()
+            .expect("read reserved loopback port")
+            .port();
+        drop(reservation);
+
+        let source = format!(
+            r#"package std.net
+fun listen(endpoint: String): ForeignHandle<Int> {{ throw "intrinsic" }}
+async fun accept(listener: ForeignHandle<Int>): ForeignHandle<Int> {{ throw "intrinsic" }}
+fun closeListener(listener: ForeignHandle<Int>): Bool {{ throw "intrinsic" }}
+fun closeStream(stream: ForeignHandle<Int>): Bool {{ throw "intrinsic" }}
+async fun readStream(stream: ForeignHandle<Int>, capacity: Int): String {{ return "" }}
+fun main() {{
+  val listener: ForeignHandle<Int> = listen("127.0.0.1:{port}")
+  val task = spawn {{
+    val stream: ForeignHandle<Int> = await accept(listener)
+    val payload: String = await readStream(stream, 2)
+    if (payload.len != 2) {{ throw "bad payload" }}
+    closeStream(stream)
+    return
+  }}
+  join(task)
+  closeListener(listener)
+}}
+"#
+        );
+        let file = aura_parser::parse_file(&source).expect("parse std.net accept flow");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-std-net-accept-close-flow-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile std.net accept flow");
+        let process = Command::new(&bin)
+            .spawn()
+            .expect("start std.net accept flow");
+        let address = format!("127.0.0.1:{port}");
+        let client = thread::spawn(move || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            loop {
+                match std::net::TcpStream::connect(&address) {
+                    Ok(mut stream) => {
+                        stream.write_all(b"g5").expect("send std.net read payload");
+                        return;
+                    }
+                    Err(error) if std::time::Instant::now() < deadline => {
+                        let _ = error;
+                        thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("connect std.net accept client: {error}"),
+                }
+            }
+        });
+        let output = process
+            .wait_with_output()
+            .expect("wait std.net accept flow");
+        assert!(
+            output.status.success(),
+            "std.net accept flow failed: {output:?}"
+        );
+        client.join().expect("join std.net accept client");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn compiles_std_http_typed_borrowed_request_response_accessors() {
         let file = aura_parser::parse_file(
             r#"package std.http

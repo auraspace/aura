@@ -253,15 +253,17 @@ static int aura_io_operation_ready(AuraTaskFrame *frame, short revents);
 
 #if defined(AURA_TCP_POSIX)
 #define AURA_TASK_MAX_WORKERS ((size_t)64)
+#endif
 static void aura_task_executor_finish_poll_unlocked(
     AuraTaskExecutor *executor, AuraTaskFrame *frame, AuraTaskPollState state);
-#endif
 
 int aura_task_executor_wake(AuraTaskExecutor *executor, AuraTaskFrame *frame);
 int aura_task_executor_cancel(AuraTaskExecutor *executor, AuraTaskFrame *frame);
 static void aura_task_channel_cancel_wait(AuraTaskFrame *frame);
 static void aura_task_select_cancel_wait(AuraTaskFrame *frame);
 static int aura_task_executor_wake_unlocked(AuraTaskExecutor *executor,
+                                            AuraTaskFrame *frame);
+static void aura_task_executor_remove_ready(AuraTaskExecutor *executor,
                                             AuraTaskFrame *frame);
 
 static void aura_task_scope_adopt(AuraTaskFrame *frame)
@@ -1131,8 +1133,49 @@ static AuraTaskFrame *aura_task_executor_pop_ready_unlocked(
   }
   frame->queue_next = NULL;
   frame->queued = 0;
+  frame->inline_parked = 0;
   executor->ready_count--;
   return frame;
+}
+
+static void aura_task_executor_remove_ready(AuraTaskExecutor *executor,
+                                            AuraTaskFrame *frame)
+{
+  AuraTaskFrame **link;
+  if (executor == NULL || frame == NULL || !frame->queued)
+  {
+    return;
+  }
+  aura_task_executor_lock(executor);
+  link = &executor->ready_head;
+  while (*link != NULL && *link != frame)
+  {
+    link = &(*link)->queue_next;
+  }
+  if (*link == frame)
+  {
+    *link = frame->queue_next;
+    if (executor->ready_tail == frame)
+    {
+      executor->ready_tail = NULL;
+      if (executor->ready_head != NULL)
+      {
+        AuraTaskFrame *tail = executor->ready_head;
+        while (tail->queue_next != NULL)
+        {
+          tail = tail->queue_next;
+        }
+        executor->ready_tail = tail;
+      }
+    }
+    frame->queue_next = NULL;
+    frame->queued = 0;
+    if (executor->ready_count != 0)
+    {
+      executor->ready_count--;
+    }
+  }
+  aura_task_executor_unlock(executor);
 }
 
 static void aura_task_executor_finish_poll_unlocked(
@@ -1171,6 +1214,51 @@ static void aura_task_executor_finish_poll_unlocked(
     (void)aura_race_tracker_record(executor->race_tracker, frame->task_id, 0,
                                    frame->race_source_id, kind, NULL);
   }
+}
+
+AuraTaskPollState aura_task_executor_poll_inline(AuraTaskExecutor *executor,
+                                                 AuraTaskFrame *frame)
+{
+  AuraTaskPollState state;
+  int was_queued;
+
+  if (executor == NULL || frame == NULL || frame->executor != executor)
+  {
+    return AURA_TASK_FAILED;
+  }
+  was_queued = frame->queued;
+  aura_task_executor_remove_ready(executor, frame);
+  state = aura_task_frame_poll_once(frame);
+  if (state == AURA_TASK_PENDING)
+  {
+    frame->inline_parked = 1;
+  }
+  aura_task_executor_lock(executor);
+  if (state == AURA_TASK_READY)
+  {
+    (void)aura_task_executor_wake_unlocked(executor, frame);
+  }
+  /* Existing generated result paths may transfer a shallow result and then
+   * release the child. Keep an inline terminal child scheduler-owned until
+   * the next executor turn, matching the normal queued-poll ownership window. */
+  if (was_queued && state == AURA_TASK_COMPLETE && !frame->queued &&
+      frame->executor == executor)
+  {
+    frame->queue_next = NULL;
+    if (executor->ready_tail == NULL)
+    {
+      executor->ready_head = frame;
+    }
+    else
+    {
+      executor->ready_tail->queue_next = frame;
+    }
+    executor->ready_tail = frame;
+    executor->ready_count++;
+    frame->queued = 1;
+  }
+  aura_task_executor_unlock(executor);
+  return state;
 }
 
 #if defined(AURA_TCP_POSIX)
@@ -1661,6 +1749,10 @@ int aura_task_executor_release(AuraTaskExecutor *executor, AuraTaskFrame **handl
     *handle = NULL;
     return 1;
   }
+  if (frame->inline_parked)
+  {
+    return 0;
+  }
   if (frame->payload_refs != 0)
   {
     /* A task moved through a scheduler payload has two owners: its original
@@ -1969,4 +2061,3 @@ void aura_task_executor_shutdown(AuraTaskExecutor *executor)
   aura_reactor_destroy(executor->reactor);
   free(executor);
 }
-
