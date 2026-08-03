@@ -9,4 +9,7 @@ fun main() {
   println(ys.get(2))
   val zs = listOf("a", "b", "c")
   println(zs.len().toString())
+  var total = 0
+  for (item in xs) { total = total + item }
+  if (total != 6) { throw "list iterable failed" }
 }

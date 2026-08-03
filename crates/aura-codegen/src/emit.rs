@@ -111,7 +111,11 @@ fn emit_channel_value_drop_helpers(out: &mut String, checked: &CheckedFile) {
         }
         let cty = crate::stmt::local_key_to_c(&key, checked);
         let callback = crate::names::c_channel_drop_name(&key);
-        let drop = format!("{cty}_drop");
+        let drop = if cty == "AuraTypeErasedValue" {
+            "aura_type_erased_drop".to_owned()
+        } else {
+            format!("{cty}_drop")
+        };
         let _ = writeln!(out, "static void {callback}(void *data, size_t size) {{");
         out.push_str("  (void)size;\n");
         if is_fun_type_key(&key) {

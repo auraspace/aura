@@ -20,15 +20,14 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 ### API-002 data and contract placeholders (2026-07-31)
 
-- Area: `std.collections.List<T>`, shared errors, reflection member type metadata
-- Symptom: List iterator semantics, package-specific errors, and reflection member type metadata
+- Area: shared errors, reflection member type metadata
+- Symptom: package-specific errors and reflection member type metadata
   are incomplete. Bounded JSON traversal,
   duplicate-key rejection, and the std.test assertion/smoke helpers are
   implemented.
 - Why deferred: the ownership, duplicate-key, depth/size, and metadata rules
   need one coherent RFC/runtime pass.
-- Next step: implement List iterators, then emit member type strings and
-  package-specific error APIs.
+- Next step: emit member type strings and package-specific error APIs.
 
 ### API-003 compiler/runtime/tooling boundary inventory (2026-07-31)
 

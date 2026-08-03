@@ -2,8 +2,16 @@
 // C14: Hashable + one generic open-addressing HashMap<K, V>.
 package std.collections
 
+/// Minimal indexed iteration contract used by `for-in` lowering.
+pub interface Iterable<E> {
+  /// Return the number of elements exposed by the iterable.
+  fun len(): Int
+  /// Return the element at logical index `i`.
+  fun get(i: Int): E
+}
+
 /// Growable list backed by the compiler's owning Array<T> storage.
-pub class List<T>(private val items: Array<T>) {
+pub class List<T>(private val items: Array<T>) : Iterable<T> {
   pub static fun of(first: T, second: T, third: T): List<T> {
     val result = List<T>(Array<T>(0))
     result.push(first)
@@ -36,14 +44,6 @@ pub fun listOf<T>(first: T, second: T, third: T): List<T> {
 
 pub fun list<T>(): List<T> {
   return List<T>(Array<T>(0))
-}
-
-/// Minimal indexed iteration contract used by `for-in` lowering.
-pub interface Iterable<E> {
-  /// Return the number of elements exposed by the iterable.
-  fun len(): Int
-  /// Return the element at logical index `i`.
-  fun get(i: Int): E
 }
 
 /// Hash protocol. Int and String have compiler-backed implementations.
