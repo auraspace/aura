@@ -55,3 +55,22 @@ pub fun writeTextResult(path: String, content: String): FsErrs.Outcome<Bool, FsE
   }
   return FsErrs.success(true)
 }
+
+/// Return file metadata through the package-owned error boundary. Mode zero
+/// is reserved for a missing path or an unreadable metadata query.
+pub fun fileModeResult(path: String): FsErrs.Outcome<Int, FsErrs.OsError> {
+  val mode = fileMode(path)
+  if (mode == 0) {
+    return FsErrs.failure(FsErrs.asOsError(FsErrs.notFound("metadata lookup failed", 0)))
+  }
+  return FsErrs.success(mode)
+}
+
+/// Return directory names without exposing the runtime's nullable snapshot.
+pub fun listNamesResult(path: String): FsErrs.Outcome<String, FsErrs.OsError> {
+  val names = listNames(path)
+  if (fileMode(path) != 2) {
+    return FsErrs.failure(FsErrs.asOsError(FsErrs.notFound("directory listing failed", 0)))
+  }
+  return FsErrs.success(names)
+}

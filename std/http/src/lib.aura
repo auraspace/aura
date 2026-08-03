@@ -101,6 +101,24 @@ pub async fun postResponseResult(endpoint: String, target: String, body: String)
   }
 }
 
+/// Typed raw GET result for callers that need headers or an unparsed body.
+pub async fun getResult(endpoint: String, target: String): Errs.Outcome<String, Errs.HttpError> {
+  try {
+    return Errs.success(await get(endpoint, target))
+  } catch (error: String) {
+    return Errs.failure(Errs.asHttpError(Errs.transport(error, 0)))
+  }
+}
+
+/// Typed raw POST result for callers that need headers or an unparsed body.
+pub async fun postResult(endpoint: String, target: String, body: String): Errs.Outcome<String, Errs.HttpError> {
+  try {
+    return Errs.success(await post(endpoint, target, body))
+  } catch (error: String) {
+    return Errs.failure(Errs.asHttpError(Errs.transport(error, 0)))
+  }
+}
+
 /// Split the status line and body of one bounded HTTP/1.1 response.
 fun parseResponse(raw: String): ClientResponse {
   val bodyStart = raw.indexOf("\r\n\r\n")

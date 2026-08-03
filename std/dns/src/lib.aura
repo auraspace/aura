@@ -24,3 +24,12 @@ pub fun resolveHostResult(host: String, preferIpv6: Bool): DnsErrs.Outcome<Strin
   }
   return DnsErrs.success(address!!)
 }
+
+/// Non-throwing bounded list resolver with the same package-owned error type.
+pub fun resolveHostListResult(host: String, preferIpv6: Bool): DnsErrs.Outcome<String, DnsErrs.DnsError> {
+  val addresses = resolveHostList(host, preferIpv6)
+  if (addresses == null) {
+    return DnsErrs.failure(DnsErrs.asDnsError(DnsErrs.network("host resolution failed", 0)))
+  }
+  return DnsErrs.success(addresses!!)
+}

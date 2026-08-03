@@ -2665,6 +2665,41 @@ fun main() {
     }
 
     #[test]
+    fn compiles_std_tls_openssl_bridge() {
+        let file = aura_parser::parse_file(
+            r#"package std.tls
+pub class Config(pub val serverName: String, pub val verifyPeer: Bool) {}
+pub class Certificate(pub val subject: String, pub val issuer: String) {}
+pub class Connection(pub val endpoint: String) {
+  pub async fun read(capacity: Int): String { throw "intrinsic" }
+  pub async fun write(content: String): Int { throw "intrinsic" }
+  pub fun close(): Unit { throw "intrinsic" }
+}
+pub fun config(serverName: String, verifyPeer: Bool): Config { return Config(serverName, verifyPeer) }
+pub async fun connect(endpoint: String, options: Config): Connection { throw "intrinsic" }
+pub fun loadCertificate(path: String): Certificate { throw "intrinsic" }
+fun main() {}
+"#,
+        )
+        .expect("parse std.tls fixture");
+        let generated = emit_c_from_ast(&file).expect("emit std.tls fixture");
+        assert!(generated.contains("AURA_TLS_REQUIRED"));
+        assert!(generated.contains("aura_tls_connect"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-std-tls-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile std.tls fixture");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_std_log_levels() {
         let file = aura_parser::parse_file(
             r#"package std.log

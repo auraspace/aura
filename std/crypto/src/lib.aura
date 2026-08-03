@@ -1,7 +1,7 @@
 // std.crypto -- bounded cryptographic primitives and TLS contract.
 //
-// The names and value shapes are locked in the alpha contract. Operations
-// TLS remains provider-backed; hash/random primitives are compiler intrinsics.
+// The names and value shapes are locked in the alpha contract. Hash/random
+// primitives and TLS transport are compiler/runtime-backed.
 
 package std.crypto
 
@@ -17,15 +17,15 @@ pub class TlsConfig(pub val serverName: String, pub val verifyPeer: Bool) {}
 
 pub class TlsConnection(pub val endpoint: String) {
   pub async fun read(capacity: Int): String {
-    throw "std.crypto TLS is a placeholder"
+    throw "std.crypto TLS read intrinsic"
   }
 
   pub async fun write(content: String): Int {
-    throw "std.crypto TLS is a placeholder"
+    throw "std.crypto TLS write intrinsic"
   }
 
   pub fun close(): Unit {
-    throw "std.crypto TLS is a placeholder"
+    throw "std.crypto TLS close intrinsic"
   }
 }
 
@@ -50,5 +50,5 @@ pub fun tlsConfig(serverName: String, verifyPeer: Bool): TlsConfig {
 }
 
 pub async fun connectTls(endpoint: String, config: TlsConfig): TlsConnection {
-  throw "std.crypto connectTls is a placeholder"
+  throw "std.crypto connectTls intrinsic"
 }

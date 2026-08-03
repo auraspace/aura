@@ -1,4 +1,4 @@
-// std.tls -- alpha API shell for TLS transport.
+// std.tls -- OpenSSL-backed bounded TLS transport.
 
 package std.tls
 
@@ -19,15 +19,15 @@ pub class Config(pub val serverName: String, pub val verifyPeer: Bool) {
 
 pub class Connection(pub val endpoint: String) {
   pub async fun read(capacity: Int): String {
-    throw "std.tls read is a placeholder"
+    throw "std.tls read intrinsic"
   }
 
   pub async fun write(content: String): Int {
-    throw "std.tls write is a placeholder"
+    throw "std.tls write intrinsic"
   }
 
   pub fun close(): Unit {
-    throw "std.tls close is a placeholder"
+    throw "std.tls close intrinsic"
   }
 }
 
@@ -36,9 +36,9 @@ pub fun config(serverName: String, verifyPeer: Bool): Config {
 }
 
 pub async fun connect(endpoint: String, options: Config): Connection {
-  throw "std.tls connect is a placeholder"
+  throw "std.tls connect intrinsic"
 }
 
 pub fun loadCertificate(path: String): Certificate {
-  throw "std.tls loadCertificate is a placeholder"
+  throw "std.tls loadCertificate intrinsic"
 }

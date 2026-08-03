@@ -37,7 +37,7 @@ Aura’s **core** stdlib is intentionally small ([RFC-007](/rfc/007), [RFC-000](
 | `std.test`        | `std/test`        | Deterministic assertion helpers for native and corpus tests                                   |
 | `std.crypto`      | `std/crypto`      | Bounded hash, HMAC, randomness; TLS remains provider-backed                                   |
 | `std.reflect`     | `std/reflect`     | Bounded compiler-backed type/member metadata                                                  |
-| `std.tls`         | `std/tls`         | Locked certificate/config/async TLS placeholder surface                                       |
+| `std.tls`         | `std/tls`         | OpenSSL-backed verified certificate/config/async TLS client                                   |
 | `std.udp`         | `std/udp`         | Runtime-backed bounded endpoint/datagram transport on POSIX                                   |
 | `std.websocket`   | `std/websocket`   | Runtime-backed bounded WebSocket client framing                                               |
 | `std.compress`    | `std/compress`    | Bounded gzip/deflate text round-trip with hex-safe compressed output                          |

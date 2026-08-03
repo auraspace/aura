@@ -6,6 +6,7 @@
 #include "src/io_tcp.c"
 #include "src/io_udp.c"
 #include "src/io_websocket.c"
+#include "src/io_tls.c"
 #include "src/http_parser.c"
 #include "src/http_response.c"
 #include "src/http_connection.c"

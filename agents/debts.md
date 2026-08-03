@@ -8,25 +8,6 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 ## Open
 
-### API-001 TLS provider (2026-07-31)
-
-- Area: `std.crypto` TLS and `std.tls`
-- Symptom: WebSocket framing is now runtime-backed, but TLS provider selection
-  and certificate verification still fail explicitly.
-- Why deferred: TLS needs a portable provider/linking policy and certificate
-  verification contract.
-- Next step: add a real TLS provider without changing locked signatures.
-
-### API-002 package-specific error adapters (2026-07-31)
-
-- Area: package-specific error adapters
-- Symptom: `std.json.decode<T>` now owns bounded primitive and flat-class
-  decoding, but filesystem, DNS, and HTTP adapters do not yet expose complete
-  package-owned result wrappers.
-- Why deferred: each adapter must preserve the shared error category while
-  mapping native cleanup and package-specific context without leaking details.
-- Next step: add typed result wrappers for the remaining package boundaries.
-
 ### API-003 compiler/runtime/tooling boundary inventory (2026-07-31)
 
 - Area: RFC-001/002/004/005/006/008/010/012/013/014 surfaces
@@ -37,18 +18,6 @@ commits, RFCs, or release notes instead of appending progress for every change.
   contracts rather than prerequisites for the current alpha compiler.
 - Next step: specify each boundary independently and track acceptance on the
   relevant host/tooling matrix.
-
-### NET-001 bounded synchronous networking (2026-07-31)
-
-- Area: `std.net`, `std.http`, POSIX TCP runtime
-- Symptom: endpoint parsing and DNS resolution are synchronous and string-based;
-  HTTP remains loopback-oriented with bounded framing, no pooling, timeout
-  result, TLS, HTTP/2, or HTTP/3 support.
-- Why deferred: the alpha transport needs a small usable surface first; typed
-  endpoints, cancellation, resolver caching, and richer errors need a broader
-  async networking design.
-- Next step: add a validated endpoint/error model and move blocking resolution
-  behind the async transport boundary.
 
 ### LSP-001 language-server MVP limits (2026-07-29)
 

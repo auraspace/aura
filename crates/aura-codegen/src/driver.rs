@@ -472,7 +472,7 @@ impl Backend for CBackend {
                 .and_then(|s| s.to_str())
                 .unwrap_or("out")
         ));
-        fs::write(&c_path, c_src).map_err(|e| CodegenError::Io(e.to_string()))?;
+        fs::write(&c_path, &c_src).map_err(|e| CodegenError::Io(e.to_string()))?;
 
         let mut command = Command::new(&compiler);
         command
@@ -486,6 +486,23 @@ impl Backend for CBackend {
         }
         if options.profile_settings.detector {
             command.arg("-fsanitize=address,undefined");
+        }
+        if c_src.contains("AURA_TLS_REQUIRED") {
+            command.arg("-DAURA_TLS_ENABLE=1");
+            for include in ["/opt/homebrew/include", "/usr/local/include"] {
+                if Path::new(include).join("openssl/ssl.h").is_file() {
+                    command.arg("-I").arg(include);
+                    break;
+                }
+            }
+            for library in ["/opt/homebrew/lib", "/usr/local/lib"] {
+                if Path::new(library).join("libssl.dylib").is_file()
+                    || Path::new(library).join("libssl.so").is_file()
+                {
+                    command.arg("-L").arg(library);
+                    break;
+                }
+            }
         }
         if let Some(linker) = &options.profile_settings.linker {
             command.arg(format!("-fuse-ld={linker}"));
@@ -518,11 +535,15 @@ impl Backend for CBackend {
                 ForeignLinkIr::Static => {}
             }
         }
-        let status = command
+        command
             .arg(&c_path)
             .arg(runtime_c)
             .args(&foreign_link_args)
-            .arg("-lz")
+            .arg("-lz");
+        if c_src.contains("AURA_TLS_REQUIRED") {
+            command.arg("-lssl").arg("-lcrypto");
+        }
+        let status = command
             .arg("-o")
             .arg(out_bin)
             .status()

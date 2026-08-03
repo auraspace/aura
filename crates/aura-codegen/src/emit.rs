@@ -343,6 +343,15 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str("const char *aura_crypto_hmac_sha256(const char *key, const char *value);\n");
     out.push_str("_Bool aura_crypto_constant_time_equals(const char *left, const char *right);\n");
     out.push_str(
+        "int aura_tls_connect(const char *endpoint, const char *server_name, int verify_peer);\n",
+    );
+    out.push_str("const char *aura_tls_read(const char *endpoint, int64_t capacity);\n");
+    out.push_str("int64_t aura_tls_write(const char *endpoint, const char *content);\n");
+    out.push_str("int aura_tls_close(const char *endpoint);\n");
+    out.push_str("const char *aura_tls_last_error(void);\n");
+    out.push_str("const char *aura_tls_certificate_subject(const char *path);\n");
+    out.push_str("const char *aura_tls_certificate_issuer(const char *path);\n");
+    out.push_str(
         "const char *aura_compress_text(const char *value, int64_t codec, int64_t level);\n",
     );
     out.push_str("const char *aura_decompress_text(const char *value, int64_t codec);\n");
@@ -12868,6 +12877,7 @@ fn emit_async_body(
     type_args: &[Ty],
     detector: bool,
 ) {
+    let pkg = async_fun_decl_package(f, checked);
     let ret_key = f
         .return_type
         .as_ref()
@@ -12914,6 +12924,25 @@ fn emit_async_body(
         let _ = writeln!(out, "  if ({endpoint} == NULL || !aura_ws_connect({endpoint})) {{ aura_throw_string(\"std.websocket connect failed\"); return NULL; }} return aura_new_std_websocket_Connection({endpoint});");
         return;
     }
+    if (pkg == "std.tls" || pkg == "std.crypto")
+        && f.name.name.starts_with("connect")
+        && f.params.len() >= 2
+        && f.return_type.as_ref().is_some_and(|ty| {
+            let key = type_ref_local_key_expand(ty, params, type_args, checked);
+            key.contains("TlsConnection")
+        })
+    {
+        let endpoint = mangle_ident(&f.params[0].name.name);
+        let config = mangle_ident(&f.params[1].name.name);
+        let ctor = if pkg == "std.tls" {
+            "aura_new_std_tls_Connection"
+        } else {
+            "aura_new_std_crypto_TlsConnection"
+        };
+        out.push_str("  /* AURA_TLS_REQUIRED */\n");
+        let _ = writeln!(out, "  if ({endpoint} == NULL || {config} == NULL || !aura_tls_connect({endpoint}, {config}->serverName, {config}->verifyPeer)) {{ char __message[320]; snprintf(__message, sizeof(__message), \"TLS connect failed: %s\", aura_tls_last_error()); aura_throw_string(__message); return NULL; }} return {ctor}({endpoint});");
+        return;
+    }
     if let Some(this_param) = f.params.iter().find(|p| p.name.name == "this") {
         let cty = c_type_ref_subst(&this_param.ty, checked, params, &[]);
         out.push_str("  /* Async class-method bodies use the normal `this` spelling. */\n");
@@ -12937,6 +12966,18 @@ fn emit_async_body(
         if f.name.name.ends_with("_ping") && f.params.len() == 2 && cty.contains("Connection") {
             let payload = mangle_ident(&f.params[1].name.name);
             let _ = writeln!(out, "  if (this == NULL || aura_ws_send(this->endpoint, 2, {payload} == NULL ? \"\" : {payload}) < 0) aura_throw_string(\"std.websocket ping failed\"); return;");
+            return;
+        }
+        if f.name.name.ends_with("_read") && f.params.len() == 2 && cty.contains("TlsConnection") {
+            let capacity = mangle_ident(&f.params[1].name.name);
+            out.push_str("  /* AURA_TLS_REQUIRED */\n");
+            let _ = writeln!(out, "  if (this == NULL || this->endpoint == NULL || {capacity} <= 0) {{ aura_throw_string(\"TLS read failed\"); return NULL; }} const char *__value = aura_tls_read(this->endpoint, {capacity}); if (__value == NULL) {{ char __message[320]; snprintf(__message, sizeof(__message), \"TLS read failed: %s\", aura_tls_last_error()); aura_throw_string(__message); return NULL; }} return __value;");
+            return;
+        }
+        if f.name.name.ends_with("_write") && f.params.len() == 2 && cty.contains("TlsConnection") {
+            let content = mangle_ident(&f.params[1].name.name);
+            out.push_str("  /* AURA_TLS_REQUIRED */\n");
+            let _ = writeln!(out, "  if (this == NULL || this->endpoint == NULL || {content} == NULL) {{ aura_throw_string(\"TLS write failed\"); return 0; }} int64_t __written = aura_tls_write(this->endpoint, {content}); if (__written < 0) {{ char __message[320]; snprintf(__message, sizeof(__message), \"TLS write failed: %s\", aura_tls_last_error()); aura_throw_string(__message); return 0; }} return __written;");
             return;
         }
     }
@@ -16264,7 +16305,32 @@ pub(crate) fn emit_fun(
                 out.push_str("  return aura_new_std_crypto_Digest(\"HMAC-SHA-256\", __hex);\n}\n");
                 return;
             }
+            ("tlsConfig", 2) => {
+                let server = mangle_ident(&f.params[0].name.name);
+                let verify = mangle_ident(&f.params[1].name.name);
+                out.push_str("  return aura_new_std_crypto_TlsConfig(");
+                let _ = writeln!(out, "{server}, {verify});");
+                return;
+            }
             _ => {}
+        }
+    }
+    if pkg == "std.tls" {
+        if f.name.name == "config" && f.params.len() == 2 {
+            let server = mangle_ident(&f.params[0].name.name);
+            let verify = mangle_ident(&f.params[1].name.name);
+            let _ = writeln!(out, "  return aura_new_std_tls_Config({server}, {verify});");
+            out.push_str("}\n");
+            return;
+        }
+        if f.name.name == "loadCertificate" && f.params.len() == 1 {
+            let path = mangle_ident(&f.params[0].name.name);
+            out.push_str("  const char *__subject = aura_tls_certificate_subject(");
+            out.push_str(&path);
+            out.push_str("); const char *__issuer = aura_tls_certificate_issuer(");
+            out.push_str(&path);
+            out.push_str("); /* AURA_TLS_REQUIRED */ if (__subject == NULL || __issuer == NULL) { char __message[320]; snprintf(__message, sizeof(__message), \"certificate load failed: %s\", aura_tls_last_error()); aura_throw_string(__message); return NULL; } return aura_new_std_tls_Certificate(__subject, __issuer);\n}");
+            return;
         }
     }
     if pkg == "std.reflect" {
@@ -16690,6 +16756,17 @@ pub(crate) fn emit_fun(
             out.push_str("}\n");
             return;
         }
+    }
+    if (pkg == "std.tls" || pkg == "std.crypto")
+        && f.name.name == "close"
+        && f.params.len() == 1
+        && f.params[0].name.name == "this"
+    {
+        let this = mangle_ident(&f.params[0].name.name);
+        out.push_str("  /* AURA_TLS_REQUIRED */\n");
+        let _ = writeln!(out, "  if ({this} != NULL && {this}->endpoint != NULL) (void)aura_tls_close({this}->endpoint);");
+        out.push_str("}\n");
+        return;
     }
     if pkg == "std.net" {
         if let ("closeListener", 1) = (f.name.name.as_str(), f.params.len()) {
