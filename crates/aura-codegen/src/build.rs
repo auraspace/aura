@@ -111,8 +111,10 @@ pub(crate) fn build_from_file_with(
 mod tests {
     use std::{
         fs,
-        io::Write,
+        io::{Read, Write},
+        net::TcpListener,
         process::{Command, Stdio},
+        thread,
     };
 
     use aura_ast::{
@@ -1706,6 +1708,57 @@ fun main() {}
         let generated_c = dir.join(format!("{stem}.aura.c"));
         build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile std.net.connect fixture");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_std_net_connect_write_close_flow() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback test server");
+        let port = listener.local_addr().expect("read loopback port").port();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept Aura std.net client");
+            let mut payload = [0_u8; 2];
+            stream
+                .read_exact(&mut payload)
+                .expect("read Aura std.net payload");
+            assert_eq!(&payload, b"g5");
+        });
+
+        let source = format!(
+            r#"package std.net
+fun connect(endpoint: String, timeout: Int): ForeignHandle<Int> {{ throw "intrinsic" }}
+fun closeStream(stream: ForeignHandle<Int>): Bool {{ throw "intrinsic" }}
+async fun writeStream(stream: ForeignHandle<Int>, content: String): Int {{ return 0 }}
+fun main() {{
+  val task = spawn {{
+    val stream: ForeignHandle<Int> = connect("127.0.0.1:{port}", 1000)
+    val sent: Int = await writeStream(stream, "g5")
+    closeStream(stream)
+  }}
+  join(task)
+}}
+"#
+        );
+        let file = aura_parser::parse_file(&source).expect("parse std.net runtime flow");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-std-net-runtime-flow-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile std.net runtime flow");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run std.net runtime flow");
+        assert!(
+            output.status.success(),
+            "std.net runtime flow failed: {output:?}"
+        );
+        server.join().expect("join loopback test server");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
