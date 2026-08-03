@@ -360,6 +360,12 @@ impl Parser {
             if let Some(operation) = operation {
                 let expected = if operation == 0 { 1 } else { 0 };
                 if call.args.len() != expected {
+                    if operation == 0 && call.args.is_empty() {
+                        return Err(ParseError {
+                            message: "channel send requires 1 argument".into(),
+                            span,
+                        });
+                    }
                     // Keep same-named class methods available. Semantic
                     // checking will diagnose an actual channel arity error.
                     return Ok(Expr::Call(call));
