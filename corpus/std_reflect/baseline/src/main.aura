@@ -20,5 +20,6 @@ fun main() {
   if (fields("Widget").len != 2 || methods("Widget").len != 1) { throw "missing metadata" }
   if (fields("Widget").get(0) != "count" || methods("Widget").get(0) != "reset") { throw "bad metadata" }
   if (widgetType.fields().len != 2 || widgetType.methods().len != 1) { throw "bad type metadata" }
+  if (widgetType.fields().get(0).typeName != "Int" || widgetType.methods().get(0).returnType != "Unit") { throw "bad member types" }
   println("reflect-ok")
 }

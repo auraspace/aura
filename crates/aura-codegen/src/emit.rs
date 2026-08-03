@@ -16251,6 +16251,53 @@ pub(crate) fn emit_fun(
             out.push_str("  return aura_new_Array_String(INT64_C(0));\n}\n");
             return;
         }
+        if matches!(f.name.name.as_str(), "fieldMetadata" | "methodMetadata") && f.params.len() == 1
+        {
+            let value = mangle_ident(&f.params[0].name.name);
+            out.push_str("  if (");
+            out.push_str(&value);
+            out.push_str(" == NULL) return aura_new_Array_String(INT64_C(0));\n");
+            for class in &checked.ast.classes {
+                let metadata = if f.name.name == "fieldMetadata" {
+                    class
+                        .fields
+                        .iter()
+                        .map(|field| format!("{}:{}", field.name.name, field.ty.name.name))
+                        .collect::<Vec<_>>()
+                } else {
+                    class
+                        .methods
+                        .iter()
+                        .map(|method| {
+                            let return_name = method
+                                .return_type
+                                .as_ref()
+                                .map(|ty| ty.name.name.clone())
+                                .unwrap_or_else(|| "Unit".into());
+                            format!("{}:{return_name}", method.name.name)
+                        })
+                        .collect::<Vec<_>>()
+                };
+                let class_name = &class.name.name;
+                let qualified_name =
+                    type_mono(&class_decl_package(class, checked), class_name, &[]);
+                let _ = writeln!(out, "  if (strcmp({value}, \"{class_name}\") == 0 || strcmp({value}, \"{qualified_name}\") == 0) {{");
+                let _ = writeln!(
+                    out,
+                    "    aura_cls_Array_String __metadata = aura_new_Array_String(INT64_C({}));",
+                    metadata.len()
+                );
+                for (index, name) in metadata.iter().enumerate() {
+                    let _ = writeln!(
+                        out,
+                        "    __metadata.data[{index}] = aura_bytes_copy(\"{name}\");"
+                    );
+                }
+                out.push_str("    return __metadata;\n  }\n");
+            }
+            out.push_str("  return aura_new_Array_String(INT64_C(0));\n}\n");
+            return;
+        }
     }
     if pkg == "std.json" && f.name.name == "decode" && f.params.len() == 1 && args.len() == 1 {
         let value = mangle_ident(&f.params[0].name.name);

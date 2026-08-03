@@ -36,7 +36,7 @@ Aura’s **core** stdlib is intentionally small ([RFC-007](/rfc/007), [RFC-000](
 | `std.metrics`     | `std/metrics`     | Sequentially consistent counters and Prometheus samples                                  |
 | `std.test`        | `std/test`        | Deterministic assertion helpers for native and corpus tests                              |
 | `std.crypto`      | `std/crypto`      | Bounded hash, HMAC, randomness; TLS remains provider-backed                              |
-| `std.reflect`     | `std/reflect`     | Bounded compiler-backed type/member names; member type strings remain `Unknown`          |
+| `std.reflect`     | `std/reflect`     | Bounded compiler-backed type/member metadata                                             |
 | `std.tls`         | `std/tls`         | Locked certificate/config/async TLS placeholder surface                                  |
 | `std.udp`         | `std/udp`         | Locked endpoint/datagram/async UDP placeholder surface                                   |
 | `std.websocket`   | `std/websocket`   | Locked message/connection placeholder surface                                            |
@@ -463,8 +463,7 @@ verified platform TLS provider.
 ## `std.reflect`
 
 The package provides compiler-backed `typeOf<T>`, `typeIdOf<T>`, primitive
-`typeInfo`, `isReflectable`, and declaration member names. Member type strings
-remain `Unknown` until full type metadata emission is implemented.
+`typeInfo`, `isReflectable`, declaration member names, and member type strings.
 
 ## Protocol placeholders
 

@@ -25,16 +25,22 @@ pub class Type(private val placeholder: Int, pub val nameValue: String) {
   }
 
   pub fun methods(): Array<Method> {
-    val names = methods(this.nameValue)
+    val names = methodMetadata(this.nameValue)
     val result: Array<Method> = Array<Method>(0)
-    for (i in 0..names.len) { result.push(Method(names.get(i), "Unknown")) }
+    for (i in 0..names.len) {
+      val separator = names.get(i).indexOf(":")
+      if (separator >= 0) { result.push(Method(names.get(i).substring(0, separator), names.get(i).substring(separator + 1, names.get(i).len))) }
+    }
     return result
   }
 
   pub fun fields(): Array<Field> {
-    val names = fields(this.nameValue)
+    val names = fieldMetadata(this.nameValue)
     val result: Array<Field> = Array<Field>(0)
-    for (i in 0..names.len) { result.push(Field(names.get(i), "Unknown")) }
+    for (i in 0..names.len) {
+      val separator = names.get(i).indexOf(":")
+      if (separator >= 0) { result.push(Field(names.get(i).substring(0, separator), names.get(i).substring(separator + 1, names.get(i).len))) }
+    }
     return result
   }
 }
@@ -69,6 +75,9 @@ pub fun fields(typeName: String): Array<String> {
 pub fun methods(typeName: String): Array<String> {
   return Array<String>(0)
 }
+
+fun fieldMetadata(typeName: String): Array<String> { throw "std.reflect fieldMetadata intrinsic" }
+fun methodMetadata(typeName: String): Array<String> { throw "std.reflect methodMetadata intrinsic" }
 
 pub fun isReflectable(typeName: String): Bool {
   throw "std.reflect isReflectable intrinsic"
