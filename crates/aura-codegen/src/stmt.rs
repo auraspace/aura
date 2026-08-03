@@ -248,7 +248,8 @@ fn is_task_result_string_owner_key(key: &str) -> bool {
 }
 
 pub(crate) fn is_shared_outcome_error_owner_key(key: &str) -> bool {
-    (key.starts_with("std_error_Outcome_") && key.ends_with("_std_error_Error"))
+    ((key.starts_with("std_error_Outcome_") || key.starts_with("Outcome_"))
+        && key.ends_with("_std_error_Error"))
         || key == "Outcome_String_Error"
 }
 

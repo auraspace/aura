@@ -176,7 +176,19 @@ pub fun asHttpError(error: Error): HttpError {
 /// 0 invalid input, 1 not found, 2 permission, 3 I/O, 4 network, 5 timeout,
 /// 6 cancelled, 7 protocol, 8 limit, 9 closed, 10 unsupported, 11 unknown.
 pub fun kindCode(code: Int): Int {
-  return 11
+  // Keep the mapping portable: these errno/status values are stable across
+  // the supported POSIX targets, while unknown values remain System/unknown.
+  if (code == 22) { return 0 } // EINVAL
+  if (code == 2) { return 1 } // ENOENT
+  if (code == 13) { return 2 } // EACCES
+  if (code == 11 || code == 35) { return 3 } // EAGAIN/EWOULDBLOCK
+  if (code == 110 || code == 60) { return 5 } // ETIMEDOUT
+  if (code == 125 || code == 89) { return 6 } // ECANCELED
+  if (code == 104 || code == 54 || code == 57) { return 9 } // connection reset/closed
+  if (code == 95 || code == 45) { return 10 } // ENOTSUP
+  if (code >= 400 && code <= 599) { return 7 } // protocol/status failure
+  if (code == 0) { return 11 }
+  return 3
 }
 
 /// Non-throwing outcome shared by stdlib APIs.

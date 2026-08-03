@@ -97,6 +97,17 @@ fn fun_move_srcs_from_args(args: &[Expr], param_keys: &[String], ctx: &EmitCtx<'
 /// A mutable Array capture is shared through a box.  Owning call parameters
 /// must receive a clone so the callee cannot free the box's live buffer.
 fn coerce_owner_arg_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>) -> String {
+    // Outcome values carry owned payloads.  Passing one by value to a
+    // predicate such as `isSuccess` must clone the payload so the callee's
+    // parameter cleanup cannot consume the caller's live result.
+    if crate::stmt::is_shared_outcome_error_owner_key(expected_ty) {
+        let Expr::Ident(id) = expr else {
+            return coerce_expr(expr, expected_ty, ctx);
+        };
+        let source = mangle_ident(&id.name);
+        let cty = crate::stmt::local_key_to_c(expected_ty, ctx.checked);
+        return format!("{cty}_clone(&({source}))");
+    }
     if is_array_type_key(expected_ty)
         && matches!(expr, Expr::Ident(id) if ctx.is_box_local(&id.name))
     {
@@ -196,13 +207,55 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                             .collect()
                     })
                     .unwrap_or_default();
-                let pkg = inst.map(|i| i.package.as_str()).unwrap_or("");
-                let args = c
-                    .args
+                let imported_pkg = ctx
+                    .checked
+                    .ast
+                    .imports
                     .iter()
-                    .map(|a| emit_expr(a, ctx))
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                    .find(|imp| {
+                        imp.alias
+                            .as_ref()
+                            .is_some_and(|alias| alias.name == id.name)
+                    })
+                    .map(|imp| {
+                        imp.path
+                            .segments
+                            .iter()
+                            .map(|segment| segment.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(".")
+                    });
+                let pkg = inst
+                    .map(|i| i.package.as_str())
+                    .filter(|package| !package.is_empty())
+                    .or(imported_pkg.as_deref())
+                    .unwrap_or("");
+                let function = ctx.checked.ast.functions.iter().find(|function| {
+                    function.name.name == *name && fun_decl_package(function, ctx.checked) == pkg
+                });
+                let args = if let Some(function) = function {
+                    let params = function
+                        .type_params
+                        .iter()
+                        .map(|p| p.name.name.clone())
+                        .collect::<Vec<_>>();
+                    let mut emitted = Vec::new();
+                    for (index, arg) in c.args.iter().enumerate() {
+                        if let Some(param) = function.params.get(index) {
+                            let expected = type_ref_local_key(&param.ty, &params, &targs);
+                            emitted.push(coerce_owner_arg_expr(arg, &expected, ctx));
+                        } else {
+                            emitted.push(emit_expr(arg, ctx));
+                        }
+                    }
+                    emitted.join(", ")
+                } else {
+                    c.args
+                        .iter()
+                        .map(|a| emit_expr(a, ctx))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
                 // C3u: `Alias.Type(...)` constructor vs `Alias.fun(...)`.
                 if inst.map(|i| i.is_constructor).unwrap_or(false) {
                     let mono = type_mono(pkg, name, &targs);
@@ -255,7 +308,48 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
         let obj_ty = resolve_type_name(&fe.object, ctx).or_else(|| {
             let t = crate::expr::infer_type_name(&fe.object, ctx);
             if t == "Unit" || t.is_empty() {
-                None
+                if let Expr::Call(inner) = fe.object.as_ref() {
+                    if let Expr::Field(qualified) = inner.callee.as_ref() {
+                        if let Expr::Ident(alias) = qualified.object.as_ref() {
+                            if let Some(import) = ctx.checked.ast.imports.iter().find(|import| {
+                                import
+                                    .alias
+                                    .as_ref()
+                                    .is_some_and(|candidate| candidate.name == alias.name)
+                            }) {
+                                let package = import
+                                    .path
+                                    .segments
+                                    .iter()
+                                    .map(|segment| segment.name.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(".");
+                                ctx.checked
+                                    .ast
+                                    .functions
+                                    .iter()
+                                    .find(|function| {
+                                        function.name.name == qualified.field.name
+                                            && fun_decl_package(function, ctx.checked) == package
+                                    })
+                                    .and_then(|function| {
+                                        function
+                                            .return_type
+                                            .as_ref()
+                                            .map(|ty| type_ref_local_key(ty, &[], &[]))
+                                    })
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
             } else {
                 Some(t)
             }
