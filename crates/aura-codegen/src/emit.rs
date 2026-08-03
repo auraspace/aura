@@ -16167,6 +16167,43 @@ pub(crate) fn emit_fun(
             _ => {}
         }
     }
+    if pkg == "std.reflect" {
+        if f.name.name == "typeOf" && f.params.is_empty() && args.len() == 1 {
+            let name = args[0].mono_suffix();
+            let _ = writeln!(
+                out,
+                "  return aura_new_std_reflect_Type(0, aura_bytes_copy(\"{name}\"));"
+            );
+            out.push_str("}\n");
+            return;
+        }
+        if f.name.name == "typeIdOf" && f.params.is_empty() && args.len() == 1 {
+            let name = args[0].mono_suffix();
+            let _ = writeln!(
+                out,
+                "  return aura_new_std_reflect_TypeId(aura_bytes_copy(\"{name}\"));"
+            );
+            out.push_str("}\n");
+            return;
+        }
+        if f.name.name == "typeInfo" && f.params.len() == 1 {
+            let value = mangle_ident(&f.params[0].name.name);
+            out.push_str("  aura_enum_std_reflect_TypeKind __kind = aura_var_std_reflect_TypeKind_Unknown();\n");
+            let _ = writeln!(out, "  if ({value} != NULL && (strcmp({value}, \"Int\") == 0 || strcmp({value}, \"Bool\") == 0 || strcmp({value}, \"String\") == 0 || strcmp({value}, \"Unit\") == 0)) __kind = aura_var_std_reflect_TypeKind_Primitive();");
+            let _ = writeln!(
+                out,
+                "  return aura_new_std_reflect_TypeInfo(aura_bytes_copy({value}), __kind);"
+            );
+            out.push_str("}\n");
+            return;
+        }
+        if f.name.name == "isReflectable" && f.params.len() == 1 {
+            let value = mangle_ident(&f.params[0].name.name);
+            let _ = writeln!(out, "  return {value} != NULL && (strcmp({value}, \"Int\") == 0 || strcmp({value}, \"Bool\") == 0 || strcmp({value}, \"String\") == 0 || strcmp({value}, \"Unit\") == 0);");
+            out.push_str("}\n");
+            return;
+        }
+    }
     if pkg == "std.compress" {
         if f.name.name == "compress" && f.params.len() == 2 {
             let value = mangle_ident(&f.params[0].name.name);

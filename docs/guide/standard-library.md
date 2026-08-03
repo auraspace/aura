@@ -36,7 +36,7 @@ Aura’s **core** stdlib is intentionally small ([RFC-007](/rfc/007), [RFC-000](
 | `std.metrics`     | `std/metrics`     | Sequentially consistent counters and Prometheus samples                                  |
 | `std.test`        | `std/test`        | Deterministic assertion helpers for native and corpus tests                              |
 | `std.crypto`      | `std/crypto`      | Locked hash, HMAC, randomness, and TLS placeholder surface                               |
-| `std.reflect`     | `std/reflect`     | Locked opt-in runtime metadata placeholder surface                                       |
+| `std.reflect`     | `std/reflect`     | Bounded compiler-backed type metadata; declaration members remain empty                  |
 | `std.tls`         | `std/tls`         | Locked certificate/config/async TLS placeholder surface                                  |
 | `std.udp`         | `std/udp`         | Locked endpoint/datagram/async UDP placeholder surface                                   |
 | `std.websocket`   | `std/websocket`   | Locked message/connection placeholder surface                                            |
@@ -461,12 +461,12 @@ SHA-256, HMAC-SHA256, and constant-time comparison are backed by the native
 runtime. `connectTls` and the `TlsConnection` methods still require a
 verified platform TLS provider.
 
-## `std.reflect` (placeholder)
+## `std.reflect`
 
-The alpha contract reserves `TypeKind`, `TypeInfo`, `MemberInfo`, `typeInfo`,
-`fields`, `methods`, and `isReflectable`. Metadata generation is not wired yet;
-the operation functions throw explicit placeholder errors rather than returning
-incomplete metadata.
+The package provides compiler-backed `typeOf<T>`, `typeIdOf<T>`, primitive
+`typeInfo`, and `isReflectable`. `Type.fields()`, `Type.methods()`, `fields`,
+and `methods` currently return bounded empty arrays until declaration-level
+metadata emission is implemented.
 
 ## Protocol placeholders
 

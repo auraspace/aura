@@ -1,0 +1,16 @@
+package demo.stdreflect
+
+import std.reflect
+
+fun main() {
+  val intType = typeOf<Int>()
+  val stringType = typeOf<String>()
+  val intId = typeIdOf<Int>()
+  if (intType.name() != "Int" || stringType.name() != "String") { throw "bad type name" }
+  if (intId.value != "Int") { throw "bad type id" }
+  val info = typeInfo("Int")
+  if (info.name != "Int") { throw "bad type info" }
+  if (!isReflectable("String") || isReflectable("Widget")) { throw "bad reflectability" }
+  if (fields("Int").len != 0 || methods("Int").len != 0) { throw "bad members" }
+  println("reflect-ok")
+}

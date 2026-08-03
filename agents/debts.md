@@ -10,10 +10,9 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 ### API-001 platform and protocol placeholders (2026-07-31)
 
-- Area: `std.crypto` TLS, `std.reflect`, `std.tls`, `std.udp`, `std.websocket`
-- Symptom: public package contracts exist, but TLS, reflection,
-  datagram and framing operations still fail
-  explicitly or remain metadata-only.
+- Area: `std.crypto` TLS, `std.reflect` member metadata, `std.tls`, `std.udp`, `std.websocket`
+- Symptom: public package contracts exist, but TLS, declaration-level reflection,
+  datagram and framing operations still fail explicitly or remain metadata-only.
 - Why deferred: each surface needs a capability policy, ownership contract,
   parser hardening, and platform-backed tests.
 - Next step: implement the TLS/provider and UDP foundations first, then
@@ -23,7 +22,7 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 - Area: `std.json.Value`, `std.collections.List<T>`, shared errors
 - Symptom: generic JSON mapping, List iterator semantics, package-specific
-  errors, and reflection metadata are incomplete. Bounded JSON traversal,
+  errors, and declaration-level reflection metadata are incomplete. Bounded JSON traversal,
   duplicate-key rejection, and the std.test assertion/smoke helpers are
   implemented.
 - Why deferred: the ownership, duplicate-key, depth/size, and metadata rules

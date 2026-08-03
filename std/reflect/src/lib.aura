@@ -1,7 +1,7 @@
-// std.reflect -- alpha API shell for opt-in reflection metadata.
+// std.reflect -- bounded compiler-backed type metadata.
 //
-// Metadata production is not implemented yet. These types establish the
-// source-compatible contract without exposing compiler/runtime internals.
+// Type identity and primitive classification are compiler-backed. Member
+// metadata remains empty until declaration metadata is emitted.
 
 package std.reflect
 
@@ -25,11 +25,11 @@ pub class Type(private val placeholder: Int, pub val nameValue: String) {
   }
 
   pub fun methods(): Array<Method> {
-    throw "std.reflect Type.methods is a placeholder"
+    return Array<Method>(0)
   }
 
   pub fun fields(): Array<Field> {
-    throw "std.reflect Type.fields is a placeholder"
+    return Array<Field>(0)
   }
 }
 
@@ -45,25 +45,25 @@ pub class MemberInfo(pub val name: String, pub val typeName: String) {}
 
 /// RFC-009 generic reflection entry points. Metadata production is deferred.
 pub fun typeOf<T>(): Type {
-  throw "std.reflect typeOf is a placeholder"
+  throw "std.reflect typeOf intrinsic"
 }
 
 pub fun typeIdOf<T>(): TypeId {
-  throw "std.reflect typeIdOf is a placeholder"
+  throw "std.reflect typeIdOf intrinsic"
 }
 
 pub fun typeInfo(typeName: String): TypeInfo {
-  throw "std.reflect typeInfo is a placeholder"
+  throw "std.reflect typeInfo intrinsic"
 }
 
 pub fun fields(typeName: String): Array<String> {
-  throw "std.reflect fields is a placeholder"
+  return Array<String>(0)
 }
 
 pub fun methods(typeName: String): Array<String> {
-  throw "std.reflect methods is a placeholder"
+  return Array<String>(0)
 }
 
 pub fun isReflectable(typeName: String): Bool {
-  throw "std.reflect isReflectable is a placeholder"
+  throw "std.reflect isReflectable intrinsic"
 }
