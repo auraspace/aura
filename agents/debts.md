@@ -8,15 +8,14 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 ## Open
 
-### API-001 TLS and WebSocket providers (2026-07-31)
+### API-001 TLS provider (2026-07-31)
 
-- Area: `std.crypto` TLS, `std.tls`, `std.websocket`
-- Symptom: UDP now has a runtime-backed bounded datagram implementation, but
-  TLS provider selection and WebSocket framing still fail explicitly.
-- Why deferred: TLS needs a portable provider/linking policy and WebSocket needs
-  a hardened parser over an owned TCP connection.
-- Next step: add a real TLS provider, then implement bounded WebSocket framing
-  without changing locked signatures.
+- Area: `std.crypto` TLS and `std.tls`
+- Symptom: WebSocket framing is now runtime-backed, but TLS provider selection
+  and certificate verification still fail explicitly.
+- Why deferred: TLS needs a portable provider/linking policy and certificate
+  verification contract.
+- Next step: add a real TLS provider without changing locked signatures.
 
 ### API-002 package-specific error adapters (2026-07-31)
 

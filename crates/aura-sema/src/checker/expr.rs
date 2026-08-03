@@ -790,6 +790,11 @@ impl Checker {
                 self.reject_async_borrow("channel send", s.span, &s.value)?;
                 let channel = self.check_expr(&s.channel)?;
                 let value = self.check_expr(&s.value)?;
+                if matches!(&channel, Ty::Class(name) if crate::ty::split_nominal(name) == ("Connection", "std.websocket"))
+                    && matches!(&value, Ty::Class(name) if crate::ty::split_nominal(name) == ("Message", "std.websocket"))
+                {
+                    return Ok(Ty::Unit);
+                }
                 let Ty::Channel(element) = channel else {
                     return Err(SemaError {
                         message: format!(
@@ -814,6 +819,10 @@ impl Checker {
             AsyncExpr::ChannelReceive(r) => {
                 self.reject_async_borrow("channel receive", r.span, &r.channel)?;
                 let channel = self.check_expr(&r.channel)?;
+                if matches!(&channel, Ty::Class(name) if crate::ty::split_nominal(name) == ("Connection", "std.websocket"))
+                {
+                    return Ok(Ty::Class("Message@std.websocket".into()));
+                }
                 match channel {
                     Ty::Channel(element) => Ok(Ty::Nullable(element)),
                     other => Err(SemaError {
@@ -828,6 +837,10 @@ impl Checker {
             AsyncExpr::ChannelClose(c) => {
                 self.reject_async_borrow("channel close", c.span, &c.channel)?;
                 let channel = self.check_expr(&c.channel)?;
+                if matches!(&channel, Ty::Class(name) if crate::ty::split_nominal(name) == ("Connection", "std.websocket"))
+                {
+                    return Ok(Ty::Unit);
+                }
                 let udp_socket = matches!(
                     &channel,
                     Ty::Class(name) if crate::ty::split_nominal(name) == ("Socket", "std.udp")

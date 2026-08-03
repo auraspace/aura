@@ -61,6 +61,13 @@ const EMBEDDED_RUNTIME_FILES: &[(&str, &str)] = &[
         )),
     ),
     (
+        "src/io_websocket.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/io_websocket.c"
+        )),
+    ),
+    (
         "src/http_parser.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),

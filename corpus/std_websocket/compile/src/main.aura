@@ -1,0 +1,20 @@
+package demo.stdwebsocket.compile
+
+import std.io as Io
+import std.websocket as Ws
+
+async fun probe() {
+  try {
+    await Ws.connect("ws://127.0.0.1:1")
+  } catch (error: String) {
+    Io.println("websocket boundary ok")
+  }
+}
+
+fun main() {
+  val task = spawn {
+    await probe()
+    return
+  }
+  val outcome: Io.Result<Unit, Io.TaskError> = join(task)
+}

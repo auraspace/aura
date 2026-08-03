@@ -177,6 +177,10 @@ int64_t aura_udp_send(const char *host, int64_t port, const char *target_host,
                       int64_t target_port, const char *payload);
 int aura_udp_close(const char *host, int64_t port);
 const char *aura_udp_last_error(void);
+int aura_ws_connect(const char *endpoint);
+int64_t aura_ws_send(const char *endpoint, int64_t kind, const char *payload);
+const char *aura_ws_receive(const char *endpoint, int64_t *kind);
+int aura_ws_close(const char *endpoint);
 const char *aura_url_normalize_path(const char *path);
 _Bool aura_json_is_valid(const char *value);
 int64_t aura_json_error_offset(const char *value);

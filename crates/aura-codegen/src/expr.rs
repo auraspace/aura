@@ -2248,6 +2248,14 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
                     "({{ if ({channel} != NULL && {channel}->endpoint != NULL) (void)aura_udp_close({channel}->endpoint->host, {channel}->endpoint->port); (void)0; }})"
                 );
             }
+            if ctx
+                .checked
+                .expr_tys
+                .get(&(c.channel.span().start, c.channel.span().end))
+                .is_some_and(|ty| matches!(ty, Ty::Class(name) if aura_sema::split_nominal(name) == ("Connection", "std.websocket")))
+            {
+                return format!("({{ if ({channel} != NULL) (void)aura_ws_close({channel}->endpoint); (void)0; }})");
+            }
             format!("({{ aura_race_set_source_id(UINT32_C({})); (void)aura_task_channel_close({channel}); aura_race_set_source_id(0); (void)0; }})", c.span.start)
         }
     }
@@ -2484,6 +2492,9 @@ fn channel_payload_kind(key: &str, ctx: &EmitCtx<'_>) -> Option<&'static str> {
 fn emit_channel_send(s: &ChannelSendExpr, ctx: &mut EmitCtx<'_>) -> String {
     let channel = emit_expr(&s.channel, ctx);
     let value = emit_expr(&s.value, ctx);
+    if ctx.checked.expr_tys.get(&(s.channel.span().start, s.channel.span().end)).is_some_and(|ty| matches!(ty, Ty::Class(name) if aura_sema::split_nominal(name) == ("Connection", "std.websocket"))) {
+        return format!("({{ if ({channel} == NULL || {value} == NULL || aura_ws_send({channel}->endpoint, (int64_t){value}->kind.tag, {value}->payload) < 0) aura_throw_string(\"std.websocket send failed\"); (void)0; }})");
+    }
     let channel_key =
         resolve_type_name(&s.channel, ctx).unwrap_or_else(|| infer_type_name(&s.channel, ctx));
     let raw_inner = channel_inner_key(&channel_key).unwrap_or("Unit");
@@ -2537,6 +2548,9 @@ fn emit_channel_send(s: &ChannelSendExpr, ctx: &mut EmitCtx<'_>) -> String {
 
 fn emit_channel_receive(r: &ChannelReceiveExpr, ctx: &mut EmitCtx<'_>) -> String {
     let channel = emit_expr(&r.channel, ctx);
+    if ctx.checked.expr_tys.get(&(r.channel.span().start, r.channel.span().end)).is_some_and(|ty| matches!(ty, Ty::Class(name) if aura_sema::split_nominal(name) == ("Connection", "std.websocket"))) {
+        return format!("({{ int64_t __kind = 0; const char *__payload = ({channel} == NULL) ? NULL : aura_ws_receive({channel}->endpoint, &__kind); if (__payload == NULL) return NULL; aura_enum_std_websocket_MessageKind __message_kind = __kind == 0 ? aura_var_std_websocket_MessageKind_Text() : __kind == 1 ? aura_var_std_websocket_MessageKind_Binary() : __kind == 2 ? aura_var_std_websocket_MessageKind_Ping() : __kind == 3 ? aura_var_std_websocket_MessageKind_Pong() : aura_var_std_websocket_MessageKind_Close(); aura_cls_std_websocket_Message *__message = aura_new_std_websocket_Message(__message_kind, __payload); free((void *)__payload); __message; }})");
+    }
     let channel_key =
         resolve_type_name(&r.channel, ctx).unwrap_or_else(|| infer_type_name(&r.channel, ctx));
     let raw_inner = channel_inner_key(&channel_key).unwrap_or("Unit");

@@ -476,6 +476,10 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
         "int64_t aura_udp_send(const char *, int64_t, const char *, int64_t, const char *);\n",
     );
     out.push_str("int aura_udp_close(const char *, int64_t);\n");
+    out.push_str("int aura_ws_connect(const char *);\n");
+    out.push_str("int64_t aura_ws_send(const char *, int64_t, const char *);\n");
+    out.push_str("const char *aura_ws_receive(const char *, int64_t *);\n");
+    out.push_str("int aura_ws_close(const char *);\n");
     out.push_str("typedef struct AuraHttpRequest AuraHttpRequest;\n");
     out.push_str("typedef struct AuraHttpResponse AuraHttpResponse;\n");
     out.push_str("typedef struct AuraHttpConnection AuraHttpConnection;\n");
@@ -12900,6 +12904,16 @@ fn emit_async_body(
         let key = type_ref_local_key_expand(&p.ty, params, &[], checked);
         ctx.define_local(&p.name.name, full_type_mono(&key, checked));
     }
+    if f.name.name == "connect"
+        && f.params.len() == 1
+        && f.return_type.as_ref().is_some_and(|ty| {
+            type_ref_local_key_expand(ty, params, type_args, checked).contains("Connection")
+        })
+    {
+        let endpoint = mangle_ident(&f.params[0].name.name);
+        let _ = writeln!(out, "  if ({endpoint} == NULL || !aura_ws_connect({endpoint})) {{ aura_throw_string(\"std.websocket connect failed\"); return NULL; }} return aura_new_std_websocket_Connection({endpoint});");
+        return;
+    }
     if let Some(this_param) = f.params.iter().find(|p| p.name.name == "this") {
         let cty = c_type_ref_subst(&this_param.ty, checked, params, &[]);
         out.push_str("  /* Async class-method bodies use the normal `this` spelling. */\n");
@@ -12918,6 +12932,11 @@ fn emit_async_body(
             let target = mangle_ident(&f.params[1].name.name);
             let payload = mangle_ident(&f.params[2].name.name);
             let _ = writeln!(out, "  if (this == NULL || this->endpoint == NULL || {target} == NULL || {target}->host == NULL || !aura_udp_bind(this->endpoint->host, this->endpoint->port)) {{ aura_throw_string(\"std.udp send failed\"); return 0; }} int64_t __sent = aura_udp_send(this->endpoint->host, this->endpoint->port, {target}->host, {target}->port, {payload} == NULL ? \"\" : {payload}); if (__sent < 0) {{ aura_throw_string(\"std.udp send failed\"); return 0; }} return __sent;");
+            return;
+        }
+        if f.name.name.ends_with("_ping") && f.params.len() == 2 && cty.contains("Connection") {
+            let payload = mangle_ident(&f.params[1].name.name);
+            let _ = writeln!(out, "  if (this == NULL || aura_ws_send(this->endpoint, 2, {payload} == NULL ? \"\" : {payload}) < 0) aura_throw_string(\"std.websocket ping failed\"); return;");
             return;
         }
     }
