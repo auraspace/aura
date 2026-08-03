@@ -322,6 +322,8 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str("const char *aura_json_object_keys(const char *value);\n");
     out.push_str("const char *aura_json_decode_string(const char *value);\n");
     out.push_str("const char *aura_json_duplicate_key(const char *value);\n");
+    out.push_str("_Bool aura_json_parse_int(const char *value, int64_t *out);\n");
+    out.push_str("_Bool aura_json_parse_bool(const char *value, _Bool *out);\n");
     out.push_str("int aura_signal_install_shutdown(void);\n");
     out.push_str("_Bool aura_signal_shutdown_requested(void);\n");
     out.push_str("void aura_signal_clear_shutdown(void);\n");
@@ -16243,6 +16245,34 @@ pub(crate) fn emit_fun(
                 out.push_str("    return __metadata;\n  }\n");
             }
             out.push_str("  return aura_new_Array_String(INT64_C(0));\n}\n");
+            return;
+        }
+    }
+    if pkg == "std.json" && f.name.name == "decode" && f.params.len() == 1 && args.len() == 1 {
+        let value = mangle_ident(&f.params[0].name.name);
+        let name = args[0].mono_suffix();
+        if name == "String" {
+            let _ = writeln!(out, "  return aura_json_decode_string((*{value}).text);");
+            out.push_str("}\n");
+            return;
+        }
+        if name == "Int" {
+            out.push_str(
+                "  aura_opt_i64 __decoded = { .has = false, .value = 0 }; int64_t __number = 0;\n",
+            );
+            let _ = writeln!(out, "  if (aura_json_parse_int((*{value}).text, &__number)) __decoded = (aura_opt_i64){{ .has = true, .value = __number }};");
+            out.push_str("  return __decoded;\n}\n");
+            return;
+        }
+        if name == "Bool" {
+            out.push_str("  aura_opt_bool __decoded = { .has = false, .value = false }; bool __boolean = false;\n");
+            let _ = writeln!(out, "  if (aura_json_parse_bool((*{value}).text, &__boolean)) __decoded = (aura_opt_bool){{ .has = true, .value = __boolean }};");
+            out.push_str("  return __decoded;\n}\n");
+            return;
+        }
+        if name.ends_with("std_json_Value") || name == "Value" {
+            let _ = writeln!(out, "  return aura_method_std_json_Value_clone({value});");
+            out.push_str("}\n");
             return;
         }
     }

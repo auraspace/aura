@@ -270,16 +270,15 @@ byte-oriented and do not perform Unicode normalization.
 | `Value.raw` / `serialize`                                                    | Return the preserved validated JSON text                                   |
 | `Value.kind`                                                                 | Return `object`, `array`, `string`, `number`, `bool`, `null`, or `invalid` |
 | `Value.isObject` / `isArray` / `isString` / `isNumber` / `isBool` / `isNull` | Root-kind predicates                                                       |
-| `Value.get` / `at` / `asString` / `keys`                                     | Locked traversal/type-access placeholders; calls fail explicitly           |
+| `Value.get` / `at` / `asString` / `keys`                                     | Bounded source-backed traversal and string access                          |
 | `ParseOptions` / `DuplicateKeyPolicy` / `ParseError`                         | Locked bounds, duplicate-key, and typed-failure contract                   |
-| `parseWithOptions` / `parseResult` / `decode<T>`                             | Locked parser/mapping placeholders; calls fail explicitly                  |
-| `Value.clone` / `byteLength` / `depth`                                       | Locked ownership/tree-metadata placeholders; calls fail explicitly         |
+| `parseWithOptions` / `parseResult` / `decode<T>`                             | Bounded parser outcomes and primitive/String decoding                      |
+| `Value.clone` / `byteLength` / `depth`                                       | Independent clone and bounded source/tree metadata                         |
 
-The current `Value` model intentionally does not expose object-member or array
-index access yet. `ParseOptions` reserves `maxBytes`, `maxDepth`, and explicit
-duplicate-key behavior (`Reject`, `FirstWins`, `LastWins`). The eventual tree
-backend must make `Value.clone()` independent and preserve ownership across
-`Outcome`, task, and mapping boundaries; no placeholder returns fake data.
+`Value` exposes bounded object-member and array traversal. `ParseOptions`
+supports `maxBytes`, `maxDepth`, and explicit duplicate-key behavior (`Reject`,
+`FirstWins`, `LastWins`). Application-class mapping remains outside the current
+primitive/String decode contract.
 
 ## `std.mime`
 

@@ -1087,6 +1087,38 @@ int64_t aura_json_error_offset(const char *value)
   return cursor.index == cursor.length ? -1 : (int64_t)cursor.index;
 }
 
+static const char *aura_json_trim_start(const char *value)
+{
+  const char *cursor = value == NULL ? "" : value;
+  while (*cursor == ' ' || *cursor == '\t' || *cursor == '\n' || *cursor == '\r') cursor++;
+  return cursor;
+}
+
+_Bool aura_json_parse_int(const char *value, int64_t *out)
+{
+  const char *cursor = aura_json_trim_start(value);
+  char *end = NULL;
+  if (*cursor == '+') return false;
+  errno = 0;
+  long long parsed = strtoll(cursor, &end, 10);
+  if (cursor == end || errno == ERANGE || (*end != '\0' && *end != ' ' && *end != '\t' && *end != '\n' && *end != '\r')) return false;
+  end = (char *)aura_json_trim_start(end);
+  if (*end != '\0' || !aura_json_is_valid(value)) return false;
+  if (out != NULL) *out = (int64_t)parsed;
+  return true;
+}
+
+_Bool aura_json_parse_bool(const char *value, _Bool *out)
+{
+  const char *cursor = aura_json_trim_start(value);
+  _Bool result;
+  if (strcmp(cursor, "true") == 0) result = true;
+  else if (strcmp(cursor, "false") == 0) result = false;
+  else return false;
+  if (out != NULL) *out = result;
+  return true;
+}
+
 const char *aura_json_escape_string(const char *value)
 {
   const unsigned char *input = (const unsigned char *)(value == NULL ? "" : value);

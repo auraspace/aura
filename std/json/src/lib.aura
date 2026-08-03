@@ -252,5 +252,5 @@ pub fun parseResult(value: String,
 /// Map a validated JSON value to an application type once derives/reflection
 /// provide the serializer contract.
 pub fun decode<T>(value: Value): T? {
-  throw "std.json decode is a placeholder"
+  throw "std.json decode intrinsic"
 }

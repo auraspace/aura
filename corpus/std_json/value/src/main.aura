@@ -40,4 +40,12 @@ fun main() {
   val limited = parseWithOptions("{\"nested\":[1]}", parseOptions(64, 1, rejectDuplicateKeys()))
   if (limited == null) { println("depth-limit") }
   if (parseWithOptions("{\"x\":1,\"x\":2}", options) == null) { println("duplicate") }
+  val typedInt = decode<Int>(Value("42"))
+  val typedBool = decode<Bool>(Value("true"))
+  val typedString = decode<String>(Value("\"decoded\""))
+  if (typedInt == null || typedInt!! != 42) { throw "typed int" }
+  if (typedBool == null || !typedBool!!) { throw "typed bool" }
+  if (typedString == null || typedString!! != "decoded") { throw "typed string" }
+  if (decode<Int>(Value("nope")) != null) { throw "invalid typed int" }
+  println("decode-ok")
 }
