@@ -43,7 +43,7 @@ pub fun lastDuplicateKeyWins(): DuplicateKeyPolicy {
 }
 
 pub fun defaultParseOptions(): ParseOptions {
-  throw "std.json defaultParseOptions is a placeholder"
+  return ParseOptions(8 * 1024 * 1024, 64, rejectDuplicateKeys())
 }
 
 /// Validate one complete JSON value with bounded nesting and UTF-8 input.
@@ -78,17 +78,40 @@ pub class Value(private val text: String) {
 
   /// Return an independent owned tree copy once tree storage is implemented.
   pub fun clone(): Value {
-    throw "std.json Value.clone is a placeholder"
+    return Value(this.text)
   }
 
   /// Return the encoded byte length of this value.
   pub fun byteLength(): Int {
-    throw "std.json Value.byteLength is a placeholder"
+    return this.text.len
   }
 
   /// Return the maximum nested container depth of this value.
   pub fun depth(): Int {
-    throw "std.json Value.depth is a placeholder"
+    var current = 0
+    var maximum = 0
+    var quoted = false
+    var escaped = false
+    for (i in 0..this.text.len) {
+      val byte = this.text.charAt(i)
+      if (quoted) {
+        if (escaped) {
+          escaped = false
+        } else if (byte == 92) {
+          escaped = true
+        } else if (byte == 34) {
+          quoted = false
+        }
+      } else if (byte == 34) {
+        quoted = true
+      } else if (byte == 123 || byte == 91) {
+        current = current + 1
+        if (current > maximum) { maximum = current }
+      } else if (byte == 125 || byte == 93) {
+        current = current - 1
+      }
+    }
+    return maximum
   }
 
   /// Return the root node kind: object, array, string, number, bool, or null.
@@ -155,14 +178,34 @@ pub fun parse(value: String): Value? {
 
 /// Parse with explicit bounds and duplicate-key policy.
 pub fun parseWithOptions(value: String, options: ParseOptions): Value? {
-  throw "std.json parseWithOptions is a placeholder"
+  if (options.maxBytes < 0 || options.maxDepth < 0) {
+    return null
+  }
+  if (value.len > options.maxBytes || !isValid(value)) {
+    return null
+  }
+  val parsed = Value(value)
+  if (parsed.depth() > options.maxDepth) {
+    return null
+  }
+  return parsed
 }
 
 /// Typed parse result. Mapping and ownership are deferred, but the error
 /// channel is reserved now so callers do not depend on null-only failure.
 pub fun parseResult(value: String,
                     options: ParseOptions): JsonErrs.Outcome<Value, ParseError> {
-  throw "std.json parseResult is a placeholder"
+  if (options.maxBytes < 0 || options.maxDepth < 0 || value.len > options.maxBytes) {
+    return JsonErrs.failure(JsonLimitExceeded(options.maxBytes))
+  }
+  if (!isValid(value)) {
+    return JsonErrs.failure(JsonInvalidInput(errorOffset(value)))
+  }
+  val parsed = Value(value)
+  if (parsed.depth() > options.maxDepth) {
+    return JsonErrs.failure(JsonLimitExceeded(options.maxDepth))
+  }
+  return JsonErrs.success(parsed)
 }
 
 /// Map a validated JSON value to an application type once derives/reflection

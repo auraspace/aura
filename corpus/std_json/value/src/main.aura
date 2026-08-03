@@ -2,6 +2,7 @@ package demo.stdjson.value
 
 import std.io
 import std.json
+import std.error as Errors
 
 fun main() {
   val value = parse("{\"ok\":true}")
@@ -15,4 +16,14 @@ fun main() {
   if (scalar != null && scalar!!.isArray()) { println("array") }
   if (parse("{bad") == null) { println("invalid") }
   println(errorOffset("{bad").toString())
+  val options = defaultParseOptions()
+  val bounded = parseWithOptions("{\"nested\":[1]}", options)
+  if (bounded != null) {
+    println(bounded!!.clone().byteLength().toString())
+    println(bounded!!.depth().toString())
+  }
+  val result = parseResult("{\"ok\":true}", options)
+  if (Errors.isSuccess(result)) { println("typed-ok") }
+  val limited = parseWithOptions("{\"nested\":[1]}", parseOptions(64, 1, rejectDuplicateKeys()))
+  if (limited == null) { println("depth-limit") }
 }
