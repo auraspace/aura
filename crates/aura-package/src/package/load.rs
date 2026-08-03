@@ -294,17 +294,6 @@ fn manifest_root(manifest: &Path) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::manifest_root;
-    use std::path::Path;
-
-    #[test]
-    fn relative_manifest_without_parent_uses_current_directory() {
-        assert_eq!(manifest_root(Path::new("aura.toml")), Path::new("."));
-    }
-}
-
 /// Resolve registry deps from the index/lock, ensure cache install, and rewrite
 /// them as absolute path deps on `effective`.
 ///
@@ -1245,4 +1234,15 @@ pub(crate) fn load_directory(
         macro_sources,
         macro_plugins: std::collections::BTreeMap::new(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::manifest_root;
+    use std::path::Path;
+
+    #[test]
+    fn relative_manifest_without_parent_uses_current_directory() {
+        assert_eq!(manifest_root(Path::new("aura.toml")), Path::new("."));
+    }
 }
