@@ -10,9 +10,9 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 ### API-001 platform and protocol placeholders (2026-07-31)
 
-- Area: `std.crypto` TLS, `std.reflect`, `std.tls`, `std.udp`, `std.websocket`, `std.compress`, `std.multipart`
+- Area: `std.crypto` TLS, `std.reflect`, `std.tls`, `std.udp`, `std.websocket`, `std.compress`
 - Symptom: public package contracts exist, but TLS, reflection,
-  datagram, framing, compression, and multipart operations still fail
+  datagram, framing, and compression operations still fail
   explicitly or remain metadata-only.
 - Why deferred: each surface needs a capability policy, ownership contract,
   parser hardening, and platform-backed tests.

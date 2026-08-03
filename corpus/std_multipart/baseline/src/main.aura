@@ -1,0 +1,16 @@
+package demo.stdmultipart
+
+import std.multipart
+
+fun main() {
+  val parts: Array<Part> = Array<Part>(0)
+  parts.push(Part("name", "", "text/plain", "Aura"))
+  parts.push(Part("file", "a.txt", "text/plain", "hello"))
+  val body = encode(parts, "BOUNDARY")
+  val parsed = parser("BOUNDARY").parse(body)
+  if (parsed.len != 2) { throw "bad multipart count" }
+  if (parsed.get(0).name != "name" || parsed.get(0).body != "Aura") { throw "bad field" }
+  if (parsed.get(1).filename != "a.txt" || parsed.get(1).contentType != "text/plain") { throw "bad file" }
+  if (parser("").parse(body).len != 0) { throw "bad empty boundary" }
+  println("multipart-ok")
+}

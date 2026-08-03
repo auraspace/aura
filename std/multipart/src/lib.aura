@@ -6,7 +6,27 @@ pub class Part(pub val name: String, pub val filename: String, pub val contentTy
 
 pub class Parser(pub val boundary: String) {
   pub fun parse(value: String): Array<Part> {
-    throw "std.multipart parse is a placeholder"
+    val result: Array<Part> = Array<Part>(0)
+    if (this.boundary.isEmpty()) { return result }
+    val marker = "--" + this.boundary
+    val segments = value.split(marker)
+    for (i in 0..segments.len) {
+      val segment = segments.get(i).trim()
+      if (segment.isEmpty() || segment == "--") { continue }
+      val headerEnd = segment.indexOf("\r\n\r\n")
+      if (headerEnd < 0) { continue }
+      val headers = segment.substring(0, headerEnd)
+      var body = segment.substring(headerEnd + 4, segment.len)
+      if (body.endsWith("\r\n")) { body = body.substring(0, body.len - 2) }
+      val disposition = headerValue(headers, "Content-Disposition")
+      if (disposition == null) { continue }
+      val name = parameterValue(disposition!!, "name")
+      if (name == null) { continue }
+      val filename = parameterValue(disposition!!, "filename") ?: ""
+      val contentType = headerValue(headers, "Content-Type") ?: ""
+      result.push(Part(name!!, filename!!, contentType!!, body))
+    }
+    return result
   }
 }
 
@@ -15,5 +35,39 @@ pub fun parser(boundary: String): Parser {
 }
 
 pub fun encode(parts: Array<Part>, boundary: String): String {
-  throw "std.multipart encode is a placeholder"
+  if (boundary.isEmpty()) { return "" }
+  var output = ""
+  for (i in 0..parts.len) {
+    val part = parts.get(i)
+    output = output + "--" + boundary + "\r\n"
+    output = output + "Content-Disposition: form-data; name=\"" + part.name + "\""
+    if (!part.filename.isEmpty()) { output = output + "; filename=\"" + part.filename + "\"" }
+    output = output + "\r\n"
+    if (!part.contentType.isEmpty()) { output = output + "Content-Type: " + part.contentType + "\r\n" }
+    output = output + "\r\n" + part.body + "\r\n"
+  }
+  return output + "--" + boundary + "--\r\n"
+}
+
+fun headerValue(headers: String, name: String): String? {
+  val lines = headers.split("\r\n")
+  for (i in 0..lines.len) {
+    val line = lines.get(i)
+    val separator = line.indexOf(":")
+    if (separator < 0) { continue }
+    if (line.substring(0, separator).trim().toLower() == name.toLower()) {
+      return line.substring(separator + 1, line.len).trim()
+    }
+  }
+  return null
+}
+
+fun parameterValue(value: String, name: String): String? {
+  val prefix = name + "=\""
+  val start = value.toLower().indexOf(prefix.toLower())
+  if (start < 0) { return null }
+  val contentStart = start + prefix.len
+  val quote = value.substring(contentStart, value.len).indexOf("\"")
+  if (quote < 0) { return null }
+  return value.substring(contentStart, contentStart + quote)
 }
