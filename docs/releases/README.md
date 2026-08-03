@@ -2,9 +2,9 @@
 
 How Aura cuts a public toolchain release (alpha → stable uses the same path).
 
-Current release: `0.1.1-alpha` is published with GitHub Release assets. The
+Current release: `0.1.1-alpha.3` is prepared for publication with GitHub Release assets. The
 older `0.1.0-alpha` release remains available for compatibility and history;
-changes after `v0.1.1-alpha` belong to a subsequent release or maintenance
+changes after `v0.1.1-alpha.3` belong to a subsequent release or maintenance
 update.
 
 ## Flow
@@ -128,7 +128,7 @@ signs and verifies `SHA256SUMS` and publishes `SHA256SUMS.minisig` plus
 `minisign.pub`. Missing or invalid signing material is a release failure, not
 an unsigned success.
 
-## Evidence boundary for v0.1.1-alpha
+## Evidence boundary for v0.1.1-alpha.3
 
 The checked-in policy and fixture gates prove matrix alignment, package layout,
 checksums, signed-bundle wiring, and the distinction between native execution
@@ -151,12 +151,12 @@ run IDs for the following:
 
 ## Version naming
 
-| Concept             | Example                                | Where                                              |
-| ------------------- | -------------------------------------- | -------------------------------------------------- |
-| Release version     | `0.1.1-alpha`                          | CHANGELOG, notes, install `AURA_VERSION`           |
-| Git tag             | `v0.1.1-alpha`                         | Triggers CI; GitHub Release name                   |
-| Cargo workspace ver | `0.1.1-alpha`                          | `Cargo.toml` `[workspace.package]`; `aura version` |
-| Artifact name       | `aura-0.1.1-alpha-darwin-arm64.tar.gz` | GH Release assets                                  |
+| Concept             | Example                                  | Where                                              |
+| ------------------- | ---------------------------------------- | -------------------------------------------------- |
+| Release version     | `0.1.1-alpha.3`                          | CHANGELOG, notes, install `AURA_VERSION`           |
+| Git tag             | `v0.1.1-alpha.3`                         | Triggers CI; GitHub Release name                   |
+| Cargo workspace ver | `0.1.1-alpha.3`                          | `Cargo.toml` `[workspace.package]`; `aura version` |
+| Artifact name       | `aura-0.1.1-alpha.3-darwin-arm64.tar.gz` | GH Release assets                                  |
 
 Prerelease tags (`*alpha*`, `*beta*`, `*rc*`) create a **prerelease** on GitHub.
 
@@ -173,6 +173,6 @@ docs/releases/<version>.md
 ## Local package only (no publish)
 
 ```bash
-TAG_VERSION=0.1.1-alpha bash scripts/package-release.sh
-# → dist/aura-0.1.1-alpha-<os>-<arch>.tar.gz
+TAG_VERSION=0.1.1-alpha.3 bash scripts/package-release.sh
+# → dist/aura-0.1.1-alpha.3-<os>-<arch>.tar.gz
 ```

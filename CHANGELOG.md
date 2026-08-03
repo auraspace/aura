@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.1-alpha.3 (2026-08-03)
+
+Fix async GC ownership and release acceptance
+
+Full notes: [`docs/releases/0.1.1-alpha.3.md`](docs/releases/0.1.1-alpha.3.md).
+
+### Changes
+
+- feat: enhance workspace tests to include ASan options for leak detection
+- feat: enhance FFI and HTTP error handling, add payload reference tests
+- feat: add interactive AuraCanvas background and code showcase section to home page
+
 ## 0.1.1-alpha.2 (2026-07-31)
 
 Second alpha patch release with portability and registry acceptance fixes

@@ -172,7 +172,7 @@ remain design context in [RFC-005](../rfc/RFC-005-package-manager.md) §6.5–6.
 - No `git=` / `github=` sources or workspaces
 - Prefer monorepo-local or sibling `path = "…"` deps
 
-See the [current 0.1.1-alpha release notes](../releases/0.1.1-alpha.md); the [0.1.0-alpha freeze](../releases/0.1.0-alpha.md) is historical.
+See the [current 0.1.1-alpha.3 release notes](../releases/0.1.1-alpha.3.md); the [0.1.0-alpha freeze](../releases/0.1.0-alpha.md) is historical.
 
 ## Next
 
