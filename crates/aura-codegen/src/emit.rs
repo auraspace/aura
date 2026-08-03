@@ -467,6 +467,15 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str("AuraTcpStatus aura_tcp_stream_write(AuraTcpStream *, const void *, size_t, size_t *, int);\n");
     out.push_str("static void aura_destroy_tcp_stream_resource(void *resource) { if (resource != NULL) aura_tcp_stream_destroy((AuraTcpStream *)resource); }\n");
     out.push_str("static void aura_destroy_tcp_listener_resource(void *resource) { if (resource != NULL) aura_tcp_listener_destroy((AuraTcpListener *)resource); }\n");
+    out.push_str("int aura_udp_bind(const char *, int64_t);\n");
+    out.push_str("int aura_udp_wait(const char *, int64_t, int);\n");
+    out.push_str(
+        "const char *aura_udp_receive(const char *, int64_t, int64_t, int64_t *, const char **);\n",
+    );
+    out.push_str(
+        "int64_t aura_udp_send(const char *, int64_t, const char *, int64_t, const char *);\n",
+    );
+    out.push_str("int aura_udp_close(const char *, int64_t);\n");
     out.push_str("typedef struct AuraHttpRequest AuraHttpRequest;\n");
     out.push_str("typedef struct AuraHttpResponse AuraHttpResponse;\n");
     out.push_str("typedef struct AuraHttpConnection AuraHttpConnection;\n");
@@ -1240,6 +1249,8 @@ pub(crate) fn emit_async_fun_decl(
                 && emit_async_fun_std_net_stream(out, lowered, checked, true))
             || (lowered.name.name == "writeStream"
                 && emit_async_fun_std_net_stream(out, lowered, checked, false)));
+    let is_std_udp_method = c_async_fun_signature(lowered, checked).contains("std_udp_Socket");
+    let emitted_std_udp = is_std_udp_method && emit_async_fun_std_udp(out, lowered, checked);
     let emitted_std_http = async_fun_decl_package(lowered, checked) == "std.http"
         && ((lowered.name.name == "serveConnection"
             && emit_async_fun_std_http_serve_connection(out, lowered, checked))
@@ -1251,6 +1262,7 @@ pub(crate) fn emit_async_fun_decl(
         && emit_async_fun_std_time_sleep(out, lowered, checked);
     if !emitted_std_io
         && !emitted_std_net
+        && !emitted_std_udp
         && !emitted_std_http
         && !emitted_std_time
         && !emit_async_fun_cfg_int(out, lowered, checked, detector, false, &HashSet::new())
@@ -10465,6 +10477,50 @@ fn emit_async_fun_std_http_request_body_chunk(
     true
 }
 
+fn emit_async_fun_std_udp(out: &mut String, f: &AsyncFunDecl, checked: &CheckedFile) -> bool {
+    if f.params.is_empty() {
+        return false;
+    }
+    let base = c_fun_name("std.udp", &f.name.name, &[]);
+    let data_ty = format!("aura_async_data_{base}");
+    let poll = format!("aura_async_poll_{base}");
+    let destroy = format!("aura_async_destroy_{base}");
+    let destroy_result = format!("aura_async_result_destroy_{base}");
+    let method = f.name.name.as_str();
+    let receiver = mangle_ident(&f.params[0].name.name);
+    if method == "receive" {
+        if f.params.len() != 2 {
+            return false;
+        }
+        let capacity = mangle_ident(&f.params[1].name.name);
+        out.push_str("/* compiler-generated std.udp.receive: endpoint-keyed datagram wait */\n");
+        let _ = writeln!(out, "typedef struct {data_ty} {{ char *host; int64_t port; int64_t capacity; char *payload; }} {data_ty};");
+        let _ = writeln!(out, "static void {destroy}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data != NULL) {{ free(data->host); free(data->payload); }} }}");
+        let _ = writeln!(out, "static void {destroy_result}(void *raw, size_t size) {{ (void)size; if (raw != NULL) {{ aura_cls_std_udp_Datagram *value = (aura_cls_std_udp_Datagram *)raw; aura_gc_remove_root((void **)raw); free(value); }} }}");
+        let _ = writeln!(out, "static AuraTaskPollState {poll}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data == NULL || aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED; if (aura_task_frame_resume_state(frame) == 0) {{ if (data->capacity <= 0 || !aura_udp_bind(data->host, data->port)) return AURA_TASK_FAILED; aura_task_frame_set_resume_state(frame, 1); }} if (!aura_udp_wait(data->host, data->port, 0)) {{ if (!aura_task_frame_wait_deadline(frame, 1)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }} int64_t source_port = 0; const char *source_host = NULL; data->payload = (char *)aura_udp_receive(data->host, data->port, data->capacity, &source_port, &source_host); if (data->payload == NULL || source_host == NULL) return AURA_TASK_FAILED; aura_cls_std_udp_Endpoint *source = aura_new_std_udp_Endpoint(source_host, source_port); free((void *)source_host); if (source == NULL) return AURA_TASK_FAILED; aura_cls_std_udp_Datagram *result = aura_new_std_udp_Datagram(source, data->payload); if (result == NULL) return AURA_TASK_FAILED; data->payload = NULL; aura_gc_add_root((void **)result); aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE; }}");
+        let _ = writeln!(out, "{} {{ AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll}, {destroy}); if (frame == NULL) return NULL; {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data == NULL || {receiver} == NULL || {receiver}->endpoint == NULL) {{ aura_task_frame_destroy(frame); return NULL; }} data->host = strdup({receiver}->endpoint->host); data->port = {receiver}->endpoint->port; data->capacity = {capacity}; data->payload = NULL; if (data->host == NULL || __aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, frame)) {{ aura_task_frame_destroy(frame); return NULL; }} return frame; }}", c_async_fun_signature(f, checked));
+        return true;
+    }
+    if method == "send" {
+        if f.params.len() != 3 {
+            return false;
+        }
+        let target = mangle_ident(&f.params[1].name.name);
+        let payload = mangle_ident(&f.params[2].name.name);
+        out.push_str("/* compiler-generated std.udp.send: bounded datagram write */\n");
+        let _ = writeln!(out, "typedef struct {data_ty} {{ char *host; char *target_host; int64_t port; int64_t target_port; char *payload; }} {data_ty};");
+        let _ = writeln!(out, "static void {destroy}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data != NULL) {{ free(data->host); free(data->target_host); free(data->payload); }} }}");
+        let _ = writeln!(
+            out,
+            "static void {destroy_result}(void *raw, size_t size) {{ (void)size; free(raw); }}"
+        );
+        let _ = writeln!(out, "static AuraTaskPollState {poll}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data == NULL || aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED; if (!aura_udp_bind(data->host, data->port)) return AURA_TASK_FAILED; int64_t sent = aura_udp_send(data->host, data->port, data->target_host, data->target_port, data->payload); if (sent < 0) {{ if (!aura_task_frame_wait_deadline(frame, 1)) return AURA_TASK_FAILED; sent = aura_udp_send(data->host, data->port, data->target_host, data->target_port, data->payload); }} if (sent < 0) return AURA_TASK_FAILED; int64_t *result = (int64_t *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = sent; aura_task_frame_set_result(frame, result, sizeof(*result), {destroy_result}); return AURA_TASK_COMPLETE; }}");
+        let _ = writeln!(out, "{} {{ AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll}, {destroy}); if (frame == NULL) return NULL; {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data == NULL || {receiver} == NULL || {receiver}->endpoint == NULL || {target} == NULL || {target}->host == NULL) {{ aura_task_frame_destroy(frame); return NULL; }} data->host = strdup({receiver}->endpoint->host); data->port = {receiver}->endpoint->port; data->target_host = strdup({target}->host); data->target_port = {target}->port; data->payload = strdup({payload} == NULL ? \"\" : {payload}); if (data->host == NULL || data->target_host == NULL || data->payload == NULL || __aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, frame)) {{ aura_task_frame_destroy(frame); return NULL; }} return frame; }}", c_async_fun_signature(f, checked));
+        return true;
+    }
+    false
+}
+
 fn emit_async_fun_std_net_stream(
     out: &mut String,
     f: &AsyncFunDecl,
@@ -12451,9 +12507,12 @@ fn emit_async_fun_no_await_args(
             format!(", {}", body_params.join(", "))
         }
     );
-    let rendered_mir = mir_body.is_some_and(|body| {
-        crate::mir_emit::emit_body_from_mir(out, body, &checked.package, f.params.len(), 1)
-    });
+    let is_std_udp_method = (f.name.name.ends_with("_receive") || f.name.name.ends_with("_send"))
+        && f.params.len() >= 2;
+    let rendered_mir = !is_std_udp_method
+        && mir_body.is_some_and(|body| {
+            crate::mir_emit::emit_body_from_mir(out, body, &checked.package, f.params.len(), 1)
+        });
     if !rendered_mir {
         emit_async_body(out, f, checked, &params, type_args, detector);
     }
@@ -12845,6 +12904,22 @@ fn emit_async_body(
         let cty = c_type_ref_subst(&this_param.ty, checked, params, &[]);
         out.push_str("  /* Async class-method bodies use the normal `this` spelling. */\n");
         let _ = writeln!(out, "  {cty} this = a_this;");
+        if f.name.name.ends_with("_receive") && f.params.len() == 2 && cty.contains("Socket") {
+            let capacity = mangle_ident(&f.params[1].name.name);
+            out.push_str("  if (this == NULL || this->endpoint == NULL || ");
+            out.push_str(&capacity);
+            out.push_str(" <= 0 || !aura_udp_bind(this->endpoint->host, this->endpoint->port) || !aura_udp_wait(this->endpoint->host, this->endpoint->port, 1000)) { aura_throw_string(\"std.udp receive failed\"); return NULL; }\n");
+            out.push_str("  int64_t __source_port = 0; const char *__source_host = NULL; const char *__payload = aura_udp_receive(this->endpoint->host, this->endpoint->port, ");
+            out.push_str(&capacity);
+            out.push_str(", &__source_port, &__source_host); if (__payload == NULL || __source_host == NULL) { aura_throw_string(\"std.udp receive failed\"); return NULL; } aura_cls_std_udp_Endpoint *__source = aura_new_std_udp_Endpoint(__source_host, __source_port); free((void *)__source_host); if (__source == NULL) { free((void *)__payload); return NULL; } aura_cls_std_udp_Datagram *__result = aura_new_std_udp_Datagram(__source, __payload); free((void *)__payload); return __result;\n");
+            return;
+        }
+        if f.name.name.ends_with("_send") && f.params.len() == 3 && cty.contains("Socket") {
+            let target = mangle_ident(&f.params[1].name.name);
+            let payload = mangle_ident(&f.params[2].name.name);
+            let _ = writeln!(out, "  if (this == NULL || this->endpoint == NULL || {target} == NULL || {target}->host == NULL || !aura_udp_bind(this->endpoint->host, this->endpoint->port)) {{ aura_throw_string(\"std.udp send failed\"); return 0; }} int64_t __sent = aura_udp_send(this->endpoint->host, this->endpoint->port, {target}->host, {target}->port, {payload} == NULL ? \"\" : {payload}); if (__sent < 0) {{ aura_throw_string(\"std.udp send failed\"); return 0; }} return __sent;");
+            return;
+        }
     }
     emit_block(out, &f.body, 1, &mut ctx);
     crate::stmt::emit_release_task_handle_owners(out, 1, &ctx, &ctx.task_handle_owners_all());
@@ -16579,6 +16654,21 @@ pub(crate) fn emit_fun(
         }
         if f.name.name == "minLevel" && f.params.is_empty() {
             out.push_str("  return aura_log_get_min_level();\n}\n");
+            return;
+        }
+    }
+    if pkg == "std.udp" {
+        if f.name.name == "bind" && f.params.len() == 1 {
+            let endpoint = mangle_ident(&f.params[0].name.name);
+            let _ = writeln!(out, "  if ({endpoint} == NULL || !aura_udp_bind({endpoint}->host, {endpoint}->port)) {{ aura_throw_string(\"std.udp.bind failed\"); return NULL; }}");
+            let _ = writeln!(out, "  return aura_new_std_udp_Socket({endpoint});");
+            out.push_str("}\n");
+            return;
+        }
+        if f.name.name == "close" && f.params.len() == 1 {
+            let this = mangle_ident(&f.params[0].name.name);
+            let _ = writeln!(out, "  if ({this} != NULL && {this}->endpoint != NULL) (void)aura_udp_close({this}->endpoint->host, {this}->endpoint->port);");
+            out.push_str("}\n");
             return;
         }
     }

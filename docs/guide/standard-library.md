@@ -38,7 +38,7 @@ Aura’s **core** stdlib is intentionally small ([RFC-007](/rfc/007), [RFC-000](
 | `std.crypto`      | `std/crypto`      | Bounded hash, HMAC, randomness; TLS remains provider-backed                                   |
 | `std.reflect`     | `std/reflect`     | Bounded compiler-backed type/member metadata                                                  |
 | `std.tls`         | `std/tls`         | Locked certificate/config/async TLS placeholder surface                                       |
-| `std.udp`         | `std/udp`         | Locked endpoint/datagram/async UDP placeholder surface                                        |
+| `std.udp`         | `std/udp`         | Runtime-backed bounded endpoint/datagram transport on POSIX                                   |
 | `std.websocket`   | `std/websocket`   | Locked message/connection placeholder surface                                                 |
 | `std.compress`    | `std/compress`    | Bounded gzip/deflate text round-trip with hex-safe compressed output                          |
 | `std.multipart`   | `std/multipart`   | Bounded multipart parser/encoder with quoted form-data parameters                             |
@@ -469,7 +469,7 @@ The package provides compiler-backed `typeOf<T>`, `typeIdOf<T>`, primitive
 ## Protocol placeholders
 
 The following packages reserve the next application-facing API shapes:
-`std.tls`, `std.udp`, and `std.websocket`.
+`std.tls` and `std.websocket`.
 They provide typed configuration/value shells and explicit placeholder errors;
 they do not open sockets, negotiate TLS, parse frames, compress bytes, or parse
 multipart streaming yet. Unix sockets, HTTP/2/3, and QUIC remain reserved without a

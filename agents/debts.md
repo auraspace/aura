@@ -8,15 +8,15 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 ## Open
 
-### API-001 platform and protocol placeholders (2026-07-31)
+### API-001 TLS and WebSocket providers (2026-07-31)
 
-- Area: `std.crypto` TLS, `std.tls`, `std.udp`, `std.websocket`
-- Symptom: public package contracts exist, but TLS, datagram and framing
-  operations still fail explicitly or remain incomplete.
-- Why deferred: each surface needs a capability policy, ownership contract,
-  parser hardening, and platform-backed tests.
-- Next step: implement the TLS/provider and UDP foundations first, then
-  add bounded streaming protocols without changing locked signatures.
+- Area: `std.crypto` TLS, `std.tls`, `std.websocket`
+- Symptom: UDP now has a runtime-backed bounded datagram implementation, but
+  TLS provider selection and WebSocket framing still fail explicitly.
+- Why deferred: TLS needs a portable provider/linking policy and WebSocket needs
+  a hardened parser over an owned TCP connection.
+- Next step: add a real TLS provider, then implement bounded WebSocket framing
+  without changing locked signatures.
 
 ### API-002 package-specific error adapters (2026-07-31)
 

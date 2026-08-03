@@ -2238,6 +2238,16 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
         AsyncExpr::ChannelReceive(r) => emit_channel_receive(r, ctx),
         AsyncExpr::ChannelClose(c) => {
             let channel = emit_expr(&c.channel, ctx);
+            if ctx
+                .checked
+                .expr_tys
+                .get(&(c.channel.span().start, c.channel.span().end))
+                .is_some_and(|ty| matches!(ty, Ty::Class(name) if aura_sema::split_nominal(name) == ("Socket", "std.udp")))
+            {
+                return format!(
+                    "({{ if ({channel} != NULL && {channel}->endpoint != NULL) (void)aura_udp_close({channel}->endpoint->host, {channel}->endpoint->port); (void)0; }})"
+                );
+            }
             format!("({{ aura_race_set_source_id(UINT32_C({})); (void)aura_task_channel_close({channel}); aura_race_set_source_id(0); (void)0; }})", c.span.start)
         }
     }

@@ -1,0 +1,22 @@
+package demo.stdudp.roundtrip
+
+import std.io as Io
+import std.udp as Udp
+
+async fun exchange(sender: Udp.Socket, receiver: Udp.Socket, target: Udp.Endpoint): String {
+  await sender.send(target, "hello udp")
+  val message = await receiver.receive(64)
+  return message.payload
+}
+
+fun main() {
+  val sender = Udp.bind(Udp.endpoint("127.0.0.1", 39101))
+  val receiver = Udp.bind(Udp.endpoint("127.0.0.1", 39102))
+  val task = spawn {
+    Io.println(await exchange(sender, receiver, Udp.endpoint("127.0.0.1", 39102)))
+    sender.close()
+    receiver.close()
+    return
+  }
+  val outcome: Io.Result<Unit, Io.TaskError> = join(task)
+}

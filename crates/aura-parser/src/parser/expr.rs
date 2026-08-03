@@ -360,13 +360,9 @@ impl Parser {
             if let Some(operation) = operation {
                 let expected = if operation == 0 { 1 } else { 0 };
                 if call.args.len() != expected {
-                    return Err(ParseError {
-                        message: format!(
-                            "channel `{}` requires {expected} argument(s)",
-                            field.field.name
-                        ),
-                        span,
-                    });
+                    // Keep same-named class methods available. Semantic
+                    // checking will diagnose an actual channel arity error.
+                    return Ok(Expr::Call(call));
                 }
                 let channel = field.object.clone();
                 return Ok(match operation {

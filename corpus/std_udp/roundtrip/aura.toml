@@ -1,0 +1,5 @@
+name = "demo.stdudp.roundtrip"
+
+[dependencies]
+std.io = { path = "../../../std/io" }
+std.udp = { path = "../../../std/udp" }

@@ -169,6 +169,14 @@ const char *aura_tcp_last_error(void);
 /* Bounded std.dns numeric address selection. */
 const char *aura_dns_resolve_host(const char *host, int prefer_ipv6);
 const char *aura_dns_resolve_host_list(const char *host, int prefer_ipv6);
+int aura_udp_bind(const char *host, int64_t port);
+int aura_udp_wait(const char *host, int64_t port, int timeout_ms);
+const char *aura_udp_receive(const char *host, int64_t port, int64_t capacity,
+                             int64_t *source_port, const char **source_host);
+int64_t aura_udp_send(const char *host, int64_t port, const char *target_host,
+                      int64_t target_port, const char *payload);
+int aura_udp_close(const char *host, int64_t port);
+const char *aura_udp_last_error(void);
 const char *aura_url_normalize_path(const char *path);
 _Bool aura_json_is_valid(const char *value);
 int64_t aura_json_error_offset(const char *value);

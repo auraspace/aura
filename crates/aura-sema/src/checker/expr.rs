@@ -828,7 +828,11 @@ impl Checker {
             AsyncExpr::ChannelClose(c) => {
                 self.reject_async_borrow("channel close", c.span, &c.channel)?;
                 let channel = self.check_expr(&c.channel)?;
-                if !matches!(channel, Ty::Channel(_)) {
+                let udp_socket = matches!(
+                    &channel,
+                    Ty::Class(name) if crate::ty::split_nominal(name) == ("Socket", "std.udp")
+                );
+                if !matches!(channel, Ty::Channel(_)) && !udp_socket {
                     return Err(SemaError {
                         message: format!(
                             "channel close requires Channel<T>, got {}",
