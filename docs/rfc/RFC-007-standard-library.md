@@ -27,18 +27,16 @@ the [standard-library guide](../guide/standard-library.md): `std.io`,
 `std.json`, `std.mime`, `std.fs`, `std.os`, `std.net`, `std.dns`, `std.url`,
 `std.http`, `std.stream`, `std.time`, `std.task`, `std.sync`, `std.signal`,
 `std.log`, `std.metrics`, `std.test`, `std.crypto`, `std.reflect`, `std.tls`,
-`std.udp`, `std.websocket`, `std.compress`, and `std.multipart`. The
-first twenty-one packages expose bounded usable behavior; `std.crypto` and
-`std.reflect` are now locked alpha placeholders whose calls fail explicitly
-until their backends are implemented. The bounded APIs include typed
+`std.udp`, `std.websocket`, `std.compress`, and `std.multipart`. The standard
+packages expose bounded usable behavior; their portable fallback bodies are
+replaced by compiler/runtime intrinsics on the C backend. The bounded APIs include typed
 shared outcomes, loopback TCP/HTTP, monotonic timers, cooperative task
 cancellation, nonblocking synchronization, encoding and JSON validation, and
 structured logging/metrics. Some operations remain intentionally bounded or
 runtime-backed: strict file APIs may throw `String`, `std.net` uses endpoint
 strings with loopback as the port-only default,
-JSON exposes root classification with traversal/mapping placeholders, and crypto/TLS,
-UDP, Unix sockets, and framework-level HTTP routing are not implemented in this
-alpha core.
+JSON exposes bounded traversal/mapping, and Unix sockets plus framework-level
+HTTP routing remain outside this alpha core.
 
 ## 2. Motivation
 
@@ -109,13 +107,13 @@ Compiler MVP needs types to lower; users need I/O and collections for non-toy pr
 | `std.signal`      | SIGINT/SIGTERM graceful-shutdown state                                                                             |
 | `std.log`         | Level-filtered and structured text logging                                                                         |
 | `std.metrics`     | Sequentially consistent counters and Prometheus samples                                                            |
-| `std.crypto`      | **Locked placeholder:** hash, HMAC, random, and TLS foundations                                                    |
-| `std.reflect`     | **Locked placeholder:** opt-in reflection metadata (RFC-009)                                                       |
-| `std.tls`         | **Locked placeholder:** certificate, config, and async connection surface                                          |
-| `std.udp`         | **Locked placeholder:** endpoints, datagrams, and async socket surface                                             |
-| `std.websocket`   | **Locked placeholder:** messages, ping/pong, close, and async connection surface                                   |
-| `std.compress`    | **Locked placeholder:** gzip/deflate codec options and bounded transforms                                          |
-| `std.multipart`   | **Locked placeholder:** parts, parser, and encoder surface                                                         |
+| `std.crypto`      | Bounded runtime-backed hash, HMAC, random, and TLS foundations                                                     |
+| `std.reflect`     | Bounded compiler-backed opt-in reflection metadata (RFC-009)                                                       |
+| `std.tls`         | Bounded OpenSSL-backed certificate, config, and async connection surface                                           |
+| `std.udp`         | Bounded POSIX endpoint, datagram, and async socket surface                                                         |
+| `std.websocket`   | Bounded POSIX messages, ping/pong, close, and async connection surface                                             |
+| `std.compress`    | Bounded gzip/deflate codec options and text-safe transforms                                                        |
+| `std.multipart`   | Bounded parts, parser, and encoder surface                                                                         |
 
 ### 6.2 Error conventions
 

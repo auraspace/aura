@@ -24,7 +24,7 @@ std.test	locked	docs/api/std-alpha.md	test assertions and advanced testing place
 std.crypto	locked	docs/api/std-alpha.md	hash, HMAC, randomness, and verified TLS client
 std.reflect	locked	docs/api/std-alpha.md	opt-in metadata placeholder contract
 std.tls	locked	docs/api/std-alpha.md	verified TLS config, certificates, and bounded async connection
-std.udp	locked	docs/api/std-alpha.md	UDP endpoint, datagram, and socket placeholder contract
-std.websocket	locked	docs/api/std-alpha.md	WebSocket messages and connection placeholder contract
-std.compress	locked	docs/api/std-alpha.md	gzip/deflate bounded codec placeholder contract
-std.multipart	locked	docs/api/std-alpha.md	multipart parts and parser placeholder contract
+std.udp	locked	docs/api/std-alpha.md	bounded endpoint-keyed POSIX UDP datagrams
+std.websocket	locked	docs/api/std-alpha.md	bounded POSIX WebSocket client messages
+std.compress	locked	docs/api/std-alpha.md	bounded gzip/deflate text round trips
+std.multipart	locked	docs/api/std-alpha.md	bounded multipart parts and parser
