@@ -11,37 +11,37 @@ Aura’s **core** stdlib is intentionally small ([RFC-007](/rfc/007), [RFC-000](
 
 ## Packages today
 
-| Package           | Path              | Role                                                                                          |
-| ----------------- | ----------------- | --------------------------------------------------------------------------------------------- |
-| `std.io`          | `std/io`          | Console, file I/O, argv, stdin, exit                                                          |
-| `std.assert`      | `std/assert`      | Assert helpers for tests                                                                      |
-| `std.collections` | `std/collections` | Map/Set/List, generic hash collections, snapshot and live iterators, `Iterable`, HOFs, `join` |
-| `std.error`       | `std/error`       | Shared error categories, owned errors, and generic outcomes                                   |
-| `std.bytes`       | `std/bytes`       | Owned byte strings and bounded mutable byte buffers                                           |
-| `std.encoding`    | `std/encoding`    | UTF-8, hexadecimal, base64, and percent encoding                                              |
-| `std.json`        | `std/json`        | Bounded JSON validation, parsing, escaping, and root classification                           |
-| `std.mime`        | `std/mime`        | Media-type validation and upload filename sanitization                                        |
-| `std.fs`          | `std/fs`          | Portable path and filesystem metadata helpers                                                 |
-| `std.os`          | `std/os`          | Environment, process, platform, and working-directory helpers                                 |
-| `std.net`         | `std/net`         | Nonblocking endpoint-aware TCP listeners, connections, streams, and typed failures            |
-| `std.dns`         | `std/dns`         | Bounded numeric host resolution                                                               |
-| `std.url`         | `std/url`         | Origin-form and absolute URI parsing plus component encoding                                  |
-| `std.http`        | `std/http`        | Bounded HTTP/1.1 client/server request and response values                                    |
-| `std.stream`      | `std/stream`      | Async reader/writer adapters over owned network streams                                       |
-| `std.time`        | `std/time`        | Monotonic durations, deadlines, and async sleep                                               |
-| `std.task`        | `std/task`        | Task join, cancellation, and cancellation linking                                             |
-| `std.sync`        | `std/sync`        | Nonblocking atomics, mutexes, reader/writer locks, and one-shot gates                         |
-| `std.signal`      | `std/signal`      | Graceful SIGINT/SIGTERM shutdown state                                                        |
-| `std.log`         | `std/log`         | Bounded level-based and structured text logging                                               |
-| `std.metrics`     | `std/metrics`     | Sequentially consistent counters and Prometheus samples                                       |
-| `std.test`        | `std/test`        | Deterministic assertion helpers for native and corpus tests                                   |
-| `std.crypto`      | `std/crypto`      | Bounded hash, HMAC, randomness; TLS remains provider-backed                                   |
-| `std.reflect`     | `std/reflect`     | Bounded compiler-backed type/member metadata                                                  |
-| `std.tls`         | `std/tls`         | OpenSSL-backed verified certificate/config/async TLS client                                   |
-| `std.udp`         | `std/udp`         | Runtime-backed bounded endpoint/datagram transport on POSIX                                   |
-| `std.websocket`   | `std/websocket`   | Runtime-backed bounded WebSocket client framing                                               |
-| `std.compress`    | `std/compress`    | Bounded gzip/deflate text round-trip with hex-safe compressed output                          |
-| `std.multipart`   | `std/multipart`   | Bounded multipart parser/encoder with quoted form-data parameters                             |
+| Package           | Path              | Role                                                                                                                       |
+| ----------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `std.io`          | `std/io`          | Console, file I/O, argv, stdin, exit                                                                                       |
+| `std.assert`      | `std/assert`      | Assert helpers for tests                                                                                                   |
+| `std.collections` | `std/collections` | Map/Set/List, generic hash collections, snapshot and live iterators, `Iterable`, HOFs, `join`                              |
+| `std.error`       | `std/error`       | Shared error categories, owned errors, and generic outcomes                                                                |
+| `std.bytes`       | `std/bytes`       | Owned byte strings and bounded mutable byte buffers                                                                        |
+| `std.encoding`    | `std/encoding`    | UTF-8, hexadecimal, base64, and percent encoding                                                                           |
+| `std.json`        | `std/json`        | Bounded JSON validation, parsing, escaping, and root classification                                                        |
+| `std.mime`        | `std/mime`        | Media-type validation and upload filename sanitization                                                                     |
+| `std.fs`          | `std/fs`          | Portable path and filesystem metadata helpers                                                                              |
+| `std.os`          | `std/os`          | Environment, process, platform, and working-directory helpers                                                              |
+| `std.net`         | `std/net`         | Nonblocking endpoint-aware TCP listeners, connections, streams, and typed failures                                         |
+| `std.dns`         | `std/dns`         | Bounded numeric host resolution                                                                                            |
+| `std.url`         | `std/url`         | Origin-form and absolute URI parsing plus component encoding                                                               |
+| `std.http`        | `std/http`        | Bounded HTTP/1.1 client/server request and response values                                                                 |
+| `std.stream`      | `std/stream`      | Async reader/writer adapters over owned network streams                                                                    |
+| `std.time`        | `std/time`        | Monotonic durations, deadlines, and async sleep                                                                            |
+| `std.task`        | `std/task`        | Task join, cancellation, and cancellation linking                                                                          |
+| `std.sync`        | `std/sync`        | Nonblocking atomics, mutexes, reader/writer locks, and one-shot gates                                                      |
+| `std.signal`      | `std/signal`      | Graceful SIGINT/SIGTERM shutdown state                                                                                     |
+| `std.log`         | `std/log`         | Bounded level-based and structured text logging                                                                            |
+| `std.metrics`     | `std/metrics`     | Sequentially consistent counters and Prometheus samples                                                                    |
+| `std.test`        | `std/test`        | Deterministic assertion helpers for native and corpus tests                                                                |
+| `std.crypto`      | `std/crypto`      | Bounded hash, HMAC, randomness; TLS remains provider-backed                                                                |
+| `std.reflect`     | `std/reflect`     | Bounded compiler-backed type/member metadata                                                                               |
+| `std.tls`         | `std/tls`         | OpenSSL-backed verified certificate/config/async TLS client                                                                |
+| `std.udp`         | `std/udp`         | Runtime-backed bounded endpoint/datagram transport on POSIX                                                                |
+| `std.websocket`   | `std/websocket`   | Runtime-backed bounded WebSocket client framing                                                                            |
+| `std.compress`    | `std/compress`    | Bounded gzip/deflate text round-trip with hex-safe compressed output                                                       |
+| `std.multipart`   | `std/multipart`   | Bounded multipart parser/encoder with line-delimited boundaries, escaped quoted parameters, and header-injection rejection |
 
 Builtins such as `Array<T>` and core scalars are part of the **language**, not a separate import. String methods (`indexOf`, `split`, `trim`, `toInt`, …) are language surface — see [Types](./types-and-nullability.md) and the [cheatsheet](./syntax-cheatsheet.md).
 

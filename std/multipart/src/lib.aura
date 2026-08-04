@@ -1,4 +1,4 @@
-// std.multipart -- alpha API shell for bounded multipart bodies.
+// std.multipart -- bounded multipart/form-data parser and encoder.
 
 package std.multipart
 
@@ -7,16 +7,20 @@ pub class Part(pub val name: String, pub val filename: String, pub val contentTy
 pub class Parser(pub val boundary: String) {
   pub fun parse(value: String): Array<Part> {
     val result: Array<Part> = Array<Part>(0)
-    if (this.boundary.isEmpty()) { return result }
+    if (!validBoundary(this.boundary) || value.isEmpty()) { return result }
     val marker = "--" + this.boundary
-    val segments = value.split(marker)
+    if (!value.startsWith(marker)) { return result }
+    val remainder = value.substring(marker.len, value.len)
+    val segments = remainder.split("\r\n" + marker)
     for (i in 0..segments.len) {
-      val segment = segments.get(i).trim()
-      if (segment.isEmpty() || segment == "--") { continue }
-      val headerEnd = segment.indexOf("\r\n\r\n")
+      val segment = segments.get(i)
+      if (segment.isEmpty() || segment == "--" || segment.startsWith("--")) { continue }
+      if (!segment.startsWith("\r\n")) { continue }
+      val content = segment.substring(2, segment.len)
+      val headerEnd = content.indexOf("\r\n\r\n")
       if (headerEnd < 0) { continue }
-      val headers = segment.substring(0, headerEnd)
-      var body = segment.substring(headerEnd + 4, segment.len)
+      val headers = content.substring(0, headerEnd)
+      var body = content.substring(headerEnd + 4, content.len)
       if (body.endsWith("\r\n")) { body = body.substring(0, body.len - 2) }
       val disposition = headerValue(headers, "Content-Disposition")
       if (disposition == null) { continue }
@@ -35,13 +39,16 @@ pub fun parser(boundary: String): Parser {
 }
 
 pub fun encode(parts: Array<Part>, boundary: String): String {
-  if (boundary.isEmpty()) { return "" }
+  if (!validBoundary(boundary)) { return "" + "" }
   var output = ""
   for (i in 0..parts.len) {
     val part = parts.get(i)
+    if (!validHeaderValue(part.name) || !validHeaderValue(part.filename) || !validHeaderValue(part.contentType)) {
+      return "" + ""
+    }
     output = output + "--" + boundary + "\r\n"
-    output = output + "Content-Disposition: form-data; name=\"" + part.name + "\""
-    if (!part.filename.isEmpty()) { output = output + "; filename=\"" + part.filename + "\"" }
+    output = output + "Content-Disposition: form-data; name=\"" + quoteParameter(part.name) + "\""
+    if (!part.filename.isEmpty()) { output = output + "; filename=\"" + quoteParameter(part.filename) + "\"" }
     output = output + "\r\n"
     if (!part.contentType.isEmpty()) { output = output + "Content-Type: " + part.contentType + "\r\n" }
     output = output + "\r\n" + part.body + "\r\n"
@@ -63,11 +70,60 @@ fun headerValue(headers: String, name: String): String? {
 }
 
 fun parameterValue(value: String, name: String): String? {
-  val prefix = name + "=\""
-  val start = value.toLower().indexOf(prefix.toLower())
-  if (start < 0) { return null }
-  val contentStart = start + prefix.len
-  val quote = value.substring(contentStart, value.len).indexOf("\"")
-  if (quote < 0) { return null }
-  return value.substring(contentStart, contentStart + quote)
+  val parameters = value.split(";")
+  for (i in 0..parameters.len) {
+    val parameter = parameters.get(i).trim()
+    val separator = parameter.indexOf("=")
+    if (separator < 0) { continue }
+    val key = parameter.substring(0, separator).trim()
+    if (key.toLower() != name.toLower()) { continue }
+    var raw = parameter.substring(separator + 1, parameter.len).trim()
+    if (!raw.startsWith("\"") || !raw.endsWith("\"")) { return raw }
+    raw = raw.substring(1, raw.len - 1)
+    var decoded = ""
+    var escaped = false
+    for (j in 0..raw.len) {
+      val byte = raw.charAt(j)
+      if (escaped) {
+        decoded = decoded + raw.substring(j, j + 1)
+        escaped = false
+      } else if (byte == 92) {
+        escaped = true
+      } else {
+        decoded = decoded + raw.substring(j, j + 1)
+      }
+    }
+    if (escaped) { return null }
+    return decoded
+  }
+  return null
+}
+
+fun validBoundary(value: String): Bool {
+  if (value.isEmpty() || value.len > 70) { return false }
+  for (i in 0..value.len) {
+    val byte = value.charAt(i)
+    if (byte < 33 || byte > 126 || byte == 39 || byte == 40 || byte == 41 || byte == 47 || byte == 58 || byte == 60 || byte == 62 || byte == 63 || byte == 64 || byte == 91 || byte == 92 || byte == 93 || byte == 123 || byte == 125) {
+      return false
+    }
+  }
+  return true
+}
+
+fun validHeaderValue(value: String): Bool {
+  for (i in 0..value.len) {
+    val byte = value.charAt(i)
+    if (byte == 0 || byte == 10 || byte == 13) { return false }
+  }
+  return true
+}
+
+fun quoteParameter(value: String): String {
+  var quoted = ""
+  for (i in 0..value.len) {
+    val byte = value.charAt(i)
+    if (byte == 34 || byte == 92) { quoted = quoted + "\\" }
+    quoted = quoted + value.substring(i, i + 1)
+  }
+  return quoted
 }
