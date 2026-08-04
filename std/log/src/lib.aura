@@ -3,22 +3,22 @@
 package std.log
 
 /// Emit a diagnostic event at the debug level.
-pub fun debug(message: String) { }
+pub fun debug(message: String) { throw "std.log debug intrinsic" }
 
 /// Emit an informational event.
-pub fun info(message: String) { }
+pub fun info(message: String) { throw "std.log info intrinsic" }
 
 /// Emit a warning event.
-pub fun warn(message: String) { }
+pub fun warn(message: String) { throw "std.log warn intrinsic" }
 
 /// Emit an error event.
-pub fun error(message: String) { }
+pub fun error(message: String) { throw "std.log error intrinsic" }
 
 /// Set the minimum emitted level: 0=debug, 1=info, 2=warn, 3=error.
-pub fun setMinLevel(level: Int): Bool { return false }
+pub fun setMinLevel(level: Int): Bool { throw "std.log setMinLevel intrinsic" }
 
 /// Return the configured minimum emitted level using the `setMinLevel` scale.
-pub fun minLevel(): Int { return 0 }
+pub fun minLevel(): Int { throw "std.log minLevel intrinsic" }
 
 /// Emit an info event with alternating key/value fields. Odd trailing fields
 /// are ignored so malformed diagnostic context cannot crash logging.

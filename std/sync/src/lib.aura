@@ -8,57 +8,57 @@ pub class AtomicInt(private var value: Int) {
   pub fun load(): Int { return this.value }
 
   /// Replace the value with `nextValue`.
-  pub fun store(nextValue: Int): Unit { }
+  pub fun store(nextValue: Int): Unit { throw "std.sync AtomicInt.store intrinsic" }
 
   /// Add `amount` and return the value observed before the addition.
   pub fun fetchAdd(amount: Int): Int { return this.value }
 
   /// Replace `expected` with `desired` only when the current value matches.
-  pub fun compareExchange(expected: Int, desired: Int): Bool { return false }
+  pub fun compareExchange(expected: Int, desired: Int): Bool { throw "std.sync AtomicInt.compareExchange intrinsic" }
 }
 
 /// Cooperative mutex state. `tryLock` never blocks an async worker; callers
 /// should yield/retry or use a higher-level async lock adapter.
 pub class Mutex(private var state: Int) {
   /// Acquire the mutex without blocking; return false when it is held.
-  pub fun tryLock(): Bool { return false }
+  pub fun tryLock(): Bool { throw "std.sync Mutex.tryLock intrinsic" }
 
   /// Release the mutex held by the current owner.
-  pub fun unlock(): Unit { }
+  pub fun unlock(): Unit { throw "std.sync Mutex.unlock intrinsic" }
 
   /// Return whether the mutex is currently held.
-  pub fun isLocked(): Bool { return false }
+  pub fun isLocked(): Bool { throw "std.sync Mutex.isLocked intrinsic" }
 }
 
 /// Non-blocking reader/writer lock. State is zero for unlocked, positive for
 /// active readers, and negative for one active writer.
 pub class RwLock(private var state: Int) {
   /// Acquire a reader slot without blocking.
-  pub fun tryRead(): Bool { return false }
+  pub fun tryRead(): Bool { throw "std.sync RwLock.tryRead intrinsic" }
 
   /// Acquire exclusive write access without blocking.
-  pub fun tryWrite(): Bool { return false }
+  pub fun tryWrite(): Bool { throw "std.sync RwLock.tryWrite intrinsic" }
 
   /// Release one reader slot held by the current owner.
-  pub fun unlockRead(): Unit { }
+  pub fun unlockRead(): Unit { throw "std.sync RwLock.unlockRead intrinsic" }
 
   /// Release the write lock held by the current owner.
-  pub fun unlockWrite(): Unit { }
+  pub fun unlockWrite(): Unit { throw "std.sync RwLock.unlockWrite intrinsic" }
 
   /// Return the number of active readers, or zero while write-locked.
-  pub fun readerCount(): Int { return 0 }
+  pub fun readerCount(): Int { throw "std.sync RwLock.readerCount intrinsic" }
 
   /// Return whether a writer currently holds the lock.
-  pub fun isWriteLocked(): Bool { return false }
+  pub fun isWriteLocked(): Bool { throw "std.sync RwLock.isWriteLocked intrinsic" }
 }
 
 /// One-shot initialization gate. `tryEnter` wins exactly once.
 pub class Once(private var state: Int) {
   /// Claim the gate; only the first caller returns true.
-  pub fun tryEnter(): Bool { return false }
+  pub fun tryEnter(): Bool { throw "std.sync Once.tryEnter intrinsic" }
 
   /// Return whether the one-shot gate has already been claimed.
-  pub fun isDone(): Bool { return false }
+  pub fun isDone(): Bool { throw "std.sync Once.isDone intrinsic" }
 }
 
 /// Exactly-once, task-safe lazy initialization. The compiler supplies the

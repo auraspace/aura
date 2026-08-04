@@ -5,16 +5,16 @@ package std.metrics
 /// Mutable counter with sequentially consistent updates.
 pub class Counter(private var value: Int) {
   /// Add `amount` and return the resulting counter value.
-  pub fun add(amount: Int): Int { return 0 }
+  pub fun add(amount: Int): Int { throw "std.metrics Counter.add intrinsic" }
 
   /// Add one and return the resulting counter value.
-  pub fun increment(): Int { return 0 }
+  pub fun increment(): Int { throw "std.metrics Counter.increment intrinsic" }
 
   /// Return the current counter value without changing it.
-  pub fun get(): Int { return 0 }
+  pub fun get(): Int { throw "std.metrics Counter.get intrinsic" }
 
   /// Reset the counter to zero.
-  pub fun reset(): Unit { }
+  pub fun reset(): Unit { throw "std.metrics Counter.reset intrinsic" }
 
   /// Render one Prometheus text exposition sample with the current value.
   pub fun prometheus(name: String): String {

@@ -65,17 +65,17 @@ pub fun defaultParseOptions(): ParseOptions {
 
 /// Validate one complete JSON value with bounded nesting and UTF-8 input.
 pub fun isValid(value: String): Bool {
-  return false
+  throw "std.json isValid intrinsic"
 }
 
 /// Return the first invalid byte offset, or -1 for a complete JSON value.
 pub fun errorOffset(value: String): Int {
-  return 0
+  throw "std.json errorOffset intrinsic"
 }
 
 /// Escape a string as a JSON string literal, including surrounding quotes.
 pub fun escapeString(value: String): String? {
-  return null
+  throw "std.json escapeString intrinsic"
 }
 
 /// Validated, owned JSON value.
