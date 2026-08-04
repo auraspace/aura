@@ -13018,10 +13018,15 @@ pub(crate) fn emit_test_main(out: &mut String, checked: &CheckedFile, detector: 
         let name = &t.name.name;
         let pkg = fun_decl_package(t, checked);
         let fn_c = c_fun_name(&pkg, name, &[]);
-        let _ = writeln!(out, "  /* test {name} */");
+        let label = if t.attributes.iter().any(|a| a.name.name == "bench") {
+            "bench"
+        } else {
+            "test"
+        };
+        let _ = writeln!(out, "  /* {label} {name} */");
         out.push_str("  {\n");
         out.push_str("    jmp_buf __tjb;\n");
-        let _ = writeln!(out, "    printf(\"test {name} ... \");");
+        let _ = writeln!(out, "    printf(\"{label} {name} ... \");");
         out.push_str("    fflush(stdout);\n");
         out.push_str("    ran++;\n");
         out.push_str("    if (setjmp(__tjb) == 0) {\n");

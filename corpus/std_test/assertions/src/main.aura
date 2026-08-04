@@ -3,6 +3,11 @@ package demo.stdtest.assertions
 import std.io as Io
 import std.test
 
+@bench
+fun nativeBench() {
+    println("bench-ok")
+}
+
 fun main() {
     assert(true)
     assertEqInt(2 + 2, 4)

@@ -1,4 +1,4 @@
-//! Aura CLI — check / build / run / test / new / emit-c with pretty diagnostics.
+//! Aura CLI — check / build / run / test / bench / new / emit-c with pretty diagnostics.
 
 mod formatter;
 mod runtime_path;
@@ -36,6 +36,7 @@ fn main() -> ExitCode {
         "build" => cmd_build(&args),
         "run" => cmd_run(&args),
         "test" => cmd_test(&args),
+        "bench" => cmd_bench(&args),
         "race" => cmd_race(&args),
         "publish" => cmd_publish(&args),
         "update" => cmd_update(&args),
@@ -70,6 +71,7 @@ fn eprint_usage() {
            aura build [path] [-o <bin>]      Compile to native binary (C backend)\n  \
            aura run [path] [-- args...]      Build to temp and execute\n  \
            aura test [path] [--test-name <pattern>] [--format json] [-- args...]\n  \
+           aura bench [path] [--test-name <pattern>] [-- args...]\n  \
            aura race [path] [--format json] [-- args...]\n  \
            aura publish --dry-run [path]    Validate and preview without upload\n  \
            aura publish --registry <url> [path]  Validate and upload package\n  \
@@ -838,6 +840,74 @@ fn cmd_test(args: &[String]) -> ExitCode {
                 }
             }
         }
+        Err(msg) => {
+            eprintln!("{msg}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn cmd_bench(args: &[String]) -> ExitCode {
+    let (raw_cli_args, program_args) = split_pass_through(args);
+    let options = match TestOptions::parse(raw_cli_args) {
+        Ok(options) => options,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return ExitCode::from(2);
+        }
+    };
+    let pkg = match resolve_package(&options.package_args) {
+        Ok(p) => p,
+        Err(msg) => {
+            eprintln!("{msg}");
+            return ExitCode::from(1);
+        }
+    };
+    let benchmarks: Vec<String> = pkg
+        .ast
+        .functions
+        .iter()
+        .filter(|f| f.attributes.iter().any(|a| a.name.name == "bench"))
+        .map(|f| f.name.name.clone())
+        .collect();
+    let selected: Vec<String> = benchmarks
+        .iter()
+        .filter(|name| {
+            options
+                .test_name
+                .as_ref()
+                .map(|pattern| name.contains(pattern))
+                .unwrap_or(true)
+        })
+        .cloned()
+        .collect();
+    if selected.is_empty() {
+        eprintln!(
+            "error: no @bench functions{} in package `{}`",
+            options
+                .test_name
+                .as_ref()
+                .map(|pattern| format!(" match `{pattern}`"))
+                .unwrap_or_default(),
+            pkg.package
+        );
+        return ExitCode::from(1);
+    }
+    let mut bench_pkg = pkg.clone();
+    for function in &mut bench_pkg.ast.functions {
+        let is_bench = function.attributes.iter().any(|a| a.name.name == "bench");
+        function.is_test = is_bench && selected.iter().any(|name| name == &function.name.name);
+    }
+    let out = PathBuf::from(format!("target/aura/bench-{}", pkg.bin_name));
+    match build_test_package(&bench_pkg, &out) {
+        Ok(bin) => match Command::new(&bin).args(program_args).status() {
+            Ok(status) if status.success() => ExitCode::SUCCESS,
+            Ok(status) => ExitCode::from(status.code().unwrap_or(1) as u8),
+            Err(e) => {
+                eprintln!("error: failed to execute {}: {e}", bin.display());
+                ExitCode::from(1)
+            }
+        },
         Err(msg) => {
             eprintln!("{msg}");
             ExitCode::from(1)

@@ -324,11 +324,18 @@ package main
 fun adds() {
   assert_eq(1, 1)
 }
-
 "#;
     let file = parse_file(src).expect("parse");
     assert!(file.functions[0].is_test);
     assert_eq!(file.functions[0].name.name, "adds");
+}
+
+#[test]
+fn parses_bench_attr_with_test_compatible_shape() {
+    let src = "package main\n@bench\nfun parses() {}\n";
+    let file = parse_file(src).expect("parse");
+    assert!(!file.functions[0].is_test);
+    assert_eq!(file.functions[0].attributes[0].name.name, "bench");
 }
 
 #[test]

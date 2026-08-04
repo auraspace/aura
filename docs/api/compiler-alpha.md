@@ -7,17 +7,17 @@ silently changing program meaning.
 
 ## Attributes
 
-| Attribute                          | Alpha status     | Contract                                                   |
-| ---------------------------------- | ---------------- | ---------------------------------------------------------- |
-| `@test`                            | Supported        | Discover a package-private test function                   |
-| `@foreign(...)`                    | Supported subset | Declare C library, target, link, ABI, and failure metadata |
-| `@bench`                           | Reserved         | Discover a benchmark function; runner contract is deferred |
-| `@derive(...)`                     | Supported subset | Expand the implemented built-in derives below              |
-| `@deprecated(...)`                 | Reserved         | Emit a source diagnostic without changing runtime behavior |
-| `@inline`, `@noinline`, `@cold`    | Reserved         | Optimization hints; ignored until backend support exists   |
-| `@throws`, `@unsafe`, `@repr(...)` | Reserved         | Tooling/safety/layout metadata; no implicit behavior       |
-| `@retention(...)`, `@attribute`    | Reserved         | Declare metadata retention and user attribute types        |
-| `@reflect`, `@json`, `@notNull`    | Reserved         | Reflection and typed JSON mapping opt-ins                  |
+| Attribute                          | Alpha status     | Contract                                                                             |
+| ---------------------------------- | ---------------- | ------------------------------------------------------------------------------------ |
+| `@test`                            | Supported        | Discover a package-private test function                                             |
+| `@foreign(...)`                    | Supported subset | Declare C library, target, link, ABI, and failure metadata                           |
+| `@bench`                           | Reserved         | Benchmark metadata is parsed and validated; CLI discovery/reporting remains deferred |
+| `@derive(...)`                     | Supported subset | Expand the implemented built-in derives below                                        |
+| `@deprecated(...)`                 | Reserved         | Emit a source diagnostic without changing runtime behavior                           |
+| `@inline`, `@noinline`, `@cold`    | Reserved         | Optimization hints; ignored until backend support exists                             |
+| `@throws`, `@unsafe`, `@repr(...)` | Reserved         | Tooling/safety/layout metadata; no implicit behavior                                 |
+| `@retention(...)`, `@attribute`    | Reserved         | Declare metadata retention and user attribute types                                  |
+| `@reflect`, `@json`, `@notNull`    | Reserved         | Reflection and typed JSON mapping opt-ins                                            |
 
 Unknown attributes remain hard errors. Reserved attributes must produce an
 explicit unsupported/reserved diagnostic until their phase is implemented.

@@ -92,6 +92,9 @@ impl Parser {
             let is_test = attributes
                 .iter()
                 .any(|attribute| attribute.name.name == "test");
+            let is_bench = attributes
+                .iter()
+                .any(|attribute| attribute.name.name == "bench");
             let is_pub = if matches!(self.peek().kind, TokenKind::Pub) {
                 self.bump();
                 true
@@ -182,16 +185,17 @@ impl Parser {
                     f.is_pub = is_pub;
                     f.attributes = attributes;
                     f.is_test = is_test;
-                    if is_test {
+                    if is_test || is_bench {
                         if !f.params.is_empty() {
                             return Err(ParseError {
-                                message: "`@test` functions must take no parameters".into(),
+                                message: "`@test` and `@bench` functions must take no parameters"
+                                    .into(),
                                 span: f.name.span,
                             });
                         }
                         if !f.type_params.is_empty() {
                             return Err(ParseError {
-                                message: "`@test` functions cannot be generic".into(),
+                                message: "`@test` and `@bench` functions cannot be generic".into(),
                                 span: f.name.span,
                             });
                         }
