@@ -1,5 +1,94 @@
 # Changelog
 
+## 0.1.1-alpha.4 (2026-08-04)
+
+Expanded typed standard-library support, reflection, async ownership, and release targets.
+
+Full notes: [`docs/releases/0.1.1-alpha.4.md`](docs/releases/0.1.1-alpha.4.md).
+
+### Changes
+
+- fix(lsp): simplify word occurrence handling by removing unnecessary references
+- fix(crypto): update target attributes for SHA256 optimizations
+- docs(std): align crypto and tls completion boundaries
+- fix(codegen): register generic async return layouts
+- fix(runtime): link zlib in native regression gates
+- fix(runtime): link zlib in async ffi smoke
+- feat(std.json): support recursively nested primitive arrays
+- feat(std.json): decode nested primitive arrays
+- feat(std.json): decode primitive generic arrays
+- fix(std.io): add typed wrappers and preserve generic result ownership
+- feat(std.http): add typed streaming outcomes
+- feat(std.stream): add typed transport outcomes
+- fix(std): fail closed remaining intrinsic fallback bodies
+- refactor(std): name intrinsic runtime handles explicitly
+- docs(std.reflect): document generic metadata
+- feat(std.reflect): expose generic interface metadata
+- feat(std.reflect): expose generic type metadata
+- fix(std.multipart): preserve boundary-like body data
+- fix(std.multipart): harden multipart parser and encoder
+- fix(std): fail closed intrinsic fallback bodies
+- fix(std.task): close generic join payloads
+- fix(std.signal): fail closed outside intrinsic backend
+- feat(generics): support multi-level nested substitution
+- feat(json): decode struct arrays
+- feat(json): decode nested struct fields
+- feat(json): decode unit enum arrays
+- docs(std): align JSON mapping contract
+- test(std.test): verify snapshot persistence
+- feat(json): decode unit enums in typed classes
+- feat(json): decode class arrays in typed classes
+- feat(json): decode primitive arrays in typed classes
+- feat(test): report native benchmark durations
+- feat(json): support recursive generic class decoding
+- feat(json): decode nested class fields safely
+- feat(test): add bounded benchmark discovery
+- docs(std): align bounded task and json status
+- docs(std): align reflection and protocol status
+- fix(reflect): hide non-public members
+- fix(runtime): install shutdown signals transactionally
+- feat(test): implement deterministic advanced std.test hooks
+- feat(reflect): enforce opt-in runtime metadata
+- fix(runtime): make log level configuration thread-safe
+- docs(std): replace alpha API lock with implementation status
+- feat(crypto): add SHA-256 benchmark and tests for portable and accelerated implementations
+- refactor: code structure for improved readability and maintainability
+- feat(ci): add support for linux-arm64 in CI and release workflows
+- feat(runtime): add precise typed GC tracing
+- feat(codegen): recognize tier-two native hosts
+- feat(lsp): expose structured completion suggestions
+- feat(lsp): cancel in-flight stdio requests
+- feat(lsp): preserve binding identities across edits
+- feat(release): declare packaged target-neutral sysroot
+- fix(lsp): scope references and rename by binding
+- docs(debt): narrow API-003 boundary inventory
+- fix(parser): preserve declarative macro invocation spans
+- fix(analysis): bound query cache with LRU eviction
+- docs(std): reconcile runtime-backed package contracts
+- fix(parser): reject empty channel sends
+- feat(std): complete TLS and typed error adapters
+- feat(std-websocket): add bounded client framing
+- feat(std-udp): add runtime-backed datagrams
+- feat(std-json): decode bounded flat classes
+- feat(std-collections): add list snapshots
+- fix(codegen): substitute generic local types
+- fix(codegen): preserve owned outcome call arguments
+- feat(codegen): emit reflection member type metadata
+- feat(std-collections): make List formally iterable
+- feat(std-json): implement primitive JSON decode generics
+- feat(codegen): emit reflection member names from class metadata
+- feat(codegen): add compiler-backed reflection type metadata
+- feat(std-compress): implement hex-safe compression intrinsics
+- feat(std-multipart): implement bounded multipart parser and encoder
+- Implement std.crypto baseline primitives
+- Complete bounded JSON traversal ownership
+- docs(std): sync alpha completion and remaining debt
+- feat(std-test): execute core assertion and smoke helpers
+- feat(std-json): implement bounded parse options and value metadata
+- feat: enhance MIR rendering for assertions and add corresponding tests
+- fix: inline async polling ownership
+- docs: track generated std net accept gap
+
 ## 0.1.1-alpha.3 (2026-08-03)
 
 Fix async GC ownership and release acceptance

@@ -9,7 +9,7 @@ This repository currently holds:
 | [`docs/guide/`](docs/guide/)         | User guide (site `/docs`)                                            |
 | [`docs/rfc/`](docs/rfc/)             | Language & toolchain RFCs                                            |
 | [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3; C22 partial implementation closed)          |
-| [`docs/releases/`](docs/releases/)   | Release notes (`0.1.0-alpha`; current `0.1.1-alpha.3`)               |
+| [`docs/releases/`](docs/releases/)   | Release notes (`0.1.0-alpha`; current `0.1.1-alpha.4`)               |
 | [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                            |
 | [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
 | [`corpus/`](corpus/)                 | Sample `.aura` programs for the compiler                             |
@@ -244,8 +244,8 @@ when their Rust and C toolchains are available.
 - **Docs C12t** C12a–C12t batch closed — post-alpha CLI/String/captures shippable ([plan](docs/plans/2026-07-21-next-20-c12a-c12t.md))
 - **Debts** Tracked in [`agents/debts.md`](agents/debts.md)
 - **Docs C13t:** C13a–C13t batch closed — dogfood/captures/registry K1 foundation ([plan](docs/plans/2026-07-21-next-20-c13a-c13t.md))
-- **S2:** verified HTTPS/nested locked registry consumption, Unix artifacts, installer safety, acceptance wiring, and the `0.1.1-alpha.3` release are complete; live registry publication and tier-2/native evidence remain follow-up work ([plan](docs/plans/2026-07-21-s2-production-toolchain.md))
-- **C22 / v0.1.1-alpha.3:** async/task syntax, borrow barriers, deterministic task frames/executor, bounded channels, typed channel lowering, corpus, diagnostics, ownership audits, and the bounded release scope are shipped. General async lowering, richer captures/outcomes, typed async HTTP handles, live registry publication, and tier-2/native evidence remain partial; see the [C22 plan](docs/plans/2026-07-22-next-20-c22-async-tasks.md) and [v0.1.1-alpha contract](docs/plans/v0.1.1-alpha/contract-matrix.tsv).
+- **S2:** verified HTTPS/nested locked registry consumption, Unix artifacts, installer safety, acceptance wiring, and the `0.1.1-alpha.4` release are complete; live registry publication and tier-2/native evidence remain follow-up work ([plan](docs/plans/2026-07-21-s2-production-toolchain.md))
+- **C22 / v0.1.1-alpha.4:** async/task syntax, borrow barriers, deterministic task frames/executor, bounded channels, typed channel lowering, corpus, diagnostics, ownership audits, and the bounded release scope are shipped. General async lowering, richer captures/outcomes, typed async HTTP handles, live registry publication, and tier-2/native evidence remain partial; see the [C22 plan](docs/plans/2026-07-22-next-20-c22-async-tasks.md) and [v0.1.1-alpha contract](docs/plans/v0.1.1-alpha/contract-matrix.tsv).
 
 ### Mutable capture status
 
