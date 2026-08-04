@@ -24,6 +24,263 @@ use crate::iface::*;
 use crate::names::*;
 use crate::stmt::{emit_block, emit_return_fallback};
 
+#[derive(Debug, Clone)]
+struct JsonDecodeNode {
+    mono: String,
+    fields: Vec<JsonDecodeField>,
+}
+
+#[derive(Debug, Clone)]
+struct JsonDecodeField {
+    name: String,
+    key: String,
+    nullable: bool,
+    nested: Option<Box<JsonDecodeNode>>,
+}
+
+fn json_decode_class_for_mono<'a>(
+    full: &str,
+    checked: &'a CheckedFile,
+) -> Option<(&'a ClassDecl, Vec<Ty>)> {
+    checked.ast.classes.iter().find_map(|class| {
+        let package = class_decl_package(class, checked);
+        if class.type_params.is_empty() && type_mono(&package, &class.name.name, &[]) == full {
+            return Some((class, Vec::new()));
+        }
+        checked
+            .mono_classes
+            .iter()
+            .find(|(name, args)| {
+                *name == class.name.name && type_mono(&package, name, args) == full
+            })
+            .map(|(_, args)| (class, args.clone()))
+    })
+}
+
+fn build_json_decode_node(
+    key: &str,
+    checked: &CheckedFile,
+    seen: &mut Vec<String>,
+    depth: usize,
+) -> Option<JsonDecodeNode> {
+    if depth > 64 || matches!(key, "Int" | "Bool" | "String") {
+        return None;
+    }
+    let full = crate::expr::full_type_mono(key, checked);
+    if seen.iter().any(|item| item == &full) {
+        return None;
+    }
+    let (class, class_args) = json_decode_class_for_mono(&full, checked)?;
+    let params = class
+        .type_params
+        .iter()
+        .map(|param| param.name.name.clone())
+        .collect::<Vec<_>>();
+    seen.push(full.clone());
+    let mut fields = Vec::with_capacity(class.fields.len());
+    for field in &class.fields {
+        let field_key = type_ref_local_key_expand(&field.ty, &params, &class_args, checked);
+        let nested = if matches!(field_key.as_str(), "Int" | "Bool" | "String") {
+            None
+        } else {
+            Some(Box::new(build_json_decode_node(
+                &field_key,
+                checked,
+                seen,
+                depth + 1,
+            )?))
+        };
+        fields.push(JsonDecodeField {
+            name: field.name.name.clone(),
+            key: field_key,
+            nullable: field.ty.nullable,
+            nested,
+        });
+    }
+    seen.pop();
+    Some(JsonDecodeNode { mono: full, fields })
+}
+
+fn json_decode_var(path: &str, suffix: &str) -> String {
+    format!("__json_{suffix}_{path}")
+}
+
+fn emit_json_decode_declarations(out: &mut String, node: &JsonDecodeNode, path: &str) {
+    for (index, field) in node.fields.iter().enumerate() {
+        let field_path = format!("{path}_{index}");
+        let raw = json_decode_var(&field_path, "raw");
+        let _ = writeln!(out, "  const char *{raw} = NULL;");
+        match field.key.as_str() {
+            "Int" => {
+                let _ = writeln!(
+                    out,
+                    "  int64_t {} = 0;",
+                    json_decode_var(&field_path, "int")
+                );
+            }
+            "Bool" => {
+                let _ = writeln!(
+                    out,
+                    "  bool {} = false;",
+                    json_decode_var(&field_path, "bool")
+                );
+            }
+            "String" => {
+                let _ = writeln!(
+                    out,
+                    "  const char *{} = NULL;",
+                    json_decode_var(&field_path, "string")
+                );
+            }
+            _ => {
+                let class = json_decode_var(&field_path, "class");
+                let _ = writeln!(
+                    out,
+                    "  {} *{class} = NULL;",
+                    c_class_type(&field.nested.as_ref().expect("nested JSON node").mono)
+                );
+                let _ = writeln!(out, "  aura_gc_add_root((void **)&{class});");
+                emit_json_decode_declarations(
+                    out,
+                    field.nested.as_ref().expect("nested JSON node"),
+                    &field_path,
+                );
+            }
+        }
+    }
+}
+
+fn emit_json_decode_parse(out: &mut String, node: &JsonDecodeNode, path: &str, source: &str) {
+    for (index, field) in node.fields.iter().enumerate() {
+        let field_path = format!("{path}_{index}");
+        let raw = json_decode_var(&field_path, "raw");
+        let escaped = field.name.replace('\\', "\\\\").replace('"', "\\\"");
+        let _ = writeln!(
+            out,
+            "  {raw} = aura_json_object_get({source}, \"{escaped}\");"
+        );
+        let _ = writeln!(out, "  if ({raw} == NULL) goto __json_decode_fail;");
+        match field.key.as_str() {
+            "Int" => {
+                let _ = writeln!(
+                    out,
+                    "  if (!aura_json_parse_int({raw}, &{})) goto __json_decode_fail;",
+                    json_decode_var(&field_path, "int")
+                );
+            }
+            "Bool" => {
+                let _ = writeln!(
+                    out,
+                    "  if (!aura_json_parse_bool({raw}, &{})) goto __json_decode_fail;",
+                    json_decode_var(&field_path, "bool")
+                );
+            }
+            "String" => {
+                let decoded = json_decode_var(&field_path, "string");
+                let _ = writeln!(
+                    out,
+                    "  {decoded} = aura_json_decode_string({raw}); if ({decoded} == NULL) goto __json_decode_fail;"
+                );
+            }
+            _ => {
+                let class = json_decode_var(&field_path, "class");
+                if field.nullable {
+                    let _ = writeln!(
+                        out,
+                        "  if (aura_json_is_null({raw})) {{ {class} = NULL; }} else {{"
+                    );
+                } else {
+                    let _ = writeln!(out, "  {{");
+                }
+                emit_json_decode_parse(
+                    out,
+                    field.nested.as_ref().expect("nested JSON node"),
+                    &field_path,
+                    &raw,
+                );
+                let nested = field.nested.as_ref().expect("nested JSON node");
+                let args = nested
+                    .fields
+                    .iter()
+                    .enumerate()
+                    .map(|(nested_index, nested_field)| {
+                        let nested_path = format!("{field_path}_{nested_index}");
+                        match nested_field.key.as_str() {
+                            "Int" => json_decode_var(&nested_path, "int"),
+                            "Bool" => json_decode_var(&nested_path, "bool"),
+                            "String" => json_decode_var(&nested_path, "string"),
+                            _ => json_decode_var(&nested_path, "class"),
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let _ = writeln!(
+                    out,
+                    "    {class} = {}({args}); if ({class} == NULL) goto __json_decode_fail;",
+                    c_ctor_name(&nested.mono)
+                );
+                out.push_str("  }\n");
+            }
+        }
+    }
+}
+
+fn emit_json_decode_cleanup(out: &mut String, node: &JsonDecodeNode, path: &str) {
+    for (index, field) in node.fields.iter().enumerate() {
+        let field_path = format!("{path}_{index}");
+        let raw = json_decode_var(&field_path, "raw");
+        let _ = writeln!(out, "  if ({raw} != NULL) free((void *){raw});");
+        if field.key == "String" {
+            let string = json_decode_var(&field_path, "string");
+            let _ = writeln!(out, "  if ({string} != NULL) free((void *){string});");
+        }
+        if let Some(nested) = &field.nested {
+            emit_json_decode_cleanup(out, nested, &field_path);
+            let class = json_decode_var(&field_path, "class");
+            let _ = writeln!(out, "  aura_gc_remove_root((void **)&{class});");
+        }
+    }
+}
+
+fn emit_json_decode_ctor_args(node: &JsonDecodeNode, path: &str) -> String {
+    node.fields
+        .iter()
+        .enumerate()
+        .map(|(index, field)| {
+            let field_path = format!("{path}_{index}");
+            match field.key.as_str() {
+                "Int" => json_decode_var(&field_path, "int"),
+                "Bool" => json_decode_var(&field_path, "bool"),
+                "String" => json_decode_var(&field_path, "string"),
+                _ => json_decode_var(&field_path, "class"),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn emit_json_decode_node(
+    out: &mut String,
+    node: &JsonDecodeNode,
+    value: &str,
+    target_type: &str,
+    constructor: &str,
+) {
+    out.push_str("  if (value == NULL || !aura_json_is_valid((*value).text)) return NULL;\n");
+    out.push_str("  aura_gc_add_root((void **)&value);\n");
+    emit_json_decode_declarations(out, node, "root");
+    emit_json_decode_parse(out, node, "root", &format!("(*{value}).text"));
+    let args = emit_json_decode_ctor_args(node, "root");
+    let _ = writeln!(out, "  {target_type} *__decoded = {constructor}({args});");
+    out.push_str("  goto __json_decode_done;\n");
+    out.push_str("__json_decode_fail:\n");
+    emit_json_decode_cleanup(out, node, "root");
+    out.push_str("  aura_gc_remove_root((void **)&value);\n  return NULL;\n");
+    out.push_str("__json_decode_done:\n");
+    emit_json_decode_cleanup(out, node, "root");
+    out.push_str("  aura_gc_remove_root((void **)&value);\n  return __decoded;\n}\n");
+}
+
 pub fn emit_c(checked: &CheckedFile) -> String {
     emit_c_with(checked, EmitOptions::default())
 }
@@ -318,6 +575,7 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str("const char *aura_dns_resolve_host(const char *host, int prefer_ipv6);\n");
     out.push_str("const char *aura_dns_resolve_host_list(const char *host, int prefer_ipv6);\n");
     out.push_str("_Bool aura_json_is_valid(const char *value);\n");
+    out.push_str("_Bool aura_json_is_null(const char *value);\n");
     out.push_str("int64_t aura_json_error_offset(const char *value);\n");
     out.push_str("const char *aura_json_escape_string(const char *value);\n");
     out.push_str("const char *aura_json_object_get(const char *value, const char *key);\n");
@@ -16660,6 +16918,11 @@ pub(crate) fn emit_fun(
                     &class_args,
                 );
                 let ctor = c_ctor_name(&mono);
+                let mut seen = Vec::new();
+                if let Some(node) = build_json_decode_node(&mono, checked, &mut seen, 0) {
+                    emit_json_decode_node(out, &node, &value, &c_class_type(&mono), &ctor);
+                    return;
+                }
                 let mut supported = true;
                 let mut field_keys = Vec::new();
                 for field in &class.fields {

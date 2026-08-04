@@ -2908,6 +2908,51 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_std_json_recursive_generic_class_decode() {
+        let file = aura_parser::parse_file(
+            r#"package std.json
+class Value(val text: String) {}
+pub fun decode<T>(value: Value): T? { throw "std.json decode intrinsic" }
+class Leaf<T>(val value: T) {}
+class Middle<T>(val leaf: Leaf<T>) {}
+class Root<T>(val middle: Middle<T>) {}
+class OptionalRoot<T>(val child: Leaf<T>?) {}
+fun main() {
+  val root = decode<Root<String>>(Value("{\"middle\":{\"leaf\":{\"value\":\"ok\"}}}"))
+  if (root == null || root!!.middle.leaf.value != "ok") { throw "recursive generic decode failed" }
+  val optional = decode<OptionalRoot<String>>(Value("{\"child\":null}"))
+  if (optional == null || optional!!.child != null) { throw "nullable generic decode failed" }
+  println(root!!.middle.leaf.value)
+}
+"#,
+        )
+        .expect("parse recursive generic std.json fixture");
+        let generated = emit_c_from_ast(&file).expect("emit recursive generic std.json fixture");
+        assert!(generated.contains("aura_json_is_null"));
+        assert!(generated.contains("aura_new_std_json_Root_String"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-std-json-generic-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile recursive generic std.json fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run recursive generic std.json fixture");
+        assert!(
+            output.status.success(),
+            "recursive generic std.json failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "ok\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_std_signal_shutdown_state() {
         let file = aura_parser::parse_file(
             r#"package std.signal

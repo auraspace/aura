@@ -5,6 +5,10 @@ import std.json
 
 class Address(val city: String, val zip: Int) {}
 class Config(val name: String, val enabled: Bool, val count: Int, val address: Address) {}
+class Leaf<T>(val value: T) {}
+class Middle<T>(val leaf: Leaf<T>) {}
+class Root<T>(val middle: Middle<T>) {}
+class OptionalRoot<T>(val child: Leaf<T>?) {}
 
 fun main() {
   val decoded = decode<Config>(Value("{\"name\":\"aura\",\"enabled\":true,\"count\":7,\"address\":{\"city\":\"Hanoi\",\"zip\":1000}}"))
@@ -20,4 +24,14 @@ fun main() {
   if (decode<Config>(Value("{\"name\":\"aura\",\"enabled\":true,\"count\":7,\"address\":{\"city\":\"Hanoi\"}}")) != null) {
     throw "typed class decode accepted an incomplete nested field"
   }
+  val generic = decode<Root<String>>(Value("{\"middle\":{\"leaf\":{\"value\":\"generic\"}}}"))
+  if (generic == null || generic!!.middle.leaf.value != "generic") {
+    throw "typed class decode failed for recursive generic classes"
+  }
+  println(generic!!.middle.leaf.value)
+  val optional = decode<OptionalRoot<String>>(Value("{\"child\":null}"))
+  if (optional == null || optional!!.child != null) {
+    throw "typed class decode failed for nullable generic class"
+  }
+  println("nullable")
 }

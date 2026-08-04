@@ -175,6 +175,15 @@ static const char *aura_json_trim_start(const char *value)
   return cursor;
 }
 
+_Bool aura_json_is_null(const char *value)
+{
+  const char *cursor = aura_json_trim_start(value);
+  if (strncmp(cursor, "null", 4) != 0) return false;
+  cursor += 4;
+  while (*cursor == ' ' || *cursor == '\t' || *cursor == '\n' || *cursor == '\r') cursor++;
+  return *cursor == '\0';
+}
+
 _Bool aura_json_parse_int(const char *value, int64_t *out)
 {
   const char *cursor = aura_json_trim_start(value);
