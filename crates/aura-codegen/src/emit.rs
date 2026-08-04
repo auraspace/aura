@@ -405,6 +405,9 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str(
         "void *aura_gc_alloc_full(size_t size, void (*dtor)(void *), void (*mark_extras)(void *));\n",
     );
+    out.push_str(
+        "void *aura_gc_alloc_typed(size_t size, void (*dtor)(void *), void (*trace)(void *));\n",
+    );
     out.push_str("void aura_gc_mark_ptr(void *obj);\n");
     out.push_str("void aura_gc_add_root(void **slot);\n");
     out.push_str("void aura_gc_remove_root(void **slot);\n");

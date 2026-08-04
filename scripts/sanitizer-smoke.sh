@@ -62,6 +62,10 @@ if [[ "$(uname -s)" == Darwin ]]; then
   fi
 fi
 ubsan_options="${UBSAN_OPTIONS:-halt_on_error=1:print_stacktrace=1}"
+runtime_link_args=()
+case "$(uname -s)" in
+  Linux|Darwin) runtime_link_args=(-lz) ;;
+esac
 
 run_native_fixture() {
   local fixture="$1"
@@ -75,11 +79,11 @@ run_native_fixture() {
   if ((${#extra[@]})); then
     "$real_cc" "${extra[@]}" -D_POSIX_C_SOURCE=200809L -std=c11 -Wall -Wextra -Werror \
       -fsanitize=address,undefined -fno-omit-frame-pointer \
-      -o "$output" "$source"
+      -o "$output" "$source" "${runtime_link_args[@]}"
   else
     "$real_cc" -D_POSIX_C_SOURCE=200809L -std=c11 -Wall -Wextra -Werror \
       -fsanitize=address,undefined -fno-omit-frame-pointer \
-      -o "$output" "$source"
+      -o "$output" "$source" "${runtime_link_args[@]}"
   fi
   ASAN_OPTIONS="$native_asan_options" \
     UBSAN_OPTIONS="$ubsan_options" \

@@ -11,9 +11,10 @@ commits, RFCs, or release notes instead of appending progress for every change.
 ### API-003 compiler/runtime/tooling boundary inventory (2026-07-31)
 
 - Area: RFC-001/002/004/005/006/008/010/012/013/014 surfaces
-- Symptom: concurrent tracing write barriers and precise stack maps,
-  native artifacts for tier-2 targets, and full LSP protocol behavior are not
-  complete. Every packaged toolchain now carries an explicit target-neutral
+- Symptom: the concurrent tracing collector/write-barrier contract and
+  native artifacts for tier-2 targets are not complete. Generated heap classes
+  now use precise typed trace callbacks, while legacy opaque allocations remain
+  conservative. Every packaged toolchain now carries an explicit target-neutral
   runtime/std sysroot manifest. LSP references and rename use durable
   server-lifetime binding identities, stdio requests have cooperative
   cancellation, and diagnostics carry precise structured suggestions;
@@ -25,9 +26,9 @@ commits, RFCs, or release notes instead of appending progress for every change.
 - Why deferred: these are separate distribution, GC, macro, and tooling
   contracts rather than prerequisites for the current alpha compiler.
 - Next step: build and execute native Linux arm64/Windows artifacts on their
-  supported hosts, then expose semantic overload facts; the
-  concurrent GC contract still needs a tri-color collector and compiler stack
-  maps.
+  supported hosts, expose semantic overload facts, and replace the remaining
+  conservative opaque path with a concurrent tri-color collector and explicit
+  write barriers/stack maps.
 
 ### LSP-001 language-server MVP limits (2026-07-29)
 

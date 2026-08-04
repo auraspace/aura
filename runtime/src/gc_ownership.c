@@ -13,6 +13,7 @@ typedef struct AuraGcNode
   int marked;                     /* C4z: mark bit for STW collect */
   void (*dtor)(void *ptr);        /* C7b: free non-GC field buffers before free */
   void (*mark_extras)(void *ptr); /* C7b: mark Array-of-class field elems */
+  int precise_trace;              /* typed callback covers all GC fields */
   struct AuraGcNode *next;
 } AuraGcNode;
 
@@ -228,7 +229,9 @@ static void aura_gc_mark_scan(AuraGcNode *n)
   }
 }
 
-void *aura_gc_alloc_full(size_t size, void (*dtor)(void *), void (*mark_extras)(void *))
+static void *aura_gc_alloc_internal(size_t size, void (*dtor)(void *),
+                                    void (*mark_extras)(void *),
+                                    int precise_trace)
 {
   aura_gc_lock_enter();
   void *p = malloc(size);
@@ -252,10 +255,28 @@ void *aura_gc_alloc_full(size_t size, void (*dtor)(void *), void (*mark_extras)(
   n->marked = 0;
   n->dtor = dtor;
   n->mark_extras = mark_extras;
+  n->precise_trace = precise_trace;
   n->next = aura_gc_list;
   aura_gc_list = n;
   aura_gc_lock_leave();
   return p;
+}
+
+void *aura_gc_alloc_full(size_t size, void (*dtor)(void *), void (*mark_extras)(void *))
+{
+  /* Legacy callers retain conservative body scanning semantics. */
+  return aura_gc_alloc_internal(size, dtor, mark_extras, 0);
+}
+
+void *aura_gc_alloc_typed(size_t size, void (*dtor)(void *),
+                          void (*trace)(void *))
+{
+  if (trace == NULL)
+  {
+    fputs("aura: typed GC allocation requires a trace callback\n", stderr);
+    abort();
+  }
+  return aura_gc_alloc_internal(size, dtor, trace, 1);
 }
 
 void *aura_gc_alloc(size_t size)
@@ -2393,7 +2414,10 @@ void aura_gc_collect(void)
     {
       n->mark_extras(n->ptr);
     }
-    aura_gc_mark_scan(n);
+    if (!n->precise_trace)
+    {
+      aura_gc_mark_scan(n);
+    }
   }
   /* C5f/C7b: sweep unmarked objects; run dtor to free owned Array buffers. */
   AuraGcNode **link = &aura_gc_list;

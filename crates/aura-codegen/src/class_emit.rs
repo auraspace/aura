@@ -1460,7 +1460,7 @@ pub(crate) fn emit_ctor_mono(
     let cty = c_class_type(mono);
     if is_heap_class_decl(c) {
         // C3y: allocate class instance on GC heap.
-        // C7b: pass dtor / mark_extras when the class owns Array fields.
+        // C7b: pass the complete typed trace callback for GC-managed fields.
         let arr_cls = array_of_class_field_names(c, checked, params, args);
         let has_marked_field =
             ownership_fields(c, checked, params, args)
@@ -1485,15 +1485,15 @@ pub(crate) fn emit_ctor_mono(
         } else {
             c_markex_name(mono)
         };
-        if dtor == "NULL" && markex == "NULL" {
+        if markex == "NULL" {
             let _ = writeln!(
                 out,
-                "  {cty} *self = ({cty} *)aura_gc_alloc(sizeof({cty}));"
+                "  {cty} *self = ({cty} *)aura_gc_alloc_full(sizeof({cty}), {dtor}, NULL);"
             );
         } else {
             let _ = writeln!(
                 out,
-                "  {cty} *self = ({cty} *)aura_gc_alloc_full(sizeof({cty}), {dtor}, {markex});"
+                "  {cty} *self = ({cty} *)aura_gc_alloc_typed(sizeof({cty}), {dtor}, {markex});"
             );
         }
         out.push_str("  memset(self, 0, sizeof(*self));\n");

@@ -1139,7 +1139,7 @@ fun main() {
         )
         .expect("parse nested class async capture GC fixture");
         let generated = emit_c_from_ast(&file).expect("emit nested class async capture GC fixture");
-        assert!(generated.contains("aura_gc_alloc_full"));
+        assert!(generated.contains("aura_gc_alloc_typed"));
         assert!(generated.contains("aura_gc_mark_ptr((void *)self->child)"));
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

@@ -311,6 +311,9 @@ void aura_ffi_root_end(AuraFfiRootGuard *guard);
 
 /* Mark a GC object reachable from a task frame mark callback. */
 void aura_gc_mark_ptr(void *obj);
+/* Allocate an object whose callback precisely traces every GC field. */
+void *aura_gc_alloc_typed(size_t size, void (*dtor)(void *),
+                          void (*trace)(void *));
 
 /* F4 opaque foreign-resource handles.  The resource pointer is never exposed
  * by the handle itself: foreign code must hold a live pin token and ask the
