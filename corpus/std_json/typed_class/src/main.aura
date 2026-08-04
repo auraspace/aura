@@ -16,6 +16,7 @@ class PhaseValue<T>(val phase: Phase, val value: T) {}
 class PhaseBatch(val phases: Array<Phase>) {}
 struct Coordinates(val city: String, val zip: Int) {}
 class StructEnvelope(val location: Coordinates) {}
+class StructBatch(val locations: Array<Coordinates>) {}
 
 fun main() {
   val decoded = decode<Config>(Value("{\"name\":\"aura\",\"enabled\":true,\"count\":7,\"address\":{\"city\":\"Hanoi\",\"zip\":1000}}"))
@@ -91,4 +92,9 @@ fun main() {
     throw "typed class decode failed for struct fields"
   }
   println("struct")
+  val structBatch = decode<StructBatch>(Value("{\"locations\":[{\"city\":\"A\",\"zip\":1},{\"city\":\"B\",\"zip\":2}]}"))
+  if (structBatch == null || structBatch!!.locations.len != 2 || structBatch!!.locations.get(1).city != "B") {
+    throw "typed class decode failed for struct arrays"
+  }
+  println("struct-array")
 }

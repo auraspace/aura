@@ -90,11 +90,16 @@ fn build_json_decode_node(
     if depth > 64 || matches!(key, "Int" | "Bool" | "String") {
         return None;
     }
-    let full = crate::expr::full_type_mono(key, checked);
-    if seen.iter().any(|item| item == &full) {
+    let requested = crate::expr::full_type_mono(key, checked);
+    if seen.iter().any(|item| item == &requested) {
         return None;
     }
-    let (class, class_args) = json_decode_class_for_mono(&full, checked)?;
+    let (class, class_args) = json_decode_class_for_mono(&requested, checked)?;
+    let full = type_mono(
+        &class_decl_package(class, checked),
+        &class.name.name,
+        &class_args,
+    );
     let params = class
         .type_params
         .iter()
@@ -223,8 +228,12 @@ fn emit_json_decode_declarations(out: &mut String, node: &JsonDecodeNode, path: 
                 let _ = writeln!(out, "  bool {rooted} = false;");
                 if let Some(nested) = &field.array_nested {
                     let item = json_decode_var(&field_path, "array_item");
-                    let _ = writeln!(out, "  {} *{item} = NULL;", c_class_type(&nested.mono));
-                    let _ = writeln!(out, "  aura_gc_add_root((void **)&{item});");
+                    if nested.is_struct {
+                        let _ = writeln!(out, "  {} {item} = {{ 0 }};", c_class_type(&nested.mono));
+                    } else {
+                        let _ = writeln!(out, "  {} *{item} = NULL;", c_class_type(&nested.mono));
+                        let _ = writeln!(out, "  aura_gc_add_root((void **)&{item});");
+                    }
                     emit_json_decode_declarations(out, nested, &format!("{field_path}_item"));
                 }
             }
@@ -372,16 +381,26 @@ fn emit_json_decode_parse(
                         let item_path = format!("{field_path}_item");
                         emit_json_decode_parse(out, nested, &item_path, "__json_item", checked);
                         let args = emit_json_decode_ctor_args(nested, &item_path);
-                        let _ = writeln!(
-                            out,
-                            "    {item} = {}({args}); if ({item} == NULL) goto __json_decode_fail;",
-                            c_ctor_name(&nested.mono)
-                        );
+                        if nested.is_struct {
+                            let _ = writeln!(
+                                out,
+                                "    {item} = {}({args});",
+                                c_ctor_name(&nested.mono)
+                            );
+                        } else {
+                            let _ = writeln!(
+                                out,
+                                "    {item} = {}({args}); if ({item} == NULL) goto __json_decode_fail;",
+                                c_ctor_name(&nested.mono)
+                            );
+                        }
                         emit_json_decode_transfer_arrays(out, nested, &item_path);
                         let _ = writeln!(out, "    {array_push}(&{array}, {item});");
                         out.push_str("    ");
                         emit_json_decode_item_cleanup(out, nested, &item_path);
-                        let _ = writeln!(out, "    {item} = NULL;");
+                        if !nested.is_struct {
+                            let _ = writeln!(out, "    {item} = NULL;");
+                        }
                     }
                 }
                 if field.array_element.is_some() {
@@ -475,8 +494,10 @@ fn emit_json_decode_cleanup(out: &mut String, node: &JsonDecodeNode, path: &str)
             );
             if let Some(nested) = &field.array_nested {
                 emit_json_decode_cleanup(out, nested, &format!("{field_path}_item"));
-                let item = json_decode_var(&field_path, "array_item");
-                let _ = writeln!(out, "  aura_gc_remove_root((void **)&{item});");
+                if !nested.is_struct {
+                    let item = json_decode_var(&field_path, "array_item");
+                    let _ = writeln!(out, "  aura_gc_remove_root((void **)&{item});");
+                }
             }
         }
         if let Some(nested) = &field.nested {

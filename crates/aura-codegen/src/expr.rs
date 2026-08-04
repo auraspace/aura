@@ -2700,6 +2700,25 @@ pub(crate) fn full_type_mono(key: &str, checked: &CheckedFile) -> String {
     if key == "Array" {
         return key.to_string();
     }
+    if key.contains('@') {
+        let (name, package) = aura_sema::split_nominal(key);
+        if checked
+            .ast
+            .classes
+            .iter()
+            .any(|class| class.name.name == name && class_decl_package(class, checked) == package)
+        {
+            return type_mono(package, name, &[]);
+        }
+        if checked
+            .ast
+            .enums
+            .iter()
+            .any(|en| en.name.name == name && enum_decl_package(en, checked) == package)
+        {
+            return type_mono(package, name, &[]);
+        }
+    }
     // Recover package-qualified nested enum/class monomorphs from the short
     // keys used by local inference (for example `Outcome_String_Error`).
     for (name, args) in checked.mono_enums.iter().chain(checked.mono_classes.iter()) {
