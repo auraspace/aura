@@ -108,7 +108,7 @@ Default for user attrs: **Binary** (available to tools/dependents without runtim
 
 ### 6.5 Built-in attributes (alpha vocabulary)
 
-The alpha names and their implementation status are locked in
+The current names and implementation status are tracked in
 [`docs/api/compiler-alpha.md`](../api/compiler-alpha.md). Reserved names are
 accepted only after their parser/sema phase is enabled; until then they must
 produce an explicit unsupported diagnostic rather than being silently ignored.

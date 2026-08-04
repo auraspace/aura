@@ -466,17 +466,17 @@ verified platform TLS provider.
 
 ## `std.reflect`
 
-The package provides compiler-backed `typeOf<T>`, `typeIdOf<T>`, primitive
-`typeInfo`, `isReflectable`, declaration member names, and member type strings.
+The package provides compiler-backed `typeOf<T>`, `typeIdOf<T>`, type-kind
+classification, and declaration metadata. Primitive types are always
+reflectable; user classes, structs, enums, and interfaces opt in with
+`@reflect`. Only public fields and methods are exposed.
 
-## Protocol placeholders
+## Bounded protocol packages
 
-The following packages reserve the next application-facing API shapes:
-`std.tls` and `std.websocket`.
-They provide typed configuration/value shells and explicit placeholder errors;
-they do not open sockets, negotiate TLS, parse frames, compress bytes, or parse
-multipart streaming yet. Unix sockets, HTTP/2/3, and QUIC remain reserved without a
-public package until their ownership and capability contracts are settled.
+`std.tls`, `std.websocket`, `std.compress`, and `std.multipart` provide
+runtime-backed bounded implementations with explicit size and platform limits.
+Unix sockets, HTTP/2/3, and QUIC remain reserved without a public package until
+their ownership and capability contracts are settled.
 
 ## How the CLI finds `std.*`
 
