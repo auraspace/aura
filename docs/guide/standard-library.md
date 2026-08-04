@@ -469,7 +469,9 @@ verified platform TLS provider.
 The package provides compiler-backed `typeOf<T>`, `typeIdOf<T>`, type-kind
 classification, and declaration metadata. Primitive types are always
 reflectable; user classes, structs, enums, and interfaces opt in with
-`@reflect`. Only public fields and methods are exposed.
+`@reflect`. Only public fields and methods are exposed. Closed generic class
+and interface metadata uses the concrete monomorph name and substitutes type
+parameters in exposed field and method return types.
 
 ## Bounded protocol packages
 
