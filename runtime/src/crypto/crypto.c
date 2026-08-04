@@ -6,10 +6,10 @@ int sysctlbyname(const char *, void *, size_t *, const void *, size_t);
 #include <sys/auxv.h>
 #include <asm/hwcap.h>
 #endif
-#define AURA_SHA256_TARGET_CRYPTO __attribute__((target("crypto")))
+#define AURA_SHA256_TARGET_CRYPTO __attribute__((target("+crypto")))
 #elif defined(__x86_64__) && (defined(__clang__) || defined(__GNUC__))
 #include <immintrin.h>
-#define AURA_SHA256_TARGET_CRYPTO __attribute__((target("sha")))
+#define AURA_SHA256_TARGET_CRYPTO __attribute__((target("sha,ssse3,sse4.1")))
 #endif
 #include <stdatomic.h>
 
@@ -154,7 +154,7 @@ static AuraSha256BlockFn aura_sha256_block_backend(void)
 
 static AuraSha256BlockFn aura_sha256_get_block_fn(void)
 {
-  static _Atomic(AuraSha256BlockFn) selected = NULL;
+  static _Atomic(AuraSha256BlockFn) selected = (AuraSha256BlockFn)0;
   AuraSha256BlockFn fn = atomic_load_explicit(&selected, memory_order_acquire);
   if (fn == NULL)
   {
