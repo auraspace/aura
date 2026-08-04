@@ -15,8 +15,9 @@ commits, RFCs, or release notes instead of appending progress for every change.
   native artifacts for tier-2 targets, and full LSP protocol behavior are not
   complete. Every packaged toolchain now carries an explicit target-neutral
   runtime/std sysroot manifest. LSP references and rename use durable
-  server-lifetime binding identities, and stdio requests have cooperative
-  cancellation; overload-aware results and suggestions are still open.
+  server-lifetime binding identities, stdio requests have cooperative
+  cancellation, and diagnostics carry precise structured suggestions;
+  semantic overload-aware results are still open.
   Declarative macro hygiene and invocation-span attribution are
   now bounded and tested; macro expansion inspection and broader plugin
   provenance remain outside this inventory item. Verified local self-update
@@ -24,7 +25,7 @@ commits, RFCs, or release notes instead of appending progress for every change.
 - Why deferred: these are separate distribution, GC, macro, and tooling
   contracts rather than prerequisites for the current alpha compiler.
 - Next step: build and execute native Linux arm64/Windows artifacts on their
-  supported hosts, then expose semantic overload/suggestion facts; the
+  supported hosts, then expose semantic overload facts; the
   concurrent GC contract still needs a tri-color collector and compiler stack
   maps.
 
@@ -33,13 +34,13 @@ commits, RFCs, or release notes instead of appending progress for every change.
 - Area: `crates/aura-lsp`, `auralsp`
 - Symptom: lifecycle, diagnostics, formatting, navigation, completion, and
   code actions work. References and rename use durable server-lifetime
-  binding IDs across span-shifting edits, and stdio requests run through a
-  cooperative cancellation worker. Overload-aware results and precise
-  suggestions remain incomplete.
+  binding IDs across span-shifting edits, stdio requests run through a
+  cooperative cancellation worker, and diagnostics expose precise structured
+  suggestions. Semantic overload candidate resolution remains incomplete.
 - Why deferred: the analysis API still exposes name-oriented navigation and
-  completion facts rather than overload candidates and structured suggestions.
-- Next step: expose resolved overload candidates and diagnostic suggestion
-  ranges through the shared analysis boundary.
+  completion facts rather than resolved overload sets.
+- Next step: expose resolved overload candidates through the shared analysis
+  boundary and render each candidate without label-based loss.
 
 ### ASYNC-001 remaining aggregate/runtime ownership cases (2026-08-03)
 

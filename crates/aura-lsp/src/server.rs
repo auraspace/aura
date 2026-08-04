@@ -783,7 +783,7 @@ impl Server {
                     "kind": symbol.kind,
                     "detail": symbol.detail,
                     "textEdit": {"range": span_range(source, Span::new(start as u32, offset as u32)), "newText": symbol.name},
-                    "data": {"uri": document_uri}
+                    "data": {"uri": document_uri, "bindingId": self.binding_id(document_uri, symbol)}
                 });
                 if !documentation.is_empty() {
                     item["documentation"] = json!({"kind":"markdown","value":documentation});
@@ -801,7 +801,7 @@ impl Server {
                         "kind": symbol.kind,
                         "detail": symbol.detail,
                         "textEdit": {"range": span_range(source, Span::new(start as u32, offset as u32)), "newText": symbol.name},
-                        "data": {"uri": document_uri}
+                        "data": {"uri": document_uri, "bindingId": self.binding_id(document_uri, &symbol)}
                     });
                     if !documentation.is_empty() {
                         item["documentation"] = json!({"kind":"markdown","value":documentation});
@@ -810,8 +810,14 @@ impl Server {
                 }
             }
         }
-        items.sort_by(|left, right| left["label"].as_str().cmp(&right["label"].as_str()));
-        items.dedup_by(|left, right| left["label"] == right["label"]);
+        items.sort_by(|left, right| {
+            (left["label"].as_str(), left["data"]["bindingId"].as_str())
+                .cmp(&(right["label"].as_str(), right["data"]["bindingId"].as_str()))
+        });
+        items.dedup_by(|left, right| {
+            left["label"] == right["label"]
+                && left["data"]["bindingId"] == right["data"]["bindingId"]
+        });
         json!({"isIncomplete":false,"items":items})
     }
 
@@ -2543,6 +2549,14 @@ fn diagnostic_json(source: &str, diagnostic: &Diagnostic) -> Value {
     if let Some(code) = diagnostic_code(&diagnostic.message) {
         value["code"] = Value::String(code.to_owned());
     }
+    if let Some(new_name) = did_you_mean_name(&diagnostic.message) {
+        value["data"] = json!({
+            "suggestions": [{
+                "newText": new_name,
+                "range": span_range(source, diagnostic.span)
+            }]
+        });
+    }
     value
 }
 
@@ -2587,9 +2601,11 @@ fn full_document_range(source: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::{
-        analysis_error_summary, diagnostic_code, path_to_uri, position_to_offset, word_span_at,
-        Server,
+        analysis_error_summary, diagnostic_code, diagnostic_json, path_to_uri, position_to_offset,
+        word_span_at, Server,
     };
+    use aura_analysis::{Diagnostic, Severity};
+    use aura_ast::Span;
     use serde_json::json;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -2828,6 +2844,25 @@ mod tests {
             Some("AURA-F1-TYPE")
         );
         assert_eq!(diagnostic_code("undefined name `x`"), None);
+    }
+
+    #[test]
+    fn diagnostics_expose_precise_structured_name_suggestions() {
+        let diagnostic = Diagnostic {
+            severity: Severity::Error,
+            message: "undefined name `mian`; did you mean `main`".into(),
+            span: Span::new(4, 8),
+        };
+        let value = diagnostic_json("fun mian() {}", &diagnostic);
+        assert_eq!(value["data"]["suggestions"][0]["newText"], "main");
+        assert_eq!(
+            value["data"]["suggestions"][0]["range"]["start"]["character"],
+            4
+        );
+        assert_eq!(
+            value["data"]["suggestions"][0]["range"]["end"]["character"],
+            8
+        );
     }
 
     #[test]
