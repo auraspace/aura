@@ -37,6 +37,7 @@ struct JsonDecodeField {
     nullable: bool,
     array_element: Option<String>,
     array_nested: Option<Box<JsonDecodeNode>>,
+    enum_mono: Option<String>,
     nested: Option<Box<JsonDecodeNode>>,
 }
 
@@ -56,6 +57,25 @@ fn json_decode_class_for_mono<'a>(
                 *name == class.name.name && type_mono(&package, name, args) == full
             })
             .map(|(_, args)| (class, args.clone()))
+    })
+}
+
+fn json_decode_unit_enum_for_mono<'a>(
+    full: &str,
+    checked: &'a CheckedFile,
+) -> Option<&'a EnumDecl> {
+    checked.ast.enums.iter().find(|en| {
+        let package = enum_decl_package(en, checked);
+        (type_mono(&package, &en.name.name, &[]) == full
+            || checked.mono_enums.iter().any(|(name, args)| {
+                name == &en.name.name && type_mono(&package, name, args) == full
+            }))
+            && en.variants.iter().all(|variant| {
+                variant
+                    .fields
+                    .iter()
+                    .all(|field| field.ty.name.name == "Unit")
+            })
     })
 }
 
@@ -96,9 +116,19 @@ fn build_json_decode_node(
         } else {
             None
         };
+        let enum_mono = if !field.ty.nullable
+            && matches!(field_key.as_str(), "Int" | "Bool" | "String") == false
+            && array_nested.is_none()
+        {
+            let full = crate::expr::full_type_mono(&field_key, checked);
+            json_decode_unit_enum_for_mono(&full, checked).map(|_| full)
+        } else {
+            None
+        };
         let nested = if matches!(field_key.as_str(), "Int" | "Bool" | "String")
             || array_element.is_some()
             || array_nested.is_some()
+            || enum_mono.is_some()
         {
             None
         } else {
@@ -115,6 +145,7 @@ fn build_json_decode_node(
             nullable: field.ty.nullable,
             array_element,
             array_nested,
+            enum_mono,
             nested,
         });
     }
@@ -153,6 +184,19 @@ fn emit_json_decode_declarations(out: &mut String, node: &JsonDecodeNode, path: 
                     json_decode_var(&field_path, "string")
                 );
             }
+            _ if field.enum_mono.is_some() => {
+                let enum_value = json_decode_var(&field_path, "enum");
+                let _ = writeln!(
+                    out,
+                    "  {} {} = {{ 0 }};",
+                    c_enum_type(field.enum_mono.as_ref().expect("enum mono")),
+                    enum_value
+                );
+                let decoded = json_decode_var(&field_path, "enum_string");
+                let _ = writeln!(out, "  const char *{decoded} = NULL;");
+                let matched = json_decode_var(&field_path, "enum_matched");
+                let _ = writeln!(out, "  bool {matched} = false;");
+            }
             _ if field.array_element.is_some() || field.array_nested.is_some() => {
                 let array = json_decode_var(&field_path, "array");
                 let _ = writeln!(out, "  {} {array} = {{ 0 }};", c_class_type(&field.key));
@@ -183,7 +227,13 @@ fn emit_json_decode_declarations(out: &mut String, node: &JsonDecodeNode, path: 
     }
 }
 
-fn emit_json_decode_parse(out: &mut String, node: &JsonDecodeNode, path: &str, source: &str) {
+fn emit_json_decode_parse(
+    out: &mut String,
+    node: &JsonDecodeNode,
+    path: &str,
+    source: &str,
+    checked: &CheckedFile,
+) {
     for (index, field) in node.fields.iter().enumerate() {
         let field_path = format!("{path}_{index}");
         let raw = json_decode_var(&field_path, "raw");
@@ -214,6 +264,27 @@ fn emit_json_decode_parse(out: &mut String, node: &JsonDecodeNode, path: &str, s
                     out,
                     "  {decoded} = aura_json_decode_string({raw}); if ({decoded} == NULL) goto __json_decode_fail;"
                 );
+            }
+            _ if field.enum_mono.is_some() => {
+                let enum_mono = field.enum_mono.as_ref().expect("enum mono");
+                let decoded = json_decode_var(&field_path, "enum_string");
+                let enum_value = json_decode_var(&field_path, "enum");
+                let matched = json_decode_var(&field_path, "enum_matched");
+                let enum_decl = json_decode_unit_enum_for_mono(enum_mono, checked)
+                    .expect("unit enum declaration");
+                let _ = writeln!(
+                    out,
+                    "  {decoded} = aura_json_decode_string({raw}); if ({decoded} == NULL) goto __json_decode_fail;"
+                );
+                for variant in &enum_decl.variants {
+                    let variant_name = variant.name.name.replace('\\', "\\\\").replace('"', "\\\"");
+                    let ctor = c_variant_ctor_name(enum_mono, &variant.name.name);
+                    let _ = writeln!(
+                        out,
+                        "  if (strcmp({decoded}, \"{variant_name}\") == 0) {{ {enum_value} = {ctor}(); {matched} = true; }}"
+                    );
+                }
+                let _ = writeln!(out, "  if (!{matched}) goto __json_decode_fail;");
             }
             _ if field.array_element.is_some() || field.array_nested.is_some() => {
                 let array = json_decode_var(&field_path, "array");
@@ -249,7 +320,7 @@ fn emit_json_decode_parse(out: &mut String, node: &JsonDecodeNode, path: &str, s
                         let nested = field.array_nested.as_ref().expect("nested array node");
                         let item = json_decode_var(&field_path, "array_item");
                         let item_path = format!("{field_path}_item");
-                        emit_json_decode_parse(out, nested, &item_path, "__json_item");
+                        emit_json_decode_parse(out, nested, &item_path, "__json_item", checked);
                         let args = emit_json_decode_ctor_args(nested, &item_path);
                         let _ = writeln!(
                             out,
@@ -286,6 +357,7 @@ fn emit_json_decode_parse(out: &mut String, node: &JsonDecodeNode, path: &str, s
                     field.nested.as_ref().expect("nested JSON node"),
                     &field_path,
                     &raw,
+                    checked,
                 );
                 let nested = field.nested.as_ref().expect("nested JSON node");
                 let args = nested
@@ -298,6 +370,9 @@ fn emit_json_decode_parse(out: &mut String, node: &JsonDecodeNode, path: &str, s
                             "Int" => json_decode_var(&nested_path, "int"),
                             "Bool" => json_decode_var(&nested_path, "bool"),
                             "String" => json_decode_var(&nested_path, "string"),
+                            _ if nested_field.enum_mono.is_some() => {
+                                json_decode_var(&nested_path, "enum")
+                            }
                             _ => json_decode_var(&nested_path, "class"),
                         }
                     })
@@ -323,6 +398,13 @@ fn emit_json_decode_cleanup(out: &mut String, node: &JsonDecodeNode, path: &str)
         if field.key == "String" {
             let string = json_decode_var(&field_path, "string");
             let _ = writeln!(out, "  if ({string} != NULL) free((void *){string});");
+        }
+        if field.enum_mono.is_some() {
+            let enum_string = json_decode_var(&field_path, "enum_string");
+            let _ = writeln!(
+                out,
+                "  if ({enum_string} != NULL) free((void *){enum_string});"
+            );
         }
         if field.array_element.is_some() || field.array_nested.is_some() {
             let array = json_decode_var(&field_path, "array");
@@ -365,6 +447,13 @@ fn emit_json_decode_item_cleanup(out: &mut String, node: &JsonDecodeNode, path: 
                 "if ({string} != NULL) {{ free((void *){string}); {string} = NULL; }}"
             );
         }
+        if field.enum_mono.is_some() {
+            let enum_string = json_decode_var(&field_path, "enum_string");
+            let _ = writeln!(
+                out,
+                "if ({enum_string} != NULL) {{ free((void *){enum_string}); {enum_string} = NULL; }}"
+            );
+        }
         if let Some(nested) = &field.nested {
             emit_json_decode_item_cleanup(out, nested, &field_path);
         }
@@ -404,6 +493,7 @@ fn emit_json_decode_ctor_args(node: &JsonDecodeNode, path: &str) -> String {
                 "Int" => json_decode_var(&field_path, "int"),
                 "Bool" => json_decode_var(&field_path, "bool"),
                 "String" => json_decode_var(&field_path, "string"),
+                _ if field.enum_mono.is_some() => json_decode_var(&field_path, "enum"),
                 _ if field.array_element.is_some() || field.array_nested.is_some() => {
                     json_decode_var(&field_path, "array")
                 }
@@ -420,11 +510,12 @@ fn emit_json_decode_node(
     value: &str,
     target_type: &str,
     constructor: &str,
+    checked: &CheckedFile,
 ) {
     out.push_str("  if (value == NULL || !aura_json_is_valid((*value).text)) return NULL;\n");
     out.push_str("  aura_gc_add_root((void **)&value);\n");
     emit_json_decode_declarations(out, node, "root");
-    emit_json_decode_parse(out, node, "root", &format!("(*{value}).text"));
+    emit_json_decode_parse(out, node, "root", &format!("(*{value}).text"), checked);
     let args = emit_json_decode_ctor_args(node, "root");
     let _ = writeln!(
         out,
@@ -17081,7 +17172,7 @@ pub(crate) fn emit_fun(
                 let ctor = c_ctor_name(&mono);
                 let mut seen = Vec::new();
                 if let Some(node) = build_json_decode_node(&mono, checked, &mut seen, 0) {
-                    emit_json_decode_node(out, &node, &value, &c_class_type(&mono), &ctor);
+                    emit_json_decode_node(out, &node, &value, &c_class_type(&mono), &ctor, checked);
                     return;
                 }
                 let mut supported = true;

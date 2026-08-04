@@ -11,6 +11,8 @@ class Root<T>(val middle: Middle<T>) {}
 class OptionalRoot<T>(val child: Leaf<T>?) {}
 class Batch<T>(val values: Array<T>) {}
 class ClassBatch<T>(val values: Array<Leaf<T>>) {}
+enum Phase { case Ready case Done }
+class PhaseValue<T>(val phase: Phase, val value: T) {}
 
 fun main() {
   val decoded = decode<Config>(Value("{\"name\":\"aura\",\"enabled\":true,\"count\":7,\"address\":{\"city\":\"Hanoi\",\"zip\":1000}}"))
@@ -58,5 +60,16 @@ fun main() {
   }
   if (decode<Batch<String>>(Value("{\"values\":[1]}")) != null) {
     throw "typed class decode accepted an invalid primitive array element"
+  }
+  val phaseValue = decode<PhaseValue<String>>(Value("{\"phase\":\"Done\",\"value\":\"enum\"}"))
+  if (phaseValue == null || phaseValue!!.value != "enum") {
+    throw "typed class decode failed for unit enum fields"
+  }
+  match (phaseValue!!.phase) {
+    case Done => { println("enum") }
+    case Ready => { throw "typed class decode selected the wrong enum variant" }
+  }
+  if (decode<PhaseValue<String>>(Value("{\"phase\":\"Unknown\",\"value\":\"enum\"}")) != null) {
+    throw "typed class decode accepted an unknown enum variant"
   }
 }
