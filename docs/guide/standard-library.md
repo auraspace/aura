@@ -270,27 +270,27 @@ byte-oriented and do not perform Unicode normalization.
 
 ## `std.json`
 
-| API                                                                          | Contract                                                                                      |
-| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `isValid`                                                                    | Validate one complete bounded JSON value                                                      |
-| `errorOffset`                                                                | First invalid byte offset, or -1 for valid input                                              |
-| `escapeString`                                                               | Encode a JSON string literal including quotes                                                 |
-| `parse`                                                                      | Return a validated `Value`, or null                                                           |
-| `Value.raw` / `serialize`                                                    | Return the preserved validated JSON text                                                      |
-| `Value.kind`                                                                 | Return `object`, `array`, `string`, `number`, `bool`, `null`, or `invalid`                    |
-| `Value.isObject` / `isArray` / `isString` / `isNumber` / `isBool` / `isNull` | Root-kind predicates                                                                          |
-| `Value.get` / `at` / `asString` / `keys`                                     | Bounded source-backed traversal and string access                                             |
-| `ParseOptions` / `DuplicateKeyPolicy` / `ParseError`                         | Locked bounds, duplicate-key, and typed-failure contract                                      |
-| `parseWithOptions` / `parseResult` / `decode<T>`                             | Bounded parser outcomes plus primitive, primitive-array, and recursive generic class decoding |
-| `Value.clone` / `byteLength` / `depth`                                       | Independent clone and bounded source/tree metadata                                            |
+| API                                                                          | Contract                                                                                             |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `isValid`                                                                    | Validate one complete bounded JSON value                                                             |
+| `errorOffset`                                                                | First invalid byte offset, or -1 for valid input                                                     |
+| `escapeString`                                                               | Encode a JSON string literal including quotes                                                        |
+| `parse`                                                                      | Return a validated `Value`, or null                                                                  |
+| `Value.raw` / `serialize`                                                    | Return the preserved validated JSON text                                                             |
+| `Value.kind`                                                                 | Return `object`, `array`, `string`, `number`, `bool`, `null`, or `invalid`                           |
+| `Value.isObject` / `isArray` / `isString` / `isNumber` / `isBool` / `isNull` | Root-kind predicates                                                                                 |
+| `Value.get` / `at` / `asString` / `keys`                                     | Bounded source-backed traversal and string access                                                    |
+| `ParseOptions` / `DuplicateKeyPolicy` / `ParseError`                         | Locked bounds, duplicate-key, and typed-failure contract                                             |
+| `parseWithOptions` / `parseResult` / `decode<T>`                             | Bounded parser outcomes plus primitive, nested primitive-array, and recursive generic class decoding |
+| `Value.clone` / `byteLength` / `depth`                                       | Independent clone and bounded source/tree metadata                                                   |
 
 `Value` exposes bounded object-member and array traversal. `ParseOptions`
 supports `maxBytes`, `maxDepth`, and explicit duplicate-key behavior (`Reject`,
 `FirstWins`, `LastWins`). Typed decoding supports primitives, `Array<Int>`,
-`Array<Bool>`, `Array<String>`, and recursive application classes with generic,
-nullable, nested-class, struct, unit-enum, and primitive/class-array fields.
-Arbitrary nested arrays and payload-bearing enum mapping remain outside this
-bounded contract.
+`Array<Bool>`, `Array<String>`, recursively nested primitive arrays, and
+recursive application classes with generic, nullable, nested-class, struct,
+unit-enum, and primitive/class-array fields. Payload-bearing enum mapping
+remains outside this bounded contract.
 
 ## `std.mime`
 
