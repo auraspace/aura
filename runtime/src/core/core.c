@@ -50,26 +50,25 @@ void aura_eprintln(const char *s)
   fflush(stderr);
 }
 
-static int aura_log_min_level = 0;
+static _Atomic int aura_log_min_level = 0;
 
 int aura_log_set_min_level(int level)
 {
   if (level < 0 || level > 3) return 0;
-  aura_log_min_level = level;
+  atomic_store_explicit(&aura_log_min_level, level, memory_order_release);
   return 1;
 }
 
 int aura_log_get_min_level(void)
 {
-  return aura_log_min_level;
+  return atomic_load_explicit(&aura_log_min_level, memory_order_acquire);
 }
 
 void aura_log(int level, const char *message)
 {
   static const char *const names[] = {"DEBUG", "INFO", "WARN", "ERROR"};
-  if (level < aura_log_min_level) return;
+  if (level < atomic_load_explicit(&aura_log_min_level, memory_order_acquire)) return;
   const char *name = (level >= 0 && level < 4) ? names[level] : "INFO";
   fprintf(stderr, "[%s] %s\n", name, message != NULL ? message : "null");
   fflush(stderr);
 }
-

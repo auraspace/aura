@@ -8,6 +8,7 @@
 #include <setjmp.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdatomic.h>
 #include <errno.h>
 #include <ctype.h>
 #include <inttypes.h>
