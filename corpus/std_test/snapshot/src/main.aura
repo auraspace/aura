@@ -1,0 +1,9 @@
+package demo.stdtest.snapshot
+
+import std.io as Io
+import std.test
+
+fun main() {
+    snapshot("smoke", "value\n")
+    Io.println("snapshot-ok")
+}

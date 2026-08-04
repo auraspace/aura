@@ -2,32 +2,36 @@
 
 package std.test
 
+import std.fs as Fs
+import std.io
+import std.os as Os
+
 /// Fail the current test when `condition` is false.
 pub fun assert(condition: Bool) {
-  if (!condition) { throw "assertion failed" }
+    if (!condition) { throw "assertion failed" }
 }
 
 /// RFC-011 canonical assertion names. The runner/backend remains bounded.
 pub fun assertTrue(condition: Bool) { assert(condition) }
 
 pub fun assertEqual<T>(left: T, right: T) {
-  // Generic equality is intentionally routed through the compiler's normal
-  // equality check so supported concrete instantiations get one failure path.
-  if (!(left == right)) { throw "values are not equal" }
+    // Generic equality is intentionally routed through the compiler's normal
+    // equality check so supported concrete instantiations get one failure path.
+    if (!(left == right)) { throw "values are not equal" }
 }
 
 pub fun assertNotNull<T>(value: T?) {
-  if (value == null) { throw "value is null" }
+    if (value == null) { throw "value is null" }
 }
 
 pub fun assertFails(body: () -> Unit) {
-  var failed = false
-  try {
-    body()
-  } catch (error: String) {
-    failed = true
-  }
-  if (!failed) { throw "expected failure" }
+    var failed = false
+    try {
+        body()
+    } catch (error: String) {
+        failed = true
+    }
+    if (!failed) { throw "expected failure" }
 }
 
 /// Fail the current test unless two integer values are equal.
@@ -40,14 +44,40 @@ pub fun assertEqString(left: String, right: String) { assert(left == right) }
 pub fun assertEqBool(left: Bool, right: Bool) { assert(left == right) }
 
 pub fun benchmark(name: String, body: () -> Unit): Unit {
-  body()
+    if (name.isEmpty()) { throw "benchmark name is empty" }
+    var iterations = 1
+    val configured = Os.getEnv("AURA_BENCH_ITERATIONS")
+    if (configured != null) {
+        val parsed = configured!!.toInt()
+        if (parsed == null || parsed!! <= 0) { throw "invalid benchmark iteration count" }
+        iterations = parsed!!
+    }
+    for (i in 0..iterations) { body() }
 }
 
+/// Compare a test value with `<AURA_SNAPSHOT_DIR>/<name>.snap`.
+/// Set `AURA_UPDATE_SNAPSHOTS=1` to create or replace the file.
 pub fun snapshot(name: String, actual: String): Unit {
-  if (name.isEmpty()) { throw "snapshot name is empty" }
+    if (name.isEmpty() || name == "." || name == "..") { throw "invalid snapshot name" }
+    for (i in 0..name.len) {
+        val byte = name.charAt(i)
+        if (byte == 47 || byte == 92) { throw "snapshot name must be one path component" }
+    }
+    val root = Os.getEnv("AURA_SNAPSHOT_DIR")
+    if (root == null) { throw "AURA_SNAPSHOT_DIR is not set" }
+    val path = Fs.join(root!!, name + ".snap")
+    val expected = tryReadFile(path)
+    if (expected == null) {
+        if (Os.getEnv("AURA_UPDATE_SNAPSHOTS") == "1" && tryWriteFile(path, actual)) {
+            return
+        }
+        throw "snapshot is missing"
+    }
+    if (expected!! != actual) { throw "snapshot mismatch" }
 }
 
+/// Execute a deterministic property body exactly `cases` times.
 pub fun property(name: String, cases: Int, body: () -> Bool): Unit {
-  if (name.isEmpty() || cases < 0) { throw "invalid property configuration" }
-  for (i in 0..cases) { assert(body()) }
+    if (name.isEmpty() || cases <= 0) { throw "invalid property configuration" }
+    for (i in 0..cases) { assert(body()) }
 }

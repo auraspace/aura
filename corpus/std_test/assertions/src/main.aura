@@ -4,16 +4,23 @@ import std.io as Io
 import std.test
 
 fun main() {
-  assert(true)
-  assertEqInt(2 + 2, 4)
-  assertEqString("ok", "ok")
-  assertEqBool(true, true)
-  assertTrue(1 < 2)
-  assertEqual(3, 3)
-  assertNotNull("present")
-  assertFails(() => { throw "expected" })
-  property("stable", 2, () => true)
-  benchmark("smoke", () => { })
-  snapshot("smoke", "value")
-  Io.println("tests-ok")
+    assert(true)
+    assertEqInt(2 + 2, 4)
+    assertEqString("ok", "ok")
+    assertEqBool(true, true)
+    assertTrue(1 < 2)
+    assertEqual(3, 3)
+    assertNotNull("present")
+    assertFails(() => { throw "expected" })
+    var properties = 0
+    property("stable", 2, () => {
+        properties = properties + 1
+        return true
+    }
+)
+    if (properties != 2) { throw "property case count" }
+    var benchmarks = 0
+    benchmark("smoke", () => { benchmarks = benchmarks + 1 })
+    if (benchmarks != 1) { throw "benchmark iteration count" }
+    Io.println("tests-ok")
 }

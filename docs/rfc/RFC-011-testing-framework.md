@@ -19,7 +19,7 @@
 
 This RFC specifies Aura’s **built-in testing** support: discovery via `@test`, assertions, async tests, unit vs integration layout, filtering, and coverage hooks. Tests run through `aura test` using the same compiler and runtime as production code.
 
-**Toolchain today (2026-07-28, S2/C22):** `aura test` discovers `@test` functions in files and packages; builtins `assert` / `assert_eq` cover Int/String/Bool, and `std.assert` supports package-mode assertions. The test path is included in the S2 acceptance gate, supports forwarded process arguments after `--`, substring name filters, and structured JSON reports with skipped cases. `aura race` reuses the test workflow with runtime race tracking. Async test conventions, tags, integration-test conventions, JUnit/LCOV output, and coverage hooks remain open.
+**Toolchain today (2026-07-28, S2/C22):** `aura test` discovers `@test` functions in files and packages; builtins `assert` / `assert_eq` cover Int/String/Bool, and `std.assert` supports package-mode assertions. The test path is included in the S2 acceptance gate, supports forwarded process arguments after `--`, substring name filters, and structured JSON reports with skipped cases. `aura race` reuses the test workflow with runtime race tracking. `std.test` also provides deterministic benchmark, snapshot, and property hooks. Async test conventions, tags, integration-test conventions, JUnit/LCOV output, and coverage hooks remain open.
 
 ## 2. Motivation
 
@@ -169,9 +169,9 @@ Built-in tests lower friction and unify CI. Keeping mocks out of core avoids fra
 
 ## 9. Unresolved / future work
 
-- Benchmark harness (`@bench`)
-- Snapshot testing
-- Property-based testing library
+- CLI benchmark discovery and result reporting
+- Rich property generators and shrinking
+- Parallel test isolation and coverage output
 
 ## 10. Security & safety considerations
 

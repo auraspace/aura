@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdtest.snapshot"
+
+[[bin]]
+name = "snapshot"
+path = "src"

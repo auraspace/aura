@@ -147,9 +147,12 @@ The RFC-011 names are `assertTrue`, generic `assertEqual`, generic
 and `assertEqBool` helpers remain alpha compatibility aliases; the
 language-level `assert_eq` helpers are separate builtins.
 
-`benchmark`, `snapshot`, and `property` reserve the RFC-011 advanced testing
-hooks and currently fail explicitly; the runner, snapshot store, generators,
-and reports are deferred.
+`benchmark`, `snapshot`, and `property` provide deterministic advanced testing
+hooks. Benchmarks use `AURA_BENCH_ITERATIONS`; snapshots read from
+`AURA_SNAPSHOT_DIR` and can be created or updated with
+`AURA_UPDATE_SNAPSHOTS=1`; property checks execute the requested number of
+cases. The CLI runner and richer generator/report protocols remain separate
+follow-up work.
 
 ## `std.collections`
 
