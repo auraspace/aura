@@ -162,7 +162,7 @@ fn build_json_decode_node(
             None
         };
         let enum_mono = if !field.ty.nullable
-            && matches!(field_key.as_str(), "Int" | "Bool" | "String") == false
+            && !matches!(field_key.as_str(), "Int" | "Bool" | "String")
             && array_nested.is_none()
         {
             let full = crate::expr::full_type_mono(&field_key, checked);
@@ -789,7 +789,7 @@ fn emit_json_decode_primitive_array_level(
         "  if (__json_array_rooted_{depth}) {{ aura_gc_remove_array_root((void **)&{array_var}.data); __json_array_rooted_{depth} = false; }}"
     );
     let _ = writeln!(out, "  if (!__json_array_ok) {{ {drop}(&{array_var}); }}");
-    out.push_str("\n");
+    out.push('\n');
     array_var
 }
 
@@ -17886,10 +17886,10 @@ pub(crate) fn emit_fun(
                     );
                     out.push_str("  aura_gc_add_root((void **)&value);\n");
                     let emit_cleanup = |out: &mut String, end: usize| {
-                        for prior in 0..=end {
+                        for (prior, (_, prior_key)) in field_keys.iter().enumerate().take(end + 1) {
                             let prior_raw = format!("__json_field_{prior}");
                             let _ = writeln!(out, "    free((void *){prior_raw});");
-                            if prior < end && field_keys[prior].1 == "String" {
+                            if prior < end && *prior_key == "String" {
                                 let _ = writeln!(out, "    free((void *)__json_string_{prior});");
                             }
                         }

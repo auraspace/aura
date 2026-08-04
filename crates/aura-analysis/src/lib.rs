@@ -71,6 +71,7 @@ struct Document {
     source: Arc<str>,
 }
 
+#[derive(Default)]
 struct QueryCache {
     parsed: BTreeMap<(DocumentId, Arc<str>), Result<Arc<File>, ParseError>>,
     analyzed: BTreeMap<(DocumentId, Arc<str>), Result<Arc<Analysis>, AnalysisError>>,
@@ -83,21 +84,6 @@ struct QueryCache {
 }
 
 const QUERY_CACHE_CAPACITY: usize = 128;
-
-impl Default for QueryCache {
-    fn default() -> Self {
-        Self {
-            parsed: BTreeMap::new(),
-            analyzed: BTreeMap::new(),
-            parsed_order: VecDeque::new(),
-            analyzed_order: VecDeque::new(),
-            parsed_hits: 0,
-            analyzed_hits: 0,
-            parsed_evictions: 0,
-            analyzed_evictions: 0,
-        }
-    }
-}
 
 /// Bounded cache counters exposed for long-lived language-server hosts.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

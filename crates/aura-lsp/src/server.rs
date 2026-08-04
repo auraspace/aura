@@ -1054,7 +1054,7 @@ impl Server {
             let Some(text) = document.get("text").and_then(Value::as_str) else {
                 continue;
             };
-            for occurrence in word_occurrences(text, &name) {
+            for occurrence in word_occurrences(text, name) {
                 if self.is_cancelled() {
                     return Value::Array(locations);
                 }
@@ -1066,7 +1066,7 @@ impl Server {
                 if self.binding_id(&resolved_uri, &resolved_symbol) != target_id {
                     continue;
                 }
-                if !include_declaration && declaration_at(text, &name, occurrence) {
+                if !include_declaration && declaration_at(text, name, occurrence) {
                     continue;
                 }
                 locations.push(json!({"uri":document_uri,"range":span_range(text, occurrence)}));
