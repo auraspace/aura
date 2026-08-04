@@ -16479,14 +16479,14 @@ pub(crate) fn emit_fun(
                     class
                         .fields
                         .iter()
-                        .filter(|field| field.visibility != MemberVisibility::Private)
+                        .filter(|field| field.visibility == MemberVisibility::Public)
                         .map(|field| field.name.name.clone())
                         .collect::<Vec<_>>()
                 } else {
                     class
                         .methods
                         .iter()
-                        .filter(|method| method.visibility != MemberVisibility::Private)
+                        .filter(|method| method.visibility == MemberVisibility::Public)
                         .map(|method| method.name.name.clone())
                         .collect::<Vec<_>>()
                 }
@@ -16560,14 +16560,14 @@ pub(crate) fn emit_fun(
                     class
                         .fields
                         .iter()
-                        .filter(|field| field.visibility != MemberVisibility::Private)
+                        .filter(|field| field.visibility == MemberVisibility::Public)
                         .map(|field| format!("{}:{}", field.name.name, type_ref_name(&field.ty)))
                         .collect::<Vec<_>>()
                 } else {
                     class
                         .methods
                         .iter()
-                        .filter(|method| method.visibility != MemberVisibility::Private)
+                        .filter(|method| method.visibility == MemberVisibility::Public)
                         .map(|method| {
                             let return_name = method
                                 .return_type
