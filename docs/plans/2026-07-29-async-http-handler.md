@@ -212,7 +212,9 @@ ownership, cancellation, and exactly-once cleanup rules.
   Evidence: `lowers_std_task_is_cancelled_inside_async_frame` checks the frame
   ABI lowering and native compilation; `corpus/std_task/lifecycle` checks the
   public package surface and linking API; the runtime cancellation test covers
-  propagation and cleanup.
+  propagation and cleanup. Generic task wrappers now close semantic payload
+  substitutions before join lowering; `builds_and_runs_generic_join_wrapper_with_concrete_payload`
+  and the lifecycle corpus cover the concrete `Result<Int, TaskError>` path.
   `corpus/std_time/duration` checks the public package surface; the codegen
   timer fixture runs the real monotonic wait.
 

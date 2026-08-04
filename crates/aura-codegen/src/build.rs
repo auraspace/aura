@@ -717,6 +717,49 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_generic_join_wrapper_with_concrete_payload() {
+        let file = parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+fun joinTask<T>(task: TaskHandle<T>): Result<T, TaskError> { return join(task) }
+fun main() {
+  val task: TaskHandle<Int> = spawn { return 42 }
+  val result: Result<Int, TaskError> = joinTask(task)
+  match (result) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println("failed") }
+  }
+}
+"#,
+        )
+        .expect("parse generic join wrapper fixture");
+        let generated = emit_c_from_ast(&file).expect("emit generic join wrapper fixture");
+        assert!(generated.contains("aura_enum_std_io_Result_Int_std_io_TaskError"));
+        assert!(!generated.contains("aura_enum_std_io_Result_T_std_io_TaskError"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-generic-join-wrapper-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile generic join wrapper fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run generic join wrapper fixture");
+        assert!(
+            output.status.success(),
+            "generic join wrapper failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "42\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn no_await_async_frame_roots_non_this_class_parameter_until_poll() {
         let file = aura_parser::parse_file(
             r#"package std.io

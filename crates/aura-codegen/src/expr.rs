@@ -2067,6 +2067,12 @@ pub(crate) fn task_payload_repr_key(key: &str) -> String {
 fn semantic_async_inner_key(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String> {
     let span = expr.span();
     let ty = ctx.checked.expr_tys.get(&(span.start, span.end))?;
+    let ty = if ctx.type_params.is_empty() {
+        ty.clone()
+    } else {
+        let substitutions = aura_sema::type_subst_map(&ctx.type_params, &ctx.type_args);
+        aura_sema::subst_ty(ty, &substitutions)
+    };
     match ty {
         Ty::Task(inner) | Ty::TaskHandle(inner) => Some(inner.mono_suffix()),
         _ => None,

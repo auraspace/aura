@@ -18,20 +18,20 @@ pub fun cancelTask<T>(task: TaskHandle<T>) {
 /// Arrange cooperative cancellation after `milliseconds`. Returns false for
 /// an invalid/terminal task or an overflowing duration.
 pub fun cancelAfter<T>(task: TaskHandle<T>, milliseconds: Int): Bool {
-  return false
+  throw "std.task cancelAfter intrinsic"
 }
 
 /// Propagate cooperative cancellation from `parent` to `child`.
 /// Both handles must belong to the same live executor.
 pub fun linkCancellation<P, C>(parent: TaskHandle<P>, child: TaskHandle<C>): Bool {
-  return false
+  throw "std.task linkCancellation intrinsic"
 }
 
 /// Return whether the currently running task has received a cancellation
 /// request. The value is cooperative: cancellation still takes effect at the
 /// next scheduler boundary, and calls outside an async task return `false`.
 pub fun isCancelled(): Bool {
-  return false
+  throw "std.task isCancelled intrinsic"
 }
 
 /// Run the body inside a structured child-task scope. The compiler supplies
