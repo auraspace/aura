@@ -45,23 +45,20 @@ pub enum Result<T, E> {
 /// `args()[0]` is the program name (`argv[0]`); user flags start at index 1.
 /// Values are process-lifetime views of the OS argv (not independent copies).
 pub fun args(): Array<String> {
-  // Body replaced by codegen: Array from runtime-stashed argc/argv.
-  return Array(0)
+  throw "std.io args intrinsic"
 }
 
 /// Read one line from stdin without the trailing `\n` or `\r\n`.
 /// Returns `null` on EOF (including immediate EOF with no bytes).
 /// An empty line is `""` (not null). Throws String if the line exceeds 1 MiB.
 pub fun readLine(): String? {
-  // Body replaced by codegen with aura_read_line().
-  return null
+  throw "std.io readLine intrinsic"
 }
 
 /// Read the remainder of stdin as a String (UTF-8 bytes, no embedded NUL).
 /// Throws on I/O error, embedded NUL, or input larger than 256 MiB.
 pub fun readAllStdin(): String {
-  // Body replaced by codegen with aura_read_all_stdin().
-  return ""
+  throw "std.io readAllStdin intrinsic"
 }
 
 /// Terminate the process with the given exit status code.
@@ -93,16 +90,14 @@ pub fun eprintln(s: String) {
 /// Read an entire regular file as a String (UTF-8 bytes, no embedded NUL).
 /// Throws on missing path, I/O error, oversized file (>256 MiB), or embedded NUL.
 pub fun readFile(path: String): String {
-  // Body replaced by codegen with aura_read_file(path).
-  return ""
+  throw "std.io readFile intrinsic"
 }
 
 /// Soft read: same content rules as `readFile`, but returns `null` on missing
 /// path, I/O error, oversized file (>256 MiB), empty path, OOM, or embedded NUL.
 /// Prefer this when absence / soft failure is expected; use `readFile` to throw.
 pub fun tryReadFile(path: String): String? {
-  // Body replaced by codegen with aura_try_read_file(path).
-  return null
+  throw "std.io tryReadFile intrinsic"
 }
 
 /// Write `content` to `path`, creating or truncating the file.
@@ -115,8 +110,7 @@ pub fun writeFile(path: String, content: String) {
 /// `false` on empty path, open/write/flush/close failure (does not throw).
 /// Prefer this when soft failure is expected; use `writeFile` to throw.
 pub fun tryWriteFile(path: String, content: String): Bool {
-  // Body replaced by codegen with aura_try_write_file(path, content).
-  return false
+  throw "std.io tryWriteFile intrinsic"
 }
 
 /// Non-throwing read with an explicit owned error payload.
@@ -149,15 +143,13 @@ pub fun appendFile(path: String, content: String) {
 
 /// true if `path` exists and is a regular file.
 pub fun fileExists(path: String): Bool {
-  // Body replaced by codegen with aura_file_exists(path).
-  return false
+  throw "std.io fileExists intrinsic"
 }
 
 /// Byte size of a regular file at `path`.
 /// Throws if missing or not a regular file.
 pub fun fileSize(path: String): Int {
-  // Body replaced by codegen with aura_file_size(path).
-  return 0
+  throw "std.io fileSize intrinsic"
 }
 
 /// Open a regular file and return an owned opaque handle. Mode is 0 for read,
@@ -170,10 +162,10 @@ pub fun openFile(path: String, mode: Int): ForeignHandle<Int> {
 /// Read up to `capacity` bytes from a nonblocking descriptor and suspend the
 /// current task until the descriptor is readable. EOF returns an empty String.
 pub async fun readFd(fd: Int, capacity: Int): String {
-  return ""
+  throw "std.io readFd intrinsic"
 }
 
 /// Write all content to a nonblocking descriptor and return its byte count.
 pub async fun writeFd(fd: Int, content: String): Int {
-  return 0
+  throw "std.io writeFd intrinsic"
 }

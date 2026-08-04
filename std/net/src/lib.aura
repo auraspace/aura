@@ -81,7 +81,7 @@ pub fun closeStreamResult(stream: ForeignHandle<Int>): NetErrs.Outcome<Bool, Net
 /// Read up to `capacity` bytes from a typed TCP stream and suspend until it
 /// is readable. EOF returns an empty String.
 pub async fun readStream(stream: ForeignHandle<Int>, capacity: Int): String {
-  return ""
+  throw "std.net readStream intrinsic"
 }
 
 /// Read until EOF or `capacity` bytes have been accumulated. This is bounded
@@ -107,7 +107,7 @@ pub async fun readAllStream(stream: ForeignHandle<Int>, capacity: Int): String {
 /// Write all content to a typed TCP stream and return the transferred byte
 /// count. The input is copied into the task frame before the first await.
 pub async fun writeStream(stream: ForeignHandle<Int>, content: String): Int {
-  return 0
+  throw "std.net writeStream intrinsic"
 }
 
 /// Non-throwing read wrapper. `OutcomeOk` contains the owned chunk (or the

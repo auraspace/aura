@@ -5,13 +5,13 @@ package std.sync
 /// Sequentially consistent signed 64-bit atomic value.
 pub class AtomicInt(private var value: Int) {
   /// Read the current value with sequentially consistent ordering.
-  pub fun load(): Int { return this.value }
+  pub fun load(): Int { throw "std.sync AtomicInt.load intrinsic" }
 
   /// Replace the value with `nextValue`.
   pub fun store(nextValue: Int): Unit { throw "std.sync AtomicInt.store intrinsic" }
 
   /// Add `amount` and return the value observed before the addition.
-  pub fun fetchAdd(amount: Int): Int { return this.value }
+  pub fun fetchAdd(amount: Int): Int { throw "std.sync AtomicInt.fetchAdd intrinsic" }
 
   /// Replace `expected` with `desired` only when the current value matches.
   pub fun compareExchange(expected: Int, desired: Int): Bool { throw "std.sync AtomicInt.compareExchange intrinsic" }
