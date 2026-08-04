@@ -19,7 +19,7 @@ Aura’s **core** stdlib is intentionally small ([RFC-007](/rfc/007), [RFC-000](
 | `std.error`       | `std/error`       | Shared error categories, owned errors, and generic outcomes                                                                |
 | `std.bytes`       | `std/bytes`       | Owned byte strings and bounded mutable byte buffers                                                                        |
 | `std.encoding`    | `std/encoding`    | UTF-8, hexadecimal, base64, and percent encoding                                                                           |
-| `std.json`        | `std/json`        | Bounded JSON validation, parsing, escaping, and root classification                                                        |
+| `std.json`        | `std/json`        | Bounded JSON validation, parsing, escaping, root classification, and typed generic decoding                                |
 | `std.mime`        | `std/mime`        | Media-type validation and upload filename sanitization                                                                     |
 | `std.fs`          | `std/fs`          | Portable path and filesystem metadata helpers                                                                              |
 | `std.os`          | `std/os`          | Environment, process, platform, and working-directory helpers                                                              |
@@ -270,25 +270,27 @@ byte-oriented and do not perform Unicode normalization.
 
 ## `std.json`
 
-| API                                                                          | Contract                                                                   |
-| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `isValid`                                                                    | Validate one complete bounded JSON value                                   |
-| `errorOffset`                                                                | First invalid byte offset, or -1 for valid input                           |
-| `escapeString`                                                               | Encode a JSON string literal including quotes                              |
-| `parse`                                                                      | Return a validated `Value`, or null                                        |
-| `Value.raw` / `serialize`                                                    | Return the preserved validated JSON text                                   |
-| `Value.kind`                                                                 | Return `object`, `array`, `string`, `number`, `bool`, `null`, or `invalid` |
-| `Value.isObject` / `isArray` / `isString` / `isNumber` / `isBool` / `isNull` | Root-kind predicates                                                       |
-| `Value.get` / `at` / `asString` / `keys`                                     | Bounded source-backed traversal and string access                          |
-| `ParseOptions` / `DuplicateKeyPolicy` / `ParseError`                         | Locked bounds, duplicate-key, and typed-failure contract                   |
-| `parseWithOptions` / `parseResult` / `decode<T>`                             | Bounded parser outcomes and primitive/flat-class decoding                  |
-| `Value.clone` / `byteLength` / `depth`                                       | Independent clone and bounded source/tree metadata                         |
+| API                                                                          | Contract                                                                                      |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `isValid`                                                                    | Validate one complete bounded JSON value                                                      |
+| `errorOffset`                                                                | First invalid byte offset, or -1 for valid input                                              |
+| `escapeString`                                                               | Encode a JSON string literal including quotes                                                 |
+| `parse`                                                                      | Return a validated `Value`, or null                                                           |
+| `Value.raw` / `serialize`                                                    | Return the preserved validated JSON text                                                      |
+| `Value.kind`                                                                 | Return `object`, `array`, `string`, `number`, `bool`, `null`, or `invalid`                    |
+| `Value.isObject` / `isArray` / `isString` / `isNumber` / `isBool` / `isNull` | Root-kind predicates                                                                          |
+| `Value.get` / `at` / `asString` / `keys`                                     | Bounded source-backed traversal and string access                                             |
+| `ParseOptions` / `DuplicateKeyPolicy` / `ParseError`                         | Locked bounds, duplicate-key, and typed-failure contract                                      |
+| `parseWithOptions` / `parseResult` / `decode<T>`                             | Bounded parser outcomes plus primitive, primitive-array, and recursive generic class decoding |
+| `Value.clone` / `byteLength` / `depth`                                       | Independent clone and bounded source/tree metadata                                            |
 
 `Value` exposes bounded object-member and array traversal. `ParseOptions`
 supports `maxBytes`, `maxDepth`, and explicit duplicate-key behavior (`Reject`,
-`FirstWins`, `LastWins`). Typed decoding currently supports primitives and flat
-application classes whose fields are `Int`, `Bool`, or `String`; nested and
-collection mapping remains outside this bounded contract.
+`FirstWins`, `LastWins`). Typed decoding supports primitives, `Array<Int>`,
+`Array<Bool>`, `Array<String>`, and recursive application classes with generic,
+nullable, nested-class, struct, unit-enum, and primitive/class-array fields.
+Arbitrary nested arrays and payload-bearing enum mapping remain outside this
+bounded contract.
 
 ## `std.mime`
 

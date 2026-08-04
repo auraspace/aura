@@ -3063,6 +3063,48 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_std_json_generic_primitive_array_decode() {
+        let file = aura_parser::parse_file(
+            r#"package std.json
+class Value(val text: String) {}
+pub fun decode<T>(value: Value): T? { throw "std.json decode intrinsic" }
+fun main() {
+  val ints = decode<Array<Int>>(Value("[3,5,8]"))
+  if (ints!!.len != 3 || ints!!.get(2) != 8) { throw "generic int array decode failed" }
+  val strings = decode<Array<String>>(Value("[\"a\",\"b\"]"))
+  if (strings!!.len != 2 || strings!!.get(1) != "b") { throw "generic string array decode failed" }
+  println(ints!!.get(0).toString())
+}
+"#,
+        )
+        .expect("parse generic std.json array fixture");
+        let generated = emit_c_from_ast(&file).expect("emit generic std.json array fixture");
+        assert!(generated.contains("aura_json_array_count"));
+        assert!(generated.contains("aura_new_Array_Int"));
+        assert!(generated.contains("aura_new_Array_String"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-std-json-array-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile generic std.json array fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run generic std.json array fixture");
+        assert!(
+            output.status.success(),
+            "generic std.json array failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_three_level_generic_class_layout() {
         let file = aura_parser::parse_file(
             r#"package demo.generic.three_level

@@ -645,6 +645,54 @@ fn emit_json_decode_node(
     out.push_str("  aura_gc_remove_root((void **)&value);\n  return __decoded;\n}\n");
 }
 
+fn emit_json_decode_primitive_array(
+    out: &mut String,
+    array_key: &str,
+    element_key: &str,
+    checked: &CheckedFile,
+) {
+    let array_type = crate::stmt::local_key_to_c(array_key, checked);
+    let ctor = c_ctor_name(array_key);
+    let push = c_method_name(array_key, "push");
+    let drop = format!("{array_type}_drop");
+    out.push_str("  if (value == NULL || !aura_json_is_valid((*value).text) || !aura_json_is_array((*value).text)) return (\n");
+    let _ = writeln!(out, "    {array_type}){{0}};");
+    out.push_str("  aura_gc_add_root((void **)&value);\n");
+    let _ = writeln!(out, "  {array_type} __decoded = {ctor}(0);");
+    out.push_str("  aura_gc_add_array_root((void **)&__decoded.data, &__decoded.len);\n");
+    out.push_str(
+        "  for (int64_t __json_i = 0, __json_n = aura_json_array_count((*value).text); __json_i < __json_n; __json_i++) {\n",
+    );
+    out.push_str(
+        "    const char *__json_item = aura_json_array_at((*value).text, __json_i); if (__json_item == NULL) goto __json_array_fail;\n",
+    );
+    match element_key {
+        "Int" => out.push_str(
+            "    int64_t __json_item_value = 0; if (!aura_json_parse_int(__json_item, &__json_item_value)) { free((void *)__json_item); goto __json_array_fail; }\n",
+        ),
+        "Bool" => out.push_str(
+            "    bool __json_item_value = false; if (!aura_json_parse_bool(__json_item, &__json_item_value)) { free((void *)__json_item); goto __json_array_fail; }\n",
+        ),
+        "String" => out.push_str(
+            "    const char *__json_item_value = aura_json_decode_string(__json_item); if (__json_item_value == NULL) { free((void *)__json_item); goto __json_array_fail; }\n",
+        ),
+        _ => unreachable!("primitive JSON array emitter received non-primitive element"),
+    }
+    let _ = writeln!(out, "    {push}(&__decoded, __json_item_value);");
+    if element_key == "String" {
+        out.push_str("    free((void *)__json_item_value);\n");
+    }
+    out.push_str("    free((void *)__json_item);\n  }\n");
+    out.push_str(
+        "  aura_gc_remove_array_root((void **)&__decoded.data); aura_gc_remove_root((void **)&value); return __decoded;\n",
+    );
+    out.push_str("__json_array_fail:\n  aura_gc_remove_array_root((void **)&__decoded.data); ");
+    let _ = writeln!(
+        out,
+        "{drop}(&__decoded); aura_gc_remove_root((void **)&value); return ({array_type}){{0}};\n}}"
+    );
+}
+
 pub fn emit_c(checked: &CheckedFile) -> String {
     emit_c_with(checked, EmitOptions::default())
 }
@@ -17447,6 +17495,15 @@ pub(crate) fn emit_fun(
     if pkg == "std.json" && f.name.name == "decode" && f.params.len() == 1 && args.len() == 1 {
         let value = mangle_ident(&f.params[0].name.name);
         let name = args[0].mono_suffix();
+        let array_key = crate::expr::full_type_mono(&name, checked);
+        if is_array_type_key(&array_key) {
+            if let Some(element_key) = crate::expr::array_elem_local_key(&array_key, checked)
+                .filter(|element| matches!(element.as_str(), "Int" | "Bool" | "String"))
+            {
+                emit_json_decode_primitive_array(out, &array_key, &element_key, checked);
+                return;
+            }
+        }
         if let Some((class_name, class_args)) = match &args[0] {
             Ty::Class(name) => Some((name.clone(), Vec::new())),
             Ty::ClassApp { name, args } => Some((name.clone(), args.clone())),
