@@ -26,136 +26,199 @@ const EMBEDDED_RUNTIME_FILES: &[(&str, &str)] = &[
     ),
     ("runtime.c", EMBEDDED_RUNTIME_C),
     (
-        "src/preamble.c",
+        "src/core/preamble.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../runtime/src/preamble.c"
+            "/../../runtime/src/core/preamble.c"
         )),
     ),
     (
-        "src/core.c",
+        "src/core/core.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../runtime/src/core.c"
+            "/../../runtime/src/core/core.c"
         )),
     ),
     (
-        "src/io_file.c",
+        "src/core/string.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../runtime/src/io_file.c"
+            "/../../runtime/src/core/string.c"
         )),
     ),
     (
-        "src/io_tcp.c",
+        "src/encoding/encoding.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../runtime/src/io_tcp.c"
+            "/../../runtime/src/encoding/encoding.c"
         )),
     ),
     (
-        "src/io_udp.c",
+        "src/encoding/json.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../runtime/src/io_udp.c"
+            "/../../runtime/src/encoding/json.c"
         )),
     ),
     (
-        "src/io_websocket.c",
+        "src/crypto/crypto.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../runtime/src/io_websocket.c"
+            "/../../runtime/src/crypto/crypto.c"
         )),
     ),
     (
-        "src/http_parser.c",
+        "src/io/dns.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../runtime/src/http_parser.c"
+            "/../../runtime/src/io/dns.c"
         )),
     ),
     (
-        "src/http_response.c",
+        "src/io/io_file.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../runtime/src/http_response.c"
+            "/../../runtime/src/io/io_file.c"
         )),
     ),
     (
-        "src/http_connection.c",
+        "src/io/io_tcp.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../runtime/src/http_connection.c"
+            "/../../runtime/src/io/io_tcp.c"
         )),
     ),
     (
-        "src/stdlib_io_fs.c",
+        "src/io/io_udp.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../runtime/src/stdlib_io_fs.c"
+            "/../../runtime/src/io/io_udp.c"
         )),
     ),
     (
-        "src/exceptions.c",
+        "src/io/io_websocket.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../runtime/src/exceptions.c"
+            "/../../runtime/src/io/io_websocket.c"
         )),
     ),
     (
-        "src/gc_ownership.c",
+        "src/http/http_parser.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../runtime/src/gc_ownership.c"
+            "/../../runtime/src/http/http_parser.c"
         )),
     ),
     (
-        "src/ffi.c",
+        "src/http/url.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../runtime/src/ffi.c"
+            "/../../runtime/src/http/url.c"
         )),
     ),
     (
-        "src/abi_race.c",
+        "src/http/mime.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../runtime/src/abi_race.c"
+            "/../../runtime/src/http/mime.c"
         )),
     ),
     (
-        "src/task_frame.c",
+        "src/http/http_response.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../runtime/src/task_frame.c"
+            "/../../runtime/src/http/http_response.c"
         )),
     ),
     (
-        "src/task_executor.c",
+        "src/http/http_connection.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../runtime/src/task_executor.c"
+            "/../../runtime/src/http/http_connection.c"
         )),
     ),
     (
-        "src/io_operations.c",
+        "src/stdlib/stdlib_io_fs.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../runtime/src/io_operations.c"
+            "/../../runtime/src/stdlib/stdlib_io_fs.c"
         )),
     ),
     (
-        "src/task_channel.c",
+        "src/stdlib/fs.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../runtime/src/task_channel.c"
+            "/../../runtime/src/stdlib/fs.c"
         )),
     ),
     (
-        "src/process.c",
+        "src/core/exceptions.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../runtime/src/process.c"
+            "/../../runtime/src/core/exceptions.c"
+        )),
+    ),
+    (
+        "src/memory/gc.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/memory/gc.c"
+        )),
+    ),
+    (
+        "src/memory/ownership.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/memory/ownership.c"
+        )),
+    ),
+    (
+        "src/ffi/ffi.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/ffi/ffi.c"
+        )),
+    ),
+    (
+        "src/ffi/abi_race.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/ffi/abi_race.c"
+        )),
+    ),
+    (
+        "src/task/task_frame.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/task/task_frame.c"
+        )),
+    ),
+    (
+        "src/task/task_executor.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/task/task_executor.c"
+        )),
+    ),
+    (
+        "src/io/io_operations.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/io/io_operations.c"
+        )),
+    ),
+    (
+        "src/task/task_channel.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/task/task_channel.c"
+        )),
+    ),
+    (
+        "src/core/process.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/core/process.c"
         )),
     ),
 ];
@@ -317,8 +380,8 @@ mod tests {
         let p = resolve_runtime_c().expect("runtime path");
         assert!(p.is_file(), "{}", p.display());
         let s = fs::read_to_string(&p).unwrap();
-        assert!(s.contains("src/gc_ownership.c"));
-        assert!(p.parent().unwrap().join("src/gc_ownership.c").is_file());
+        assert!(s.contains("src/memory/gc.c"));
+        assert!(p.parent().unwrap().join("src/memory/gc.c").is_file());
     }
 
     #[test]
@@ -350,7 +413,7 @@ mod tests {
 
         assert_eq!(path, fallback);
         assert_eq!(fs::read_to_string(&path).unwrap(), EMBEDDED_RUNTIME_C);
-        assert!(path.parent().unwrap().join("src/preamble.c").is_file());
+        assert!(path.parent().unwrap().join("src/core/preamble.c").is_file());
         let _ = fs::remove_dir_all(root);
     }
 }

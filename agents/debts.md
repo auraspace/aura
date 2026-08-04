@@ -10,7 +10,7 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 ### GC-001 concurrent tracing collector contract (2026-08-04)
 
-- Area: `runtime/src/gc_ownership.c`, generated heap ownership, task roots
+- Area: `runtime/src/memory/gc.c`, generated heap ownership, task roots
 - Symptom: generated heap classes use precise typed trace callbacks, while
   legacy opaque allocations remain conservative; collection is stop-the-world
   mark/sweep and has no explicit concurrent tri-color write-barrier or stack-map

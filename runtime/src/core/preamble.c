@@ -80,7 +80,7 @@ int64_t aura_error_kind_code(int64_t code)
 #define INADDR_LOOPBACK 0x7f000001U
 #endif
 #endif
-#include "../aura_ffi.h"
+#include "../../aura_ffi.h"
 
 /* Scheduler helpers appear before the timer implementation. */
 int64_t aura_time_monotonic_millis(void);

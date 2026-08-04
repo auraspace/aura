@@ -173,7 +173,21 @@ mod tests {
         stem: &str,
     ) -> (std::path::PathBuf, std::path::PathBuf) {
         let runtime_root = std::env::temp_dir().join(format!("{stem}-runtime"));
-        fs::create_dir_all(runtime_root.join("src")).expect("create runtime fixture");
+        fn copy_dir(source: &std::path::Path, destination: &std::path::Path) {
+            fs::create_dir_all(destination).expect("create runtime fixture directory");
+            for entry in fs::read_dir(source).expect("read runtime directory") {
+                let entry = entry.expect("runtime entry");
+                let source_path = entry.path();
+                let destination_path = destination.join(entry.file_name());
+                if source_path.is_dir() {
+                    copy_dir(&source_path, &destination_path);
+                } else {
+                    fs::copy(&source_path, &destination_path).expect("copy runtime module");
+                }
+            }
+        }
+
+        fs::create_dir_all(&runtime_root).expect("create runtime fixture");
         fs::copy(
             root.join("runtime/runtime.c"),
             runtime_root.join("runtime.c"),
@@ -184,14 +198,7 @@ mod tests {
             runtime_root.join("aura_ffi.h"),
         )
         .expect("copy runtime header");
-        for entry in fs::read_dir(root.join("runtime/src")).expect("read runtime modules") {
-            let entry = entry.expect("runtime module entry");
-            fs::copy(
-                entry.path(),
-                runtime_root.join("src").join(entry.file_name()),
-            )
-            .expect("copy runtime module");
-        }
+        copy_dir(&root.join("runtime/src"), &runtime_root.join("src"));
         (runtime_root.join("runtime.c"), runtime_root)
     }
 
@@ -323,7 +330,7 @@ mod tests {
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
         let (runtime, runtime_root) = copy_runtime_fixture(root, &stem);
-        let module = runtime_root.join("src/abi_race.c");
+        let module = runtime_root.join("src/ffi/abi_race.c");
         let source = fs::read_to_string(&module).expect("read ABI module");
         let mismatched = source.replace(
             "#define AURA_RT_ABI_VERSION 1u",
@@ -361,7 +368,7 @@ mod tests {
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
         let (runtime, runtime_root) = copy_runtime_fixture(root, &stem);
-        let module = runtime_root.join("src/abi_race.c");
+        let module = runtime_root.join("src/ffi/abi_race.c");
         let source = fs::read_to_string(&module).expect("read ABI module");
         let mismatched = source.replace(
             "aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1",
