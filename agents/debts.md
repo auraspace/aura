@@ -15,7 +15,8 @@ commits, RFCs, or release notes instead of appending progress for every change.
   cross-target sysroot delivery, and full LSP protocol behavior are not
   complete. Declarative macro hygiene and invocation-span attribution are
   now bounded and tested; macro expansion inspection and broader plugin
-  provenance remain outside this inventory item.
+  provenance remain outside this inventory item. Verified local self-update
+  and rollback are complete under the bounded U7/U8 contract.
 - Why deferred: these are separate distribution, GC, macro, and tooling
   contracts rather than prerequisites for the current alpha compiler.
 - Next step: split the remaining GC, sysroot, and LSP contracts into
@@ -77,10 +78,11 @@ commits, RFCs, or release notes instead of appending progress for every change.
 ### RELEASE-001 release and registry publication (2026-07-31)
 
 - Area: packaging, registry, signing, and cross-target release
-- Symptom: publish/authentication, alternate dependency sources, signing,
-  upload, self-update, and clean-host installer rehearsal are not complete.
+- Symptom: publish/authentication, alternate dependency sources, production
+  signing, upload, and clean-host installer rehearsal are not complete.
 - Why deferred: they require an external registry contract, credentials, release
-  assets, and supported target hosts.
+  assets, and supported target hosts. The bounded local self-update and rollback
+  contract is covered by U7/U8 evidence.
 - Next step: define the registry/signing protocol, then run the frozen-release
   installer and checksum matrix on every supported host.
 
