@@ -16669,10 +16669,242 @@ pub(crate) fn emit_fun(
                     }
                     field_keys.push((field, key));
                 }
+                // JSON class mapping also supports one level of nested
+                // non-generic classes. Keep the generated path explicit so
+                // every owned source slice is released on success or error.
+                let nested_specs = field_keys
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, (field, key))| {
+                        if matches!(key.as_str(), "Int" | "Bool" | "String") {
+                            return None;
+                        }
+                        let full = crate::expr::full_type_mono(key, checked);
+                        let nested = checked.ast.classes.iter().find(|candidate| {
+                            let package = class_decl_package(candidate, checked);
+                            type_mono(&package, &candidate.name.name, &[]) == full
+                                && candidate.type_params.is_empty()
+                        })?;
+                        let nested_fields = nested
+                            .fields
+                            .iter()
+                            .map(|nested_field| {
+                                (
+                                    nested_field.name.name.clone(),
+                                    type_ref_local_key_expand(&nested_field.ty, &[], &[], checked),
+                                )
+                            })
+                            .collect::<Vec<_>>();
+                        if nested_fields.iter().all(|(_, nested_key)| {
+                            matches!(nested_key.as_str(), "Int" | "Bool" | "String")
+                        }) {
+                            Some((index, nested_fields, full))
+                        } else {
+                            let _ = field;
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                if !nested_specs.is_empty()
+                    && nested_specs.len()
+                        == field_keys
+                            .iter()
+                            .filter(|(_, key)| !matches!(key.as_str(), "Int" | "Bool" | "String"))
+                            .count()
+                {
+                    out.push_str(
+                        "  if (value == NULL || !aura_json_is_valid((*value).text)) return NULL;\n",
+                    );
+                    out.push_str("  aura_gc_add_root((void **)&value);\n");
+                    out.push_str("  int __json_stage = 0;\n");
+                    for (index, (field, key)) in field_keys.iter().enumerate() {
+                        let _ = writeln!(out, "  const char *__json_field_{index} = NULL;");
+                        match key.as_str() {
+                            "Int" => {
+                                let _ = writeln!(out, "  int64_t __json_int_{index} = 0;");
+                            }
+                            "Bool" => {
+                                let _ = writeln!(out, "  bool __json_bool_{index} = false;");
+                            }
+                            "String" => {
+                                let _ =
+                                    writeln!(out, "  const char *__json_string_{index} = NULL;");
+                            }
+                            _ => {
+                                let _ = writeln!(
+                                    out,
+                                    "  {cty} *__json_class_{index} = NULL;",
+                                    cty = c_class_type(&crate::expr::full_type_mono(key, checked))
+                                );
+                                let _ = writeln!(
+                                    out,
+                                    "  aura_gc_add_root((void **)&__json_class_{index});"
+                                );
+                                if let Some((_, nested_fields, _)) = nested_specs
+                                    .iter()
+                                    .find(|(nested_index, _, _)| *nested_index == index)
+                                {
+                                    for (nested_index, (_, nested_key)) in
+                                        nested_fields.iter().enumerate()
+                                    {
+                                        let _ = writeln!(out, "  const char *__json_nested_{index}_{nested_index} = NULL;");
+                                        if nested_key == "Int" {
+                                            let _ = writeln!(out, "  int64_t __json_nested_int_{index}_{nested_index} = 0;");
+                                        } else if nested_key == "Bool" {
+                                            let _ = writeln!(out, "  bool __json_nested_bool_{index}_{nested_index} = false;");
+                                        } else {
+                                            let _ = writeln!(out, "  const char *__json_nested_string_{index}_{nested_index} = NULL;");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        let _ = writeln!(out, "  __json_stage = {stage};", stage = index + 1);
+                        let _ = writeln!(out, "  __json_field_{index} = aura_json_object_get((*{value}).text, \"{}\");", field.name.name.replace('\\', "\\\\").replace('"', "\\\""));
+                        out.push_str(&format!(
+                            "  if (__json_field_{index} == NULL) goto __json_decode_fail;\n"
+                        ));
+                        match key.as_str() {
+                            "Int" => {
+                                let _ = writeln!(out, "  if (!aura_json_parse_int(__json_field_{index}, &__json_int_{index})) goto __json_decode_fail;");
+                            }
+                            "Bool" => {
+                                let _ = writeln!(out, "  if (!aura_json_parse_bool(__json_field_{index}, &__json_bool_{index})) goto __json_decode_fail;");
+                            }
+                            "String" => {
+                                let _ = writeln!(out, "  __json_string_{index} = aura_json_decode_string(__json_field_{index}); if (__json_string_{index} == NULL) goto __json_decode_fail;");
+                            }
+                            _ => {
+                                let (_, nested_fields, full) = nested_specs
+                                    .iter()
+                                    .find(|(nested_index, _, _)| *nested_index == index)
+                                    .expect("nested JSON class spec");
+                                for (nested_index, (nested_name, nested_key)) in
+                                    nested_fields.iter().enumerate()
+                                {
+                                    let _ = writeln!(out, "  __json_nested_{index}_{nested_index} = aura_json_object_get(__json_field_{index}, \"{}\");", nested_name.replace('\\', "\\\\").replace('"', "\\\""));
+                                    let _ = writeln!(out, "  if (__json_nested_{index}_{nested_index} == NULL) goto __json_decode_fail;");
+                                    match nested_key.as_str() {
+                                        "Int" => {
+                                            let _ = writeln!(out, "  if (!aura_json_parse_int(__json_nested_{index}_{nested_index}, &__json_nested_int_{index}_{nested_index})) goto __json_decode_fail;");
+                                        }
+                                        "Bool" => {
+                                            let _ = writeln!(out, "  if (!aura_json_parse_bool(__json_nested_{index}_{nested_index}, &__json_nested_bool_{index}_{nested_index})) goto __json_decode_fail;");
+                                        }
+                                        _ => {
+                                            let _ = writeln!(out, "  __json_nested_string_{index}_{nested_index} = aura_json_decode_string(__json_nested_{index}_{nested_index}); if (__json_nested_string_{index}_{nested_index} == NULL) goto __json_decode_fail;");
+                                        }
+                                    }
+                                }
+                                let nested_ctor_args = nested_fields
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(nested_index, (_, nested_key))| {
+                                        match nested_key.as_str() {
+                                            "Int" => {
+                                                format!("__json_nested_int_{index}_{nested_index}")
+                                            }
+                                            "Bool" => {
+                                                format!("__json_nested_bool_{index}_{nested_index}")
+                                            }
+                                            _ => format!(
+                                                "__json_nested_string_{index}_{nested_index}"
+                                            ),
+                                        }
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                let _ = writeln!(out, "  __json_class_{index} = {}({nested_ctor_args}); if (__json_class_{index} == NULL) goto __json_decode_fail;", c_ctor_name(full));
+                            }
+                        }
+                    }
+                    let ctor_args = field_keys
+                        .iter()
+                        .enumerate()
+                        .map(|(index, (_, key))| match key.as_str() {
+                            "Int" => format!("__json_int_{index}"),
+                            "Bool" => format!("__json_bool_{index}"),
+                            "String" => format!("__json_string_{index}"),
+                            _ => format!("__json_class_{index}"),
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let _ = writeln!(
+                        out,
+                        "  {c_class} *__decoded = {ctor}({ctor_args});",
+                        c_class = c_class_type(&mono)
+                    );
+                    out.push_str("  goto __json_decode_done;\n");
+                    out.push_str("__json_decode_fail:\n");
+                    for (index, (_, key)) in field_keys.iter().enumerate() {
+                        let _ = writeln!(
+                            out,
+                            "  if (__json_stage > {index}) free((void *)__json_field_{index});"
+                        );
+                        if key == "String" {
+                            let _ = writeln!(out, "  if (__json_stage > {index}) free((void *)__json_string_{index});");
+                        }
+                        if let Some((_, nested_fields, _)) = nested_specs
+                            .iter()
+                            .find(|(nested_index, _, _)| *nested_index == index)
+                        {
+                            for (nested_index, (_, nested_key)) in nested_fields.iter().enumerate()
+                            {
+                                let _ = writeln!(out, "  if (__json_stage > {index}) free((void *)__json_nested_{index}_{nested_index});");
+                                if nested_key == "String" {
+                                    let _ = writeln!(out, "  if (__json_stage > {index}) free((void *)__json_nested_string_{index}_{nested_index});");
+                                }
+                            }
+                        }
+                    }
+                    for (index, (_, key)) in field_keys.iter().enumerate() {
+                        if !matches!(key.as_str(), "Int" | "Bool" | "String") {
+                            let _ = writeln!(
+                                out,
+                                "  if (__json_stage > {index}) aura_gc_remove_root((void **)&__json_class_{index});"
+                            );
+                        }
+                    }
+                    out.push_str("  aura_gc_remove_root((void **)&value);\n");
+                    out.push_str("  return NULL;\n__json_decode_done:\n");
+                    for (index, (_, key)) in field_keys.iter().enumerate() {
+                        let _ = writeln!(
+                            out,
+                            "  if (__json_stage > {index}) free((void *)__json_field_{index});"
+                        );
+                        if key == "String" {
+                            let _ = writeln!(out, "  if (__json_stage > {index}) free((void *)__json_string_{index});");
+                        }
+                        if let Some((_, nested_fields, _)) = nested_specs
+                            .iter()
+                            .find(|(nested_index, _, _)| *nested_index == index)
+                        {
+                            for (nested_index, (_, nested_key)) in nested_fields.iter().enumerate()
+                            {
+                                let _ = writeln!(out, "  if (__json_stage > {index}) free((void *)__json_nested_{index}_{nested_index});");
+                                if nested_key == "String" {
+                                    let _ = writeln!(out, "  if (__json_stage > {index}) free((void *)__json_nested_string_{index}_{nested_index});");
+                                }
+                            }
+                        }
+                    }
+                    for (index, (_, key)) in field_keys.iter().enumerate() {
+                        if !matches!(key.as_str(), "Int" | "Bool" | "String") {
+                            let _ = writeln!(
+                                out,
+                                "  if (__json_stage > {index}) aura_gc_remove_root((void **)&__json_class_{index});"
+                            );
+                        }
+                    }
+                    out.push_str("  aura_gc_remove_root((void **)&value);\n");
+                    out.push_str("  return __decoded;\n}\n");
+                    return;
+                }
                 if supported {
                     out.push_str(
                         "  if (value == NULL || !aura_json_is_valid((*value).text)) return NULL;\n",
                     );
+                    out.push_str("  aura_gc_add_root((void **)&value);\n");
                     let emit_cleanup = |out: &mut String, end: usize| {
                         for prior in 0..=end {
                             let prior_raw = format!("__json_field_{prior}");
@@ -16681,6 +16913,7 @@ pub(crate) fn emit_fun(
                                 let _ = writeln!(out, "    free((void *)__json_string_{prior});");
                             }
                         }
+                        out.push_str("    aura_gc_remove_root((void **)&value);\n");
                     };
                     for (index, (field, key)) in field_keys.iter().enumerate() {
                         let raw = format!("__json_field_{index}");
@@ -16742,6 +16975,7 @@ pub(crate) fn emit_fun(
                             let _ = writeln!(out, "  free((void *)__json_string_{index});");
                         }
                     }
+                    out.push_str("  aura_gc_remove_root((void **)&value);\n");
                     out.push_str("  return __decoded;\n}\n");
                     return;
                 }

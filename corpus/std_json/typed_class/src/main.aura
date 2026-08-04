@@ -3,15 +3,21 @@ package demo.stdjson.typedclass
 import std.io
 import std.json
 
-class Config(val name: String, val enabled: Bool, val count: Int) {}
+class Address(val city: String, val zip: Int) {}
+class Config(val name: String, val enabled: Bool, val count: Int, val address: Address) {}
 
 fun main() {
-  val decoded = decode<Config>(Value("{\"name\":\"aura\",\"enabled\":true,\"count\":7}"))
+  val decoded = decode<Config>(Value("{\"name\":\"aura\",\"enabled\":true,\"count\":7,\"address\":{\"city\":\"Hanoi\",\"zip\":1000}}"))
   if (decoded == null) { throw "typed class decode returned null" }
   println(decoded!!.name)
   if (decoded!!.enabled) { println("true") }
   println(decoded!!.count.toString())
+  println(decoded!!.address.city)
+  println(decoded!!.address.zip.toString())
   if (decode<Config>(Value("{\"name\":\"missing\"}")) != null) {
     throw "typed class decode accepted a missing field"
+  }
+  if (decode<Config>(Value("{\"name\":\"aura\",\"enabled\":true,\"count\":7,\"address\":{\"city\":\"Hanoi\"}}")) != null) {
+    throw "typed class decode accepted an incomplete nested field"
   }
 }
