@@ -48,14 +48,20 @@ pass 'race failure exits 1'
 
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/aura-race-regression.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
+
+runtime_link_args=()
+case "$(uname -s)" in
+  Linux|Darwin) runtime_link_args=(-lz) ;;
+esac
+
 cc -D_POSIX_C_SOURCE=200809L -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
-  -o "$tmp/race-report" runtime/tests/race_report.c
+  -o "$tmp/race-report" runtime/tests/race_report.c "${runtime_link_args[@]}"
 "$tmp/race-report" >"$tmp/report.txt"
 pass 'planted-race, race-free, channel, and suppression fixtures (C asserts)'
 
 for fixture in race_tracker ffi_owned; do
   cc -D_POSIX_C_SOURCE=200809L -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
-    -o "$tmp/$fixture" "runtime/tests/$fixture.c"
+    -o "$tmp/$fixture" "runtime/tests/$fixture.c" "${runtime_link_args[@]}"
   "$tmp/$fixture"
 done
 pass 'cancellation and GC lifecycle fixtures'
