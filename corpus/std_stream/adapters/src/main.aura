@@ -1,15 +1,32 @@
 package demo.stdstream.adapters
 
 import std.stream
+import std.error as Errs
 
 async fun useReader(reader: Reader): Unit {
-  val chunk: String = await reader.read(32)
-  println(chunk)
+    val chunk: String = await reader.read(32)
+    println(chunk)
+}
+
+async fun useReaderResult(reader: Reader): Unit {
+    val result: Errs.Outcome<String, Errs.NetError> = await reader.readResult(32)
+    if (Errs.isSuccess(result)) { println("read-ok") }
 }
 
 async fun useWriter(writer: Writer): Unit {
-  val count: Int = await writer.write("hello")
-  println(count.toString())
+    val count: Int = await writer.write("hello")
+    println(count.toString())
+}
+
+async fun useWriterResult(writer: Writer): Unit {
+    val result: Errs.Outcome<Int, Errs.NetError> = await writer.writeResult("hello")
+    if (Errs.isSuccess(result)) { println("write-ok") }
+}
+
+fun closeResult(reader: Reader, writer: Writer): Unit {
+    val readerResult: Errs.Outcome<Bool, Errs.NetError> = reader.closeResult()
+    val writerResult: Errs.Outcome<Bool, Errs.NetError> = writer.closeResult()
+    if (Errs.isSuccess(readerResult) && Errs.isSuccess(writerResult)) { println("close-ok") }
 }
 
 fun main() {}

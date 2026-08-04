@@ -3,31 +3,52 @@
 package std.stream
 
 import std.net
+import std.error as StreamErrs
 
 /// Handler-scoped reader that keeps the underlying stream owned by the class.
 pub class Reader(private val stream: ForeignHandle<Int>) {
-  /// Read up to `capacity` bytes, suspending on descriptor readiness.
-  pub async fun read(capacity: Int): String {
-    val chunk: String = await readStream(stream, capacity)
-    return chunk
-  }
+    /// Read up to `capacity` bytes, suspending on descriptor readiness.
+    pub async fun read(capacity: Int): String {
+        val chunk: String = await readStream(stream, capacity)
+        return chunk
+    }
 
-  /// Close the underlying stream. The operation is idempotent.
-  pub fun close(): Bool {
-    return closeStream(stream)
-  }
+    /// Typed read boundary for callers that handle transport failures locally.
+    pub async fun readResult(capacity: Int): StreamErrs.Outcome<String, StreamErrs.NetError> {
+        return await readStreamResult(stream, capacity)
+    }
+
+    /// Close the underlying stream. The operation is idempotent.
+    pub fun close(): Bool {
+        return closeStream(stream)
+    }
+
+    /// Typed close boundary for callers that handle invalid or closed handles.
+    pub fun closeResult(): StreamErrs.Outcome<Bool, StreamErrs.NetError> {
+        return closeStreamResult(stream)
+    }
 }
 
 /// Handler-scoped writer that keeps the underlying stream owned by the class.
 pub class Writer(private val stream: ForeignHandle<Int>) {
-  /// Write all content, suspending until the stream accepts the bytes.
-  pub async fun write(content: String): Int {
-    val transferred: Int = await writeStream(stream, content)
-    return transferred
-  }
+    /// Write all content, suspending until the stream accepts the bytes.
+    pub async fun write(content: String): Int {
+        val transferred: Int = await writeStream(stream, content)
+        return transferred
+    }
 
-  /// Close the underlying stream. The operation is idempotent.
-  pub fun close(): Bool {
-    return closeStream(stream)
-  }
+    /// Typed write boundary for callers that handle transport failures locally.
+    pub async fun writeResult(content: String): StreamErrs.Outcome<Int, StreamErrs.NetError> {
+        return await writeStreamResult(stream, content)
+    }
+
+    /// Close the underlying stream. The operation is idempotent.
+    pub fun close(): Bool {
+        return closeStream(stream)
+    }
+
+    /// Typed close boundary for callers that handle invalid or closed handles.
+    pub fun closeResult(): StreamErrs.Outcome<Bool, StreamErrs.NetError> {
+        return closeStreamResult(stream)
+    }
 }
