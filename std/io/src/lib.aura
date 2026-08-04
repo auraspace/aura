@@ -4,113 +4,131 @@ package std.io
 
 /// Terminal outcome for an asynchronous task join.
 pub enum TaskError {
-  /// The task failed with a normalized owned error message.
-  case Failed(error: String)
-  /// The task was cooperatively cancelled before producing a value.
-  case Cancelled
+    /// The task failed with a normalized owned error message.
+    case Failed(error: String)
+    /// The task was cooperatively cancelled before producing a value.
+    case Cancelled
 }
 
 /// Return the concrete exception type retained by a failed task, when the
 /// failure crossed an async boundary with typed payload metadata.
 /// The returned String is an owned copy; `null` means no typed exception tag.
 pub fun taskErrorTypeName(error: TaskError): String? {
-  throw "std.io taskErrorTypeName intrinsic"
+    throw "std.io taskErrorTypeName intrinsic"
 }
 
 /// Source identity attached to a failed task, or zero when unavailable.
 pub fun taskErrorSourceId(error: TaskError): Int {
-  throw "std.io taskErrorSourceId intrinsic"
+    throw "std.io taskErrorSourceId intrinsic"
 }
 
 /// Start byte offset of the failed task's source span, or zero when absent.
 pub fun taskErrorSpanStart(error: TaskError): Int {
-  throw "std.io taskErrorSpanStart intrinsic"
+    throw "std.io taskErrorSpanStart intrinsic"
 }
 
 /// End byte offset of the failed task's source span, or zero when absent.
 pub fun taskErrorSpanEnd(error: TaskError): Int {
-  throw "std.io taskErrorSpanEnd intrinsic"
+    throw "std.io taskErrorSpanEnd intrinsic"
 }
 
 /// Non-throwing result used by task joins and structured file wrappers below.
 /// Error strings are owned Aura Strings; callers may retain or return them.
 pub enum Result<T, E> {
-  /// A successful operation carrying `value`.
-  case Ok(value: T)
-  /// A failed operation carrying `error`.
-  case Err(error: E)
+    /// A successful operation carrying `value`.
+    case Ok(value: T)
+    /// A failed operation carrying `error`.
+    case Err(error: E)
 }
 
 /// Process argument vector as `Array<String>`.
 /// `args()[0]` is the program name (`argv[0]`); user flags start at index 1.
 /// Values are process-lifetime views of the OS argv (not independent copies).
 pub fun args(): Array<String> {
-  throw "std.io args intrinsic"
+    throw "std.io args intrinsic"
 }
 
 /// Read one line from stdin without the trailing `\n` or `\r\n`.
 /// Returns `null` on EOF (including immediate EOF with no bytes).
 /// An empty line is `""` (not null). Throws String if the line exceeds 1 MiB.
 pub fun readLine(): String? {
-  throw "std.io readLine intrinsic"
+    throw "std.io readLine intrinsic"
+}
+
+/// Non-throwing line read. `Ok(null)` is EOF; `Err` carries an I/O message.
+pub fun readLineResult(): Result<String?, String> {
+    try {
+        return Ok(readLine())
+    } catch (error: String) {
+        return Err(error)
+    }
 }
 
 /// Read the remainder of stdin as a String (UTF-8 bytes, no embedded NUL).
 /// Throws on I/O error, embedded NUL, or input larger than 256 MiB.
 pub fun readAllStdin(): String {
-  throw "std.io readAllStdin intrinsic"
+    throw "std.io readAllStdin intrinsic"
+}
+
+/// Non-throwing stdin read with an owned error payload.
+pub fun readAllStdinResult(): Result<String, String> {
+    try {
+        return Ok(readAllStdin())
+    } catch (error: String) {
+        return Err(error)
+    }
 }
 
 /// Terminate the process with the given exit status code.
 /// Flushes stdout/stderr first. Does not return.
 pub fun exit(code: Int) {
-  // Body replaced by codegen with aura_exit(code).
+    // Body replaced by codegen with aura_exit(code).
 }
 
 /// Write to stdout without a trailing newline.
 pub fun print(s: String) {
-  // Body replaced by codegen with aura_print(s).
+    // Body replaced by codegen with aura_print(s).
 }
 
 /// Write to stdout followed by a newline.
 pub fun println(s: String) {
-  // Body replaced by codegen with aura_println(s).
+    // Body replaced by codegen with aura_println(s).
 }
 
 /// Write to stderr without a trailing newline.
 pub fun eprint(s: String) {
-  // Body replaced by codegen with aura_eprint(s).
+    // Body replaced by codegen with aura_eprint(s).
 }
 
 /// Write to stderr followed by a newline.
 pub fun eprintln(s: String) {
-  // Body replaced by codegen with aura_eprintln(s).
+    // Body replaced by codegen with aura_eprintln(s).
 }
 
 /// Read an entire regular file as a String (UTF-8 bytes, no embedded NUL).
 /// Throws on missing path, I/O error, oversized file (>256 MiB), or embedded NUL.
 pub fun readFile(path: String): String {
-  throw "std.io readFile intrinsic"
+    throw "std.io readFile intrinsic"
 }
 
 /// Soft read: same content rules as `readFile`, but returns `null` on missing
 /// path, I/O error, oversized file (>256 MiB), empty path, OOM, or embedded NUL.
 /// Prefer this when absence / soft failure is expected; use `readFile` to throw.
 pub fun tryReadFile(path: String): String? {
-  throw "std.io tryReadFile intrinsic"
+    throw "std.io tryReadFile intrinsic"
 }
 
 /// Write `content` to `path`, creating or truncating the file.
 /// Throws on I/O error.
 pub fun writeFile(path: String, content: String) {
-  // Body replaced by codegen with aura_write_file(path, content).
+    // Body replaced by codegen with aura_write_file(path, content).
 }
 
 /// Soft write: create/truncate `path` with `content`. Returns `true` on success;
 /// `false` on empty path, open/write/flush/close failure (does not throw).
 /// Prefer this when soft failure is expected; use `writeFile` to throw.
 pub fun tryWriteFile(path: String, content: String): Bool {
-  throw "std.io tryWriteFile intrinsic"
+    throw "std.io tryWriteFile intrinsic"
 }
 
 /// Non-throwing read with an explicit owned error payload.
@@ -118,54 +136,90 @@ pub fun tryWriteFile(path: String, content: String): Bool {
 /// fresh String describing the failed operation. Existing readFile and
 /// tryReadFile behavior is unchanged.
 pub fun readFileResult(path: String): Result<String, String> {
-  val content = tryReadFile(path)
-  if (content == null) {
-    return Err("readFile failed: " + path)
-  }
-  return Ok(content!!)
+    val content = tryReadFile(path)
+    if (content == null) {
+        return Err("readFile failed: " + path)
+    }
+    return Ok(content!!)
 }
 
 /// Non-throwing write with an explicit owned error payload.
 /// `Ok(true)` indicates that the file was fully written and closed; `Err`
 /// contains a fresh String describing the failed operation.
 pub fun writeFileResult(path: String, content: String): Result<Bool, String> {
-  if (tryWriteFile(path, content)) {
-    return Ok(true)
-  }
-  return Err("writeFile failed: " + path)
+    if (tryWriteFile(path, content)) {
+        return Ok(true)
+    }
+    return Err("writeFile failed: " + path)
 }
 
 /// Append `content` to `path`, creating the file if needed.
 /// Throws on I/O error.
 pub fun appendFile(path: String, content: String) {
-  // Body replaced by codegen with aura_append_file(path, content).
+    // Body replaced by codegen with aura_append_file(path, content).
 }
 
 /// true if `path` exists and is a regular file.
 pub fun fileExists(path: String): Bool {
-  throw "std.io fileExists intrinsic"
+    throw "std.io fileExists intrinsic"
+}
+
+/// Non-throwing regular-file existence check with an owned error payload.
+pub fun fileExistsResult(path: String): Result<Bool, String> {
+    try {
+        return Ok(fileExists(path))
+    } catch (error: String) {
+        return Err(error)
+    }
 }
 
 /// Byte size of a regular file at `path`.
 /// Throws if missing or not a regular file.
 pub fun fileSize(path: String): Int {
-  throw "std.io fileSize intrinsic"
+    throw "std.io fileSize intrinsic"
+}
+
+/// Non-throwing regular-file size query with an owned error payload.
+pub fun fileSizeResult(path: String): Result<Int, String> {
+    try {
+        return Ok(fileSize(path))
+    } catch (error: String) {
+        return Err(error)
+    }
 }
 
 /// Open a regular file and return an owned opaque handle. Mode is 0 for read,
 /// 1 for write/truncate, 2 for read/write, and 3 for append. The binding
 /// closes and destroys the resource when it leaves lexical scope.
 pub fun openFile(path: String, mode: Int): ForeignHandle<Int> {
-  throw "openFile intrinsic"
+    throw "openFile intrinsic"
 }
 
 /// Read up to `capacity` bytes from a nonblocking descriptor and suspend the
 /// current task until the descriptor is readable. EOF returns an empty String.
 pub async fun readFd(fd: Int, capacity: Int): String {
-  throw "std.io readFd intrinsic"
+    throw "std.io readFd intrinsic"
+}
+
+/// Non-throwing async descriptor read with an owned error payload.
+pub async fun readFdResult(fd: Int, capacity: Int): Result<String, String> {
+    try {
+        return Ok(await readFd(fd, capacity))
+    } catch (error: String) {
+        return Err(error)
+    }
 }
 
 /// Write all content to a nonblocking descriptor and return its byte count.
 pub async fun writeFd(fd: Int, content: String): Int {
-  throw "std.io writeFd intrinsic"
+    throw "std.io writeFd intrinsic"
+}
+
+/// Non-throwing async descriptor write with an owned error payload.
+pub async fun writeFdResult(fd: Int, content: String): Result<Int, String> {
+    try {
+        return Ok(await writeFd(fd, content))
+    } catch (error: String) {
+        return Err(error)
+    }
 }

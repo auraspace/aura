@@ -135,10 +135,14 @@ fn build_json_decode_node(
     let mut fields = Vec::with_capacity(class.fields.len());
     for field in &class.fields {
         let local_key = type_ref_local_key_expand(&field.ty, &params, &class_args, checked);
-        let field_key = if crate::array_emit::is_array_type_key(&local_key) {
-            crate::expr::full_type_mono(&local_key, checked)
+        // Nullable reference-like fields keep their nullability in the
+        // semantic field metadata, while JSON construction uses the same C
+        // payload layout as the non-nullable class/array.
+        let payload_key = crate::expr::task_payload_repr_key(&local_key);
+        let field_key = if crate::array_emit::is_array_type_key(&payload_key) {
+            crate::expr::full_type_mono(&payload_key, checked)
         } else {
-            local_key
+            payload_key
         };
         let array_element = crate::expr::array_elem_local_key(&field_key, checked)
             .filter(|element| matches!(element.as_str(), "Int" | "Bool" | "String"));
@@ -3753,6 +3757,11 @@ impl<'a> AsyncCfgBuilder<'a> {
 }
 
 fn async_cfg_value_supported(key: &str, checked: &CheckedFile) -> bool {
+    if let Some(payload) = key.strip_prefix("Opt_") {
+        if !matches!(key, "Opt_Int" | "Opt_Bool") {
+            return async_cfg_value_supported(payload, checked);
+        }
+    }
     matches!(
         key,
         "Unit" | "Int" | "Bool" | "String" | "Opt_Int" | "Opt_Bool" | "ForeignHandle"
@@ -5026,7 +5035,10 @@ fn emit_async_fun_cfg_int(
     let Some(ret) = &f.return_type else {
         return false;
     };
-    let return_key = full_type_mono(&type_ref_local_key_expand(ret, &[], &[], checked), checked);
+    let return_key = crate::expr::task_payload_repr_key(&full_type_mono(
+        &type_ref_local_key_expand(ret, &[], &[], checked),
+        checked,
+    ));
     if !async_cfg_value_supported(&return_key, checked)
         || !f.body.stmts.iter().any(stmt_contains_async)
     {
@@ -5035,14 +5047,14 @@ fn emit_async_fun_cfg_int(
     let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
     let mut collect_ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
     for param in &f.params {
-        let key = full_type_mono(
+        let key = crate::expr::task_payload_repr_key(&full_type_mono(
             &type_ref_local_key_expand(&param.ty, &params, &[], checked),
             checked,
-        );
+        ));
         if !async_cfg_value_supported(&key, checked) && !async_cfg_task_supported(&key, checked) {
             return false;
         }
-        collect_ctx.define_local(&param.name.name, full_type_mono(&key, checked));
+        collect_ctx.define_local(&param.name.name, key);
         if boxed_params.contains(&param.name.name) {
             collect_ctx.mark_box_local(&param.name.name);
         }
@@ -5058,7 +5070,7 @@ fn emit_async_fun_cfg_int(
         return false;
     }
     for (_, key) in &mut vars {
-        *key = full_type_mono(key, checked);
+        *key = crate::expr::task_payload_repr_key(&full_type_mono(key, checked));
     }
     let mut locals = HashMap::new();
     for (var, key) in &vars {
@@ -5069,30 +5081,30 @@ fn emit_async_fun_cfg_int(
         }
     }
     for param in &f.params {
-        let key = full_type_mono(
+        let key = crate::expr::task_payload_repr_key(&full_type_mono(
             &type_ref_local_key_expand(&param.ty, &params, &[], checked),
             checked,
-        );
-        if locals
-            .insert(param.name.name.clone(), full_type_mono(&key, checked))
-            .is_some()
-        {
+        ));
+        if locals.insert(param.name.name.clone(), key).is_some() {
             return false;
         }
     }
     let mut ctx = async_ctx(checked, detector, &params, &f.params, &f.return_type);
     for param in &f.params {
-        let key = full_type_mono(
+        let key = crate::expr::task_payload_repr_key(&full_type_mono(
             &type_ref_local_key_expand(&param.ty, &params, &[], checked),
             checked,
-        );
-        ctx.define_local(&param.name.name, full_type_mono(&key, checked));
+        ));
+        ctx.define_local(&param.name.name, key);
         if boxed_params.contains(&param.name.name) {
             ctx.mark_box_local(&param.name.name);
         }
     }
     for (var, key) in &vars {
-        ctx.define_local(&var.name.name, full_type_mono(key, checked));
+        ctx.define_local(
+            &var.name.name,
+            crate::expr::task_payload_repr_key(&full_type_mono(key, checked)),
+        );
     }
     let mut builder = AsyncCfgBuilder::new(ctx, locals.clone(), return_key.clone());
     let terminal = builder.alloc();
@@ -12974,9 +12986,9 @@ fn async_ctx<'a>(
         box_owners: vec![std::collections::HashSet::new()],
         gc_roots: vec![std::collections::HashSet::new()],
         array_gc_roots: vec![std::collections::HashSet::new()],
-        return_key: ret
-            .as_ref()
-            .map(|t| type_ref_local_key_expand(t, params, &[], checked)),
+        return_key: ret.as_ref().map(|t| {
+            crate::expr::task_payload_repr_key(&type_ref_local_key_expand(t, params, &[], checked))
+        }),
         lambda_ids: build_lambda_ids(checked),
         spawn_params: fparams.iter().map(|p| p.name.name.clone()).collect(),
         mutable_spawn_captures: HashSet::new(),
@@ -12985,7 +12997,10 @@ fn async_ctx<'a>(
     };
     for p in fparams {
         let key = type_ref_local_key_expand(&p.ty, params, &[], checked);
-        ctx.define_local(&p.name.name, full_type_mono(&key, checked));
+        ctx.define_local(
+            &p.name.name,
+            crate::expr::task_payload_repr_key(&full_type_mono(&key, checked)),
+        );
     }
     ctx
 }
@@ -13500,10 +13515,9 @@ fn emit_async_body(
     detector: bool,
 ) {
     let pkg = async_fun_decl_package(f, checked);
-    let ret_key = f
-        .return_type
-        .as_ref()
-        .map(|t| type_ref_local_key_expand(t, params, &[], checked));
+    let ret_key = f.return_type.as_ref().map(|t| {
+        crate::expr::task_payload_repr_key(&type_ref_local_key_expand(t, params, &[], checked))
+    });
     let mut ctx = EmitCtx {
         checked,
         detector,
@@ -13534,7 +13548,10 @@ fn emit_async_body(
     };
     for p in &f.params {
         let key = type_ref_local_key_expand(&p.ty, params, &[], checked);
-        ctx.define_local(&p.name.name, full_type_mono(&key, checked));
+        ctx.define_local(
+            &p.name.name,
+            crate::expr::task_payload_repr_key(&full_type_mono(&key, checked)),
+        );
     }
     if f.name.name == "connect"
         && f.params.len() == 1

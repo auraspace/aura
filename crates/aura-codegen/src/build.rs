@@ -2955,6 +2955,63 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_std_io_nullable_result_wrapper_with_owned_string() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+pub fun writeFile(path: String, content: String): Unit { }
+pub fun tryReadFile(path: String): String? { return null }
+pub fun readLine(): String? { return null }
+pub fun readFileResult(path: String): Result<String, String> {
+  val content = tryReadFile(path)
+  if (content == null) { return Err("missing") }
+  return Ok(content!!)
+}
+pub fun readLineResult(): Result<String?, String> {
+  return Ok(readLine())
+}
+fun main() {
+  writeFile("/tmp/aura-io-result-wrapper.txt", "owned")
+  val result = readFileResult("/tmp/aura-io-result-wrapper.txt")
+  match (result) {
+    case Ok(value) => { if (value == "owned") { println("owned-ok") } }
+    case Err(error) => { println(error) }
+  }
+  val line = readLineResult()
+  match (line) {
+    case Ok(value) => { if (value == null) { println("nullable-ok") } }
+    case Err(error) => { println(error) }
+  }
+}
+"#,
+        )
+        .expect("parse nullable std.io Result wrapper fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-std-io-result-wrapper-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile nullable std.io Result wrapper fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nullable std.io Result wrapper fixture");
+        assert!(
+            output.status.success(),
+            "std.io Result wrapper failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "owned-ok\nnullable-ok\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_std_json_recursive_generic_class_decode() {
         let file = aura_parser::parse_file(
             r#"package std.json

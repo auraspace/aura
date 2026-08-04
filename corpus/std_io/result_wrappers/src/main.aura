@@ -31,5 +31,38 @@ fun main() {
         case Err(error) => { assert(error.contains("writeFile failed")) }
     }
 
+    val exists = Io.fileExistsResult(path)
+    match (exists) {
+        case Ok(value) => { assert(value) }
+        case Err(error) => { assert(false) }
+    }
+
+    val size = Io.fileSizeResult(path)
+    match (size) {
+        case Ok(value) => { assert_eq(value, 5) }
+        case Err(error) => { assert(false) }
+    }
+
+    val line = Io.readLineResult()
+    match (line) {
+        case Ok(value) => { assert(value == null) }
+        case Err(error) => { assert(false) }
+    }
+
+    val stdin = Io.readAllStdinResult()
+    match (stdin) {
+        case Ok(value) => { assert(value == "") }
+        case Err(error) => { assert(false) }
+    }
+
     Io.println("result wrappers ok")
+}
+
+async fun descriptorResults(fd: Int): Unit {
+    val read = await Io.readFdResult(fd, 16)
+    val write = await Io.writeFdResult(fd, "x")
+    match (read) {
+        case Ok(value) => { match (write) { case Ok(count) => { Io.println("descriptor results ok") } case Err(error) => {} } }
+        case Err(error) => {}
+    }
 }

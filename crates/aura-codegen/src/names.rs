@@ -372,7 +372,7 @@ pub(crate) fn type_ref_mono(ty: &TypeRef, params: &[String], args: &[Ty]) -> Str
             return t.mono_suffix();
         }
     }
-    if ty.type_args.is_empty() {
+    let base = if ty.type_args.is_empty() {
         ty.name.name.clone()
     } else {
         let a = ty
@@ -382,6 +382,11 @@ pub(crate) fn type_ref_mono(ty: &TypeRef, params: &[String], args: &[Ty]) -> Str
             .collect::<Vec<_>>()
             .join("_");
         format!("{}_{a}", ty.name.name)
+    };
+    if ty.nullable {
+        format!("Opt_{base}")
+    } else {
+        base
     }
 }
 
@@ -1001,7 +1006,8 @@ pub(crate) fn type_ref_local_key(ty: &TypeRef, params: &[String], args: &[Ty]) -
     } else {
         type_ref_mono(ty, params, args)
     };
-    // C7a: only Int?/Bool? get distinct keys; Class?/String? keep non-null key (pointer rep).
+    // C7a: only Int?/Bool? get distinct local keys; Class?/String? keep their
+    // non-null local key because nullable values share the same C representation.
     if ty.nullable {
         if let Some(ok) = opt_key_for_prim(&base) {
             return ok.to_string();

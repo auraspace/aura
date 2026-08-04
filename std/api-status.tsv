@@ -1,5 +1,5 @@
 # package	status	contract	notes
-std.io	implemented	docs/api/std-alpha.md	console, files, stdin, argv, tasks, and errors
+std.io	implemented	docs/api/std-alpha.md	console, files, stdin, argv, tasks, errors, and typed Result wrappers
 std.assert	implemented	docs/api/std-alpha.md	assertion primitive
 std.collections	implemented	docs/api/std-alpha.md	linear and hash collections, iterators, HOFs
 std.error	implemented	docs/api/std-alpha.md	shared errors and Outcome

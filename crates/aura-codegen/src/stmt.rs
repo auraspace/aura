@@ -1447,6 +1447,39 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         Expr::Ident(id) if ret_key == "String" => Some(id.name.as_str()),
                         _ => None,
                     };
+                    let moved_strings: Vec<String> = match e {
+                        Expr::Call(call)
+                            if matches!(call.callee.as_ref(), Expr::Ident(id) if matches!(id.name.as_str(), "Ok" | "Err" | "OutcomeOk" | "OutcomeErr"))
+                                || ctx
+                                    .checked
+                                    .call_instantiations
+                                    .get(&call.span.start)
+                                    .and_then(|inst| inst.variant.as_ref())
+                                    .is_some() =>
+                        {
+                            call.args
+                                .iter()
+                                .filter_map(|arg| match arg {
+                                    Expr::Ident(id)
+                                        if ctx.lookup_local(&id.name) == Some("String") =>
+                                    {
+                                        Some(id.name.clone())
+                                    }
+                                    Expr::ForceUnwrap(force)
+                                        if matches!(force.expr.as_ref(), Expr::Ident(_)) =>
+                                    {
+                                        let Expr::Ident(id) = force.expr.as_ref() else {
+                                            unreachable!()
+                                        };
+                                        (ctx.lookup_local(&id.name) == Some("String"))
+                                            .then(|| id.name.clone())
+                                    }
+                                    _ => None,
+                                })
+                                .collect()
+                        }
+                        _ => Vec::new(),
+                    };
                     let skip_foreign_handle = match e {
                         Expr::Ident(id) if ret_key.starts_with("ForeignHandle_") => {
                             Some(id.name.as_str())
@@ -1471,7 +1504,9 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     let string_owners: Vec<String> = ctx
                         .string_owners_all()
                         .into_iter()
-                        .filter(|n| skip_string != Some(n.as_str()))
+                        .filter(|n| {
+                            skip_string != Some(n.as_str()) && !moved_strings.iter().any(|m| m == n)
+                        })
                         .collect();
                     if ret_key == "Unit" {
                         let _ = writeln!(out, "{p}{};", emit_expr(e, ctx));

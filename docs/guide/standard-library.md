@@ -62,7 +62,9 @@ Console, process, and file helpers (runtime `aura_*` intrinsics). Strict file AP
 | ------------------------ | --------------------------------------------------------------------------------- |
 | `args(): Array<String>`  | Process argv; `[0]` = program name; user flags from index 1 (C12b)                |
 | `readLine(): String?`    | One line without trailing `\n` / `\r\n`; `null` on EOF; empty line is `""` (C12d) |
+| `readLineResult()`       | `Result<String?, String>`; `Ok(null)` is EOF and `Err` is an I/O failure          |
 | `readAllStdin(): String` | Remainder of stdin (throws on oversize / I/O / embedded NUL)                      |
+| `readAllStdinResult()`   | `Result<String, String>` with an owned stdin failure message                      |
 | `exit(code: Int)`        | Terminate with status; flushes stdout/stderr first; does not return (C12e)        |
 
 ### Task outcomes
@@ -92,10 +94,14 @@ printf 'line\n' | cargo run -p aura-cli -- run corpus/std_io/stdin
 | `writeFileResult(path, content): Result<Bool, String>` | non-throwing write with error payload                         |
 | `appendFile(path, content)`                            | append (create if needed)                                     |
 | `fileExists(path): Bool`                               | regular file present                                          |
+| `fileExistsResult(path): Result<Bool, String>`         | non-throwing regular-file existence check                     |
 | `fileSize(path): Int`                                  | byte size (throws if missing)                                 |
+| `fileSizeResult(path): Result<Int, String>`            | non-throwing regular-file size query                          |
 | `openFile(path, mode): ForeignHandle<Int>`             | owned handle; mode 0 read, 1 truncate, 2 read/write, 3 append |
 | `readFd(fd, capacity): String`                         | async bounded descriptor read                                 |
+| `readFdResult(fd, capacity): Result<String, String>`   | async descriptor read with an owned failure message           |
 | `writeFd(fd, content): Int`                            | async descriptor write; returns bytes                         |
+| `writeFdResult(fd, content): Result<Int, String>`      | async descriptor write with an owned failure message          |
 
 Typical use (explicit import or auto-prelude on package builds):
 
