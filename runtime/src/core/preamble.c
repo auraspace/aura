@@ -25,6 +25,11 @@
 #endif
 
 static volatile sig_atomic_t aura_shutdown_signal = 0;
+#if defined(__unix__) || defined(__APPLE__)
+static struct sigaction aura_previous_sigint;
+static struct sigaction aura_previous_sigterm;
+static int aura_signal_installed = 0;
+#endif
 
 static void aura_signal_handler(int signal_number)
 {
@@ -35,11 +40,22 @@ static void aura_signal_handler(int signal_number)
 int aura_signal_install_shutdown(void)
 {
 #if defined(__unix__) || defined(__APPLE__)
-  if (signal(SIGINT, aura_signal_handler) == SIG_ERR ||
-      signal(SIGTERM, aura_signal_handler) == SIG_ERR)
+  if (aura_signal_installed)
+    return 1;
+
+  struct sigaction action;
+  memset(&action, 0, sizeof(action));
+  sigemptyset(&action.sa_mask);
+  action.sa_handler = aura_signal_handler;
+  action.sa_flags = SA_RESTART;
+  if (sigaction(SIGINT, &action, &aura_previous_sigint) != 0)
+    return 0;
+  if (sigaction(SIGTERM, &action, &aura_previous_sigterm) != 0)
   {
+    (void)sigaction(SIGINT, &aura_previous_sigint, NULL);
     return 0;
   }
+  aura_signal_installed = 1;
   return 1;
 #else
   return 0;

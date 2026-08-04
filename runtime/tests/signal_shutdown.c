@@ -8,6 +8,7 @@ int main(void)
 {
 #if defined(__unix__) || defined(__APPLE__)
   assert(aura_signal_install_shutdown() == 1);
+  assert(aura_signal_install_shutdown() == 1);
   assert(!aura_signal_shutdown_requested());
   raise(SIGTERM);
   assert(aura_signal_shutdown_requested());
