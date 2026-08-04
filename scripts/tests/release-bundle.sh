@@ -11,7 +11,7 @@ acceptance="$tmp/acceptance"
 mkdir -p "$assets" "$acceptance"
 version="0.1.1-alpha.fixture"
 
-for target in linux-amd64 darwin-arm64 darwin-amd64; do
+for target in linux-amd64 linux-arm64 darwin-arm64 darwin-amd64; do
   printf 'fixture artifact for %s\n' "$target" >"$assets/aura-${version}-${target}.tar.gz"
   (cd "$assets" && sha256sum "aura-${version}-${target}.tar.gz" >"aura-${version}-${target}.tar.gz.sha256")
   mode=native
@@ -23,6 +23,7 @@ for target in linux-amd64 darwin-arm64 darwin-amd64; do
     execution=ran
     case "$target" in
       linux-amd64) host_os=linux; host_arch=amd64 ;;
+      linux-arm64) host_os=linux; host_arch=arm64 ;;
       darwin-arm64) host_os=darwin; host_arch=arm64 ;;
     esac
   fi

@@ -8,27 +8,18 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 ## Open
 
-### API-003 compiler/runtime/tooling boundary inventory (2026-07-31)
+### GC-001 concurrent tracing collector contract (2026-08-04)
 
-- Area: RFC-001/002/004/005/006/008/010/012/013/014 surfaces
-- Symptom: the concurrent tracing collector/write-barrier contract and
-  native artifacts for tier-2 targets are not complete. Generated heap classes
-  now use precise typed trace callbacks, while legacy opaque allocations remain
-  conservative. Every packaged toolchain now carries an explicit target-neutral
-  runtime/std sysroot manifest. LSP references and rename use durable
-  server-lifetime binding identities, stdio requests have cooperative
-  cancellation, and diagnostics carry precise structured suggestions;
-  semantic overload-aware results are still open.
-  Declarative macro hygiene and invocation-span attribution are
-  now bounded and tested; macro expansion inspection and broader plugin
-  provenance remain outside this inventory item. Verified local self-update
-  and rollback are complete under the bounded U7/U8 contract.
-- Why deferred: these are separate distribution, GC, macro, and tooling
-  contracts rather than prerequisites for the current alpha compiler.
-- Next step: build and execute native Linux arm64/Windows artifacts on their
-  supported hosts, expose semantic overload facts, and replace the remaining
-  conservative opaque path with a concurrent tri-color collector and explicit
-  write barriers/stack maps.
+- Area: `runtime/src/gc_ownership.c`, generated heap ownership, task roots
+- Symptom: generated heap classes use precise typed trace callbacks, while
+  legacy opaque allocations remain conservative; collection is stop-the-world
+  mark/sweep and has no explicit concurrent tri-color write-barrier or stack-map
+  contract.
+- Why deferred: the collector, compiler-generated barriers, and suspension-root
+  metadata must be designed and sanitized together; conservative scanning is not
+  a safe substitute for that contract.
+- Next step: define the gray-work queue and write-barrier ABI, emit stack maps
+  for live task roots, then add concurrent collector and race/sanitizer coverage.
 
 ### LSP-001 language-server MVP limits (2026-07-29)
 
@@ -107,6 +98,10 @@ The detailed progress log was intentionally removed from this file on
   captures.
 - 2026-08-03: backend-neutral Checked IR/MIR, state-machine validation,
   generic closure, ownership actions, and explicit C alpha fallback boundaries.
+- 2026-08-04: API-003 compiler/runtime/tooling inventory closed for the
+  Linux amd64/arm64 and macOS release/tooling matrix; Windows remains outside
+  scope. The remaining collector work moved to GC-001, while overload-aware LSP
+  results remain tracked by LSP-001.
 
 For exact evidence, use the relevant commit history, RFC, or test fixture rather
 than restoring a per-change progress dump here.

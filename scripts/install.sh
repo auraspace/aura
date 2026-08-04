@@ -53,6 +53,8 @@ need_cmd() {
 
 detect_os_arch() {
   local os arch
+  # Release-supported Unix targets: linux/amd64, linux/arm64, darwin/amd64,
+  # and darwin/arm64. Windows remains outside the installer contract.
   os="$(uname -s | tr '[:upper:]' '[:lower:]')"
   arch="$(uname -m)"
   case "$os" in

@@ -17,11 +17,11 @@ die() {
 if [[ "${1:-}" == "--validate-target" ]]; then
   [[ $# -eq 2 ]] || die "usage: $0 --validate-target TARGET"
   case "$2" in
-    linux-amd64|darwin-arm64|darwin-amd64)
+    linux-amd64|linux-arm64|darwin-arm64|darwin-amd64)
       printf 'package target: supported %s (build capability not exercised)\n' "$2"
       exit 0
       ;;
-    linux-arm64|windows-amd64|windows-arm64)
+    windows-amd64|windows-arm64)
       die "target $2 is policy-only in alpha; no package artifact is produced"
       ;;
     *) die "unknown release target: $2" ;;
@@ -55,8 +55,9 @@ if [[ -n "${RUST_TARGET:-}" ]]; then
     x86_64-apple-darwin) OS=darwin; ARCH=amd64 ;;
     aarch64-apple-darwin|arm64-apple-darwin) OS=darwin; ARCH=arm64 ;;
     x86_64-unknown-linux-gnu) OS=linux; ARCH=amd64 ;;
+    aarch64-unknown-linux-gnu) OS=linux; ARCH=arm64 ;;
     *)
-      die "unsupported RUST_TARGET=$RUST_TARGET (supported: x86_64-unknown-linux-gnu, aarch64-apple-darwin, x86_64-apple-darwin)"
+      die "unsupported RUST_TARGET=$RUST_TARGET (supported: x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, aarch64-apple-darwin, x86_64-apple-darwin)"
       ;;
   esac
   echo "cross-compiling for $RUST_TARGET → ${OS}/${ARCH}"
@@ -84,8 +85,8 @@ else
   esac
 
   case "$OS/$ARCH" in
-    linux/amd64|darwin/arm64|darwin/amd64) ;;
-    *) die "unsupported host platform: ${OS}/${ARCH} (supported: linux/amd64, darwin/arm64, darwin/amd64)" ;;
+    linux/amd64|linux/arm64|darwin/arm64|darwin/amd64) ;;
+    *) die "unsupported host platform: ${OS}/${ARCH} (supported: linux/amd64, linux/arm64, darwin/arm64, darwin/amd64)" ;;
   esac
 
   cargo build -p aura-cli --release

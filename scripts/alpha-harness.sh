@@ -15,7 +15,7 @@ usage() {
     "  --list                         list stages" \
     "  --stage NAME                   run one stage" \
     "  --fixture ID                   select a stage fixture" \
-    "  --target TRIPLE                linux-amd64, darwin-arm64, darwin-amd64" \
+    "  --target TRIPLE                linux-amd64, linux-arm64, darwin-arm64, darwin-amd64" \
     "  --profile PROFILE              dev, test, or release" \
     "  --offline                      skip network stages (default)" \
     "  --network                      enable network-required stages" \
@@ -47,12 +47,13 @@ fixture_stage() {
 host_target() {
   case "$(uname -s)/$(uname -m)" in
     Linux/x86_64|Linux/amd64) echo linux-amd64 ;;
+    Linux/aarch64|Linux/arm64) echo linux-arm64 ;;
     Darwin/arm64|Darwin/aarch64) echo darwin-arm64 ;;
     Darwin/x86_64|Darwin/amd64) echo darwin-amd64 ;;
     *) echo unsupported ;;
   esac
 }
-target_supported() { case "$1" in linux-amd64|darwin-arm64|darwin-amd64) return 0 ;; *) return 1 ;; esac; }
+target_supported() { case "$1" in linux-amd64|linux-arm64|darwin-arm64|darwin-amd64) return 0 ;; *) return 1 ;; esac; }
 json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\\"/g; s/[[:cntrl:]]/ /g'; }
 
 report_init() {

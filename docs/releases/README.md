@@ -105,21 +105,22 @@ The CI and release workflows use the same required artifact matrix:
 
 The source of truth is [`scripts/release-targets.tsv`](../../scripts/release-targets.tsv), checked by [`scripts/validate-release-policy.sh`](../../scripts/validate-release-policy.sh). The cross-target validator compares both the tag release matrix and the PR CI `platform-contract` matrix against that manifest, and fails before packaging if either workflow drifts from package/installer support or if production signing is incomplete.
 
-| Target       | Artifact suffix | Build mode                |
-| ------------ | --------------- | ------------------------- |
-| Linux x86_64 | `linux-amd64`   | native on `ubuntu-latest` |
-| macOS arm64  | `darwin-arm64`  | native on `macos-14`      |
-| macOS x86_64 | `darwin-amd64`  | cross-built on `macos-14` |
+| Target       | Artifact suffix | Build mode                   |
+| ------------ | --------------- | ---------------------------- |
+| Linux x86_64 | `linux-amd64`   | native on `ubuntu-latest`    |
+| Linux arm64  | `linux-arm64`   | native on `ubuntu-24.04-arm` |
+| macOS arm64  | `darwin-arm64`  | native on `macos-14`         |
+| macOS x86_64 | `darwin-amd64`  | cross-built on `macos-14`    |
 
-Linux arm64 and Windows amd64/arm64 are explicit tier2 policy targets. They
-are not required CI jobs, release artifacts, or installer targets until native
-acceptance evidence exists. The non-claim is verified by JSON fixtures in
+Windows amd64/arm64 remain explicit tier2 policy targets. They are not required
+CI jobs, release artifacts, or installer targets until native acceptance
+evidence exists. The non-claim is verified by JSON fixtures in
 `scripts/fixtures/target-policy/`. Unsupported targets should use the
 [source-install path](../guide/install.md#install-from-source-alpha) when
 their Rust and C toolchains are available.
 
-In machine-readable target names, these are `linux-arm64`, `windows-amd64`, and
-`windows-arm64`; all remain policy-only until native acceptance is added.
+In machine-readable target names, the remaining policy-only targets are
+`windows-amd64` and `windows-arm64`.
 
 Production release tags require the GitHub `production` environment, with
 `AURA_MINISIGN_SECRET_KEY` configured as an environment secret and
@@ -140,7 +141,7 @@ They do not substitute for external evidence. Before a target is promoted from
 policy-only or a production release is declared complete, retain links or CI
 run IDs for the following:
 
-- Linux arm64, Windows amd64, and Windows arm64: native package, installer,
+- Windows amd64 and Windows arm64: native package, installer,
   `aura version`, and `aura new && aura run` results on the declared runner.
 - Registry: an authenticated production publish, signed index/receipt
   verification, install/update checksum verification, and a rollback against

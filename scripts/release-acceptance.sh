@@ -75,7 +75,7 @@ report_native_scope() {
   os="$(uname -s)"
   arch="$(uname -m)"
   case "$os/$arch" in
-    Linux/x86_64|Linux/amd64|Darwin/arm64|Darwin/aarch64|Darwin/x86_64|Darwin/amd64)
+    Linux/x86_64|Linux/amd64|Linux/aarch64|Linux/arm64|Darwin/arm64|Darwin/aarch64|Darwin/x86_64|Darwin/amd64)
       printf '    native target exercised by this run: %s/%s\n' "$os" "$arch"
       printf '    other supported targets require their own native host; no cross-target runtime claim is made\n'
       ;;

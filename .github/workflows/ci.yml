@@ -124,6 +124,8 @@ jobs:
         include:
           - os: ubuntu-latest
             name: linux-amd64
+          - os: ubuntu-24.04-arm
+            name: linux-arm64
           - os: macos-14
             name: darwin-arm64
 
@@ -155,10 +157,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # linux-amd64 and darwin-arm64 are native builds; darwin-amd64 is
+          # Linux amd64/arm64 and darwin-arm64 are native builds; darwin-amd64 is
           # cross-compiled because macos-13 Intel runners are unavailable.
           - os: ubuntu-latest
             name: linux-amd64
+          - os: ubuntu-24.04-arm
+            name: linux-arm64
           - os: macos-14
             name: darwin-arm64
           - os: macos-14

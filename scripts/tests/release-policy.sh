@@ -54,12 +54,12 @@ if AURA_RELEASE_WORKFLOW_FILE="$tmp/manifest.yml" bash scripts/validate-release-
 fi
 
 cp -R scripts/fixtures/target-policy "$tmp/target-policy"
-rm "$tmp/target-policy/linux-arm64.json"
+rm "$tmp/target-policy/windows-amd64.json"
 if AURA_TARGET_POLICY_FIXTURE_DIR="$tmp/target-policy" bash scripts/validate-release-policy.sh >/dev/null 2>&1; then
-  printf 'release policy test: validator missed missing linux-arm64 policy fixture\n' >&2
+  printf 'release policy test: validator missed missing windows-amd64 policy fixture\n' >&2
   exit 1
 fi
-cp scripts/fixtures/target-policy/linux-arm64.json "$tmp/target-policy/linux-arm64.json"
+cp scripts/fixtures/target-policy/windows-amd64.json "$tmp/target-policy/windows-amd64.json"
 edit_file 's/"production_claim": false/"production_claim": true/' "$tmp/target-policy/windows-amd64.json"
 if AURA_TARGET_POLICY_FIXTURE_DIR="$tmp/target-policy" bash scripts/validate-release-policy.sh >/dev/null 2>&1; then
   printf 'release policy test: validator accepted an unsupported target claim\n' >&2
@@ -68,7 +68,7 @@ fi
 
 cp scripts/package-release.sh "$tmp/package-release.sh"
 chmod +x "$tmp/package-release.sh"
-edit_file 's/linux-amd64|darwin-arm64|darwin-amd64/linux-amd64|darwin-arm64|darwin-amd64|linux-arm64/' "$tmp/package-release.sh"
+edit_file 's/windows-amd64|windows-arm64/windows-amd64|windows-arm64|linux-arm64/' "$tmp/package-release.sh"
 if AURA_PACKAGE_SCRIPT_FILE="$tmp/package-release.sh" bash scripts/validate-cross-target-packaging.sh >/dev/null 2>&1; then
   printf 'release policy test: validator accepted a policy-only target in package support\n' >&2
   exit 1

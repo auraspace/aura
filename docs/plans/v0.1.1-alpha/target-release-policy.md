@@ -8,17 +8,16 @@ post-alpha async, I/O, HTTP, FFI, registry, or cross-host follow-up rows.
 
 The release matrix contains exactly these Unix targets:
 
-| Target ID      | Platform     | Rust target                | Build mode                   |
-| -------------- | ------------ | -------------------------- | ---------------------------- |
-| `linux-amd64`  | Linux x86_64 | `x86_64-unknown-linux-gnu` | Native on `ubuntu-latest`    |
-| `darwin-arm64` | macOS arm64  | `aarch64-apple-darwin`     | Native on `macos-14`         |
-| `darwin-amd64` | macOS x86_64 | `x86_64-apple-darwin`      | Cross-compiled on `macos-14` |
+| Target ID      | Platform     | Rust target                 | Build mode                   |
+| -------------- | ------------ | --------------------------- | ---------------------------- |
+| `linux-amd64`  | Linux x86_64 | `x86_64-unknown-linux-gnu`  | Native on `ubuntu-latest`    |
+| `linux-arm64`  | Linux arm64  | `aarch64-unknown-linux-gnu` | Native on `ubuntu-24.04-arm` |
+| `darwin-arm64` | macOS arm64  | `aarch64-apple-darwin`      | Native on `macos-14`         |
+| `darwin-amd64` | macOS x86_64 | `x86_64-apple-darwin`       | Cross-compiled on `macos-14` |
 
-`darwin-*` is the artifact target spelling for macOS. Linux arm64 and Windows
-targets are policy-only until their native artifact and installer acceptance
-evidence exists; they were not release claims in this alpha. The explicit
-non-claims are checked by JSON fixtures under
-`scripts/fixtures/target-policy/`.
+`darwin-*` is the artifact target spelling for macOS. Windows targets remain
+policy-only and are not release claims in this alpha. Linux arm64 is a required
+native target with package and installer support.
 
 If a supported target fails preflight or release acceptance, it is removed
 from the published matrix and release assets until its native/cross acceptance
@@ -59,7 +58,7 @@ then signs and verifies the manifest and publishes `SHA256SUMS.minisig` plus
 
 ## Workflow contract
 
-Pull-request CI packages and checksum-verifies all three targets. Tag release
+Pull-request CI packages and checksum-verifies all four targets. Tag release
 CI uses the same matrix, checks the exact versioned filenames and adjacent
 checksums, verifies the checksums again in the release job, and only then
 uploads the assets to GitHub Releases.

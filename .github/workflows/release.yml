@@ -22,10 +22,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # linux-amd64 and darwin-arm64 are native builds. darwin-amd64 is
+          # Linux amd64/arm64 and darwin-arm64 are native builds. darwin-amd64 is
           # cross-compiled on macos-14 because macos-13 Intel runners retired.
           - os: ubuntu-latest
             name: linux-amd64
+          - os: ubuntu-24.04-arm
+            name: linux-arm64
           - os: macos-14
             name: darwin-arm64
           # macos-13 (Intel) retired Dec 2025; cross-compile amd64 on Apple Silicon.
@@ -181,7 +183,7 @@ jobs:
           ls -la release-assets
           ls -la release-acceptance
           version="${GITHUB_REF_NAME#v}"
-          for target in linux-amd64 darwin-arm64 darwin-amd64; do
+          for target in linux-amd64 linux-arm64 darwin-arm64 darwin-amd64; do
             archive="aura-${version}-${target}.tar.gz"
             checksum="${archive}.sha256"
             test -f "release-assets/$archive" || { echo "error: missing $archive" >&2; exit 1; }
@@ -189,7 +191,7 @@ jobs:
             (cd release-assets && sha256sum --check "$checksum")
           done
           count="$(find release-assets -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.sha256' \) | wc -l | tr -d ' ')"
-          test "$count" -eq 6 || { echo "error: expected exactly 6 target assets, found $count" >&2; exit 1; }
+          test "$count" -eq 8 || { echo "error: expected exactly 8 target assets, found $count" >&2; exit 1; }
 
       - name: Generate release manifest
         run: |
