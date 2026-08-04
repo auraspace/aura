@@ -695,6 +695,18 @@ fn expands_declarative_macro_before_ast_parsing() {
 }
 
 #[test]
+fn generated_macro_tokens_use_invocation_spans() {
+    let source = "package demo\nmacro! value { () => { 42 }; }\nfun main() { println(value!().toString()) }\n";
+    let file = parse_file(source).expect("macro should parse");
+    let debug = format!("{:?}", file.functions[0].body);
+    let invocation = source.find("value!()").unwrap() as u32;
+    assert!(
+        debug.contains(&format!("span: Span {{ start: {invocation}")),
+        "{debug}"
+    );
+}
+
+#[test]
 fn reports_declarative_macro_recursion_limit() {
     let error =
         parse_file("package demo\nmacro! loop { () => { loop!() }; }\nfun main() { loop!() }\n")

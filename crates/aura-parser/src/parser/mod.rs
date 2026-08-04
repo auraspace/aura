@@ -611,8 +611,11 @@ fn expand_tree_list(
                 if let Some(definition) = macros.iter().find(|item| item.name == *name) {
                     let mut matched = None;
                     for rule in &definition.rules {
-                        let hygienic_template =
+                        let mut hygienic_template =
                             hygienize_template(&rule.template, &definition.name, hygiene_mark);
+                        let invocation_span =
+                            Span::new(tree[index].span().start, tree[index + 2].span().end);
+                        retarget_generated_spans(&mut hygienic_template, invocation_span);
                         if let Some(captures) = match_nested_repeated_pattern(&rule.pattern, input)
                         {
                             matched =
@@ -667,6 +670,24 @@ fn expand_tree_list(
 fn hygienize_template(template: &[TokenTree], macro_name: &str, mark: &mut u64) -> Vec<TokenTree> {
     let scope = std::collections::BTreeMap::new();
     rename_template_scope(template, &scope, macro_name, mark)
+}
+
+/// Generated template tokens belong to the invocation for diagnostics. Tokens
+/// substituted from metavariables retain their original call-site spans.
+fn retarget_generated_spans(trees: &mut [TokenTree], span: Span) {
+    for tree in trees {
+        match tree {
+            TokenTree::Leaf(token) => token.span = span,
+            TokenTree::Group {
+                span: group_span,
+                children,
+                ..
+            } => {
+                *group_span = span;
+                retarget_generated_spans(children, span);
+            }
+        }
+    }
 }
 
 fn is_hygienic_declaration_keyword(kind: &TokenKind) -> bool {

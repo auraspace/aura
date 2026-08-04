@@ -12,12 +12,15 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 - Area: RFC-001/002/004/005/006/008/010/012/013/014 surfaces
 - Symptom: concurrent tracing write barriers and precise stack maps,
-  cross-target sysroot delivery, self-update, unhygienic macro spans, and full
-  LSP protocol behavior are not complete.
+  cross-target sysroot delivery, and full LSP protocol behavior are not
+  complete. Declarative macro hygiene and invocation-span attribution are
+  now bounded and tested; macro expansion inspection and broader plugin
+  provenance remain outside this inventory item.
 - Why deferred: these are separate distribution, GC, macro, and tooling
   contracts rather than prerequisites for the current alpha compiler.
-- Next step: specify each boundary independently and track acceptance on the
-  relevant host/tooling matrix.
+- Next step: split the remaining GC, sysroot, and LSP contracts into
+  independently testable boundaries and track acceptance on the relevant
+  host/tooling matrix.
 
 ### LSP-001 language-server MVP limits (2026-07-29)
 

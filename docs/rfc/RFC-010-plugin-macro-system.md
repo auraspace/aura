@@ -100,7 +100,8 @@ macro! vec {
   resolved through lexical token-tree scopes, including nested blocks and
   function parameters; shadowed bindings therefore remain distinct.
   Identifiers supplied through metavariables retain caller spelling. Explicit
-  unhygienic spans and expansion inspection remain future surface area.
+  explicit unhygienic spans and expansion inspection remain future surface
+  area; generated template tokens are attributed to the invocation span.
 
 ### 6.3 Derive macros
 
@@ -226,8 +227,8 @@ rejected before plugin execution or decoder allocation.
 
 | Date       | Author | Change                                                                                         |
 | ---------- | ------ | ---------------------------------------------------------------------------------------------- |
-| 2026-08-02 |        | Add fail-closed 16 MiB field limits to the stable plugin protocol                            |
-| 2026-08-01 |        | Implement Linux bubblewrap sandbox and export the versioned request encoder                  |
+| 2026-08-02 |        | Add fail-closed 16 MiB field limits to the stable plugin protocol                              |
+| 2026-08-01 |        | Implement Linux bubblewrap sandbox and export the versioned request encoder                    |
 | 2026-07-16 |        | Lock derives-first + package-export macros; Status → **Accepted**                              |
 | 2026-07-16 |        | Status → **In Review** — Review: derives MVP + process sandbox locked; declarative syntax open |
 | 2026-07-15 |        | Initial skeleton                                                                               |
