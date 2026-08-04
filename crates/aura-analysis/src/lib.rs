@@ -3,7 +3,7 @@
 //! The host owns document snapshots and query caches. Parsing and semantic
 //! implementation details remain in `aura-parser` and `aura-sema`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -71,10 +71,86 @@ struct Document {
     source: Arc<str>,
 }
 
-#[derive(Default)]
 struct QueryCache {
     parsed: BTreeMap<(DocumentId, Arc<str>), Result<Arc<File>, ParseError>>,
     analyzed: BTreeMap<(DocumentId, Arc<str>), Result<Arc<Analysis>, AnalysisError>>,
+    parsed_order: VecDeque<(DocumentId, Arc<str>)>,
+    analyzed_order: VecDeque<(DocumentId, Arc<str>)>,
+    parsed_hits: u64,
+    analyzed_hits: u64,
+    parsed_evictions: u64,
+    analyzed_evictions: u64,
+}
+
+const QUERY_CACHE_CAPACITY: usize = 128;
+
+impl Default for QueryCache {
+    fn default() -> Self {
+        Self {
+            parsed: BTreeMap::new(),
+            analyzed: BTreeMap::new(),
+            parsed_order: VecDeque::new(),
+            analyzed_order: VecDeque::new(),
+            parsed_hits: 0,
+            analyzed_hits: 0,
+            parsed_evictions: 0,
+            analyzed_evictions: 0,
+        }
+    }
+}
+
+/// Bounded cache counters exposed for long-lived language-server hosts.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CacheStats {
+    pub parsed_entries: usize,
+    pub analyzed_entries: usize,
+    pub parsed_hits: u64,
+    pub analyzed_hits: u64,
+    pub parsed_evictions: u64,
+    pub analyzed_evictions: u64,
+}
+
+impl QueryCache {
+    fn touch_parsed(&mut self, key: &(DocumentId, Arc<str>), value: Result<Arc<File>, ParseError>) {
+        if self.parsed.contains_key(key) {
+            self.parsed_order.retain(|candidate| candidate != key);
+        } else if self.parsed.len() >= QUERY_CACHE_CAPACITY {
+            if let Some(oldest) = self.parsed_order.pop_front() {
+                self.parsed.remove(&oldest);
+                self.parsed_evictions += 1;
+            }
+        }
+        self.parsed.insert(key.clone(), value);
+        self.parsed_order.push_back(key.clone());
+    }
+
+    fn touch_analyzed(
+        &mut self,
+        key: &(DocumentId, Arc<str>),
+        value: Result<Arc<Analysis>, AnalysisError>,
+    ) {
+        if self.analyzed.contains_key(key) {
+            self.analyzed_order.retain(|candidate| candidate != key);
+        } else if self.analyzed.len() >= QUERY_CACHE_CAPACITY {
+            if let Some(oldest) = self.analyzed_order.pop_front() {
+                self.analyzed.remove(&oldest);
+                self.analyzed_evictions += 1;
+            }
+        }
+        self.analyzed.insert(key.clone(), value);
+        self.analyzed_order.push_back(key.clone());
+    }
+
+    fn stats(&self) -> CacheStats {
+        CacheStats {
+            parsed_entries: self.parsed.len(),
+            analyzed_entries: self.analyzed.len(),
+            parsed_hits: self.parsed_hits,
+            analyzed_hits: self.analyzed_hits,
+            parsed_evictions: self.parsed_evictions,
+            analyzed_evictions: self.analyzed_evictions,
+        }
+    }
 }
 
 struct WorkspaceState {
@@ -184,25 +260,29 @@ impl AnalysisSnapshot {
             .ok_or_else(|| QueryError::DocumentNotFound(id.clone()))
     }
 
+    pub fn cache_stats(&self) -> CacheStats {
+        self.cache
+            .lock()
+            .expect("analysis cache lock poisoned")
+            .stats()
+    }
+
     /// Parse a document, reusing a successful or failed result for unchanged text.
     pub fn parse(&self, id: &DocumentId) -> Result<Arc<File>, QueryError> {
         let document = self.document(id)?;
         let key = (id.clone(), Arc::clone(&document.source));
-        if let Some(result) = self
-            .cache
-            .lock()
-            .expect("analysis cache lock poisoned")
-            .parsed
-            .get(&key)
         {
-            return result.clone().map_err(QueryError::Parse);
+            let mut cache = self.cache.lock().expect("analysis cache lock poisoned");
+            if let Some(result) = cache.parsed.get(&key).cloned() {
+                cache.parsed_hits += 1;
+                cache.parsed_order.retain(|candidate| candidate != &key);
+                cache.parsed_order.push_back(key);
+                return result.map_err(QueryError::Parse);
+            }
         }
         let result = parse_file(&document.source).map(Arc::new);
-        self.cache
-            .lock()
-            .expect("analysis cache lock poisoned")
-            .parsed
-            .insert(key, result.clone());
+        let mut cache = self.cache.lock().expect("analysis cache lock poisoned");
+        cache.touch_parsed(&key, result.clone());
         result.map_err(QueryError::Parse)
     }
 
@@ -210,14 +290,14 @@ impl AnalysisSnapshot {
     pub fn analyze(&self, id: &DocumentId) -> Result<Arc<Analysis>, QueryError> {
         let document = self.document(id)?;
         let key = (id.clone(), Arc::clone(&document.source));
-        if let Some(result) = self
-            .cache
-            .lock()
-            .expect("analysis cache lock poisoned")
-            .analyzed
-            .get(&key)
         {
-            return result.clone().map_err(QueryError::Analysis);
+            let mut cache = self.cache.lock().expect("analysis cache lock poisoned");
+            if let Some(result) = cache.analyzed.get(&key).cloned() {
+                cache.analyzed_hits += 1;
+                cache.analyzed_order.retain(|candidate| candidate != &key);
+                cache.analyzed_order.push_back(key);
+                return result.map_err(QueryError::Analysis);
+            }
         }
         let result = match self.parse(id) {
             Ok(ast) => check_file(&ast)
@@ -237,11 +317,8 @@ impl AnalysisSnapshot {
             Err(QueryError::Parse(error)) => Err(AnalysisError::Parse(error)),
             Err(QueryError::Analysis(error)) => Err(error),
         };
-        self.cache
-            .lock()
-            .expect("analysis cache lock poisoned")
-            .analyzed
-            .insert(key, result.clone());
+        let mut cache = self.cache.lock().expect("analysis cache lock poisoned");
+        cache.touch_analyzed(&key, result.clone());
         result.map_err(QueryError::Analysis)
     }
 
@@ -397,6 +474,30 @@ mod tests {
 
         assert!(Arc::ptr_eq(&first_ast, &second_ast));
         assert!(Arc::ptr_eq(&first_analysis, &second_analysis));
+    }
+
+    #[test]
+    fn parse_cache_evicts_old_snapshots_and_reports_stats() {
+        let host = AnalysisHost::new();
+        for index in 0..=128 {
+            host.set_document(
+                format!("file:///{index}.aura"),
+                format!("package demo{index}\nfun main() {{}}\n"),
+            );
+        }
+        let snapshot = host.snapshot();
+        for id in snapshot.document_ids().cloned().collect::<Vec<_>>() {
+            snapshot.parse(&id).unwrap();
+        }
+
+        let stats = snapshot.cache_stats();
+        assert_eq!(stats.parsed_entries, 128);
+        assert!(stats.parsed_evictions >= 1);
+
+        snapshot.parse(&DocumentId::from("file:///0.aura")).unwrap();
+        let refreshed = snapshot.cache_stats();
+        assert_eq!(refreshed.parsed_hits, 0);
+        assert!(refreshed.parsed_evictions >= 2);
     }
 
     #[test]

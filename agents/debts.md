@@ -30,14 +30,6 @@ commits, RFCs, or release notes instead of appending progress for every change.
 - Next step: share the package cache with all semantic queries, add binding IDs
   and structured suggestions, then move long queries to a cancellable scheduler.
 
-### ANALYSIS-001 analysis cache eviction (2026-07-29)
-
-- Area: `aura-analysis` snapshot query cache
-- Symptom: every distinct document snapshot remains cached for the lifetime of
-  the host.
-- Next step: add bounded LRU/size-based eviction and hit/eviction metrics before
-  enabling long-lived workspaces by default.
-
 ### ASYNC-001 remaining aggregate/runtime ownership cases (2026-08-03)
 
 - Area: async frames, task outcomes, channels, and generated ownership hooks
