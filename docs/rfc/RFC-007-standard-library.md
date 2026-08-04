@@ -36,7 +36,7 @@ structured logging/metrics. Some operations remain intentionally bounded or
 runtime-backed: strict file APIs may throw `String`, `std.net` uses endpoint
 strings with loopback as the port-only default,
 JSON exposes bounded traversal/mapping, including recursive generic class decoding
-with primitive leaves, unit-enum fields, and primitive/class arrays, and Unix sockets plus framework-level
+with primitive leaves, nested class/struct fields, unit-enum fields, and primitive/class/unit-enum arrays, and Unix sockets plus framework-level
 HTTP routing remain outside this alpha core.
 
 ## 2. Motivation
@@ -341,7 +341,7 @@ val text = value?.serialize()
 - The shipped bounded value model validates complete values, preserves their
   source text, exposes root classification, traversal, independent cloning,
   size/depth metadata, duplicate-key policy, typed failures, and primitive,
-  string, recursive generic-class, unit-enum, and primitive/class/unit-enum-array
+  string, recursive generic class/struct, unit-enum, and primitive/class/unit-enum-array
   `decode<T>` mappings. `ParseOptions` enforces `maxBytes`, `maxDepth`, and
   `Reject`/`FirstWins`/`LastWins`; payload-carrying enums, arbitrary aggregate
   leaves, and derive-driven mappings remain outside this bounded shape.

@@ -27,6 +27,7 @@ use crate::stmt::{emit_block, emit_return_fallback};
 #[derive(Debug, Clone)]
 struct JsonDecodeNode {
     mono: String,
+    is_struct: bool,
     fields: Vec<JsonDecodeField>,
 }
 
@@ -161,7 +162,11 @@ fn build_json_decode_node(
         });
     }
     seen.pop();
-    Some(JsonDecodeNode { mono: full, fields })
+    Some(JsonDecodeNode {
+        mono: full,
+        is_struct: class.kind == NominalKind::Struct,
+        fields,
+    })
 }
 
 fn json_decode_var(path: &str, suffix: &str) -> String {
@@ -224,18 +229,16 @@ fn emit_json_decode_declarations(out: &mut String, node: &JsonDecodeNode, path: 
                 }
             }
             _ => {
+                let nested = field.nested.as_ref().expect("nested JSON node");
                 let class = json_decode_var(&field_path, "class");
-                let _ = writeln!(
-                    out,
-                    "  {} *{class} = NULL;",
-                    c_class_type(&field.nested.as_ref().expect("nested JSON node").mono)
-                );
+                if nested.is_struct {
+                    let _ = writeln!(out, "  {} {class} = {{ 0 }};", c_class_type(&nested.mono));
+                    emit_json_decode_declarations(out, nested, &field_path);
+                    continue;
+                }
+                let _ = writeln!(out, "  {} *{class} = NULL;", c_class_type(&nested.mono));
                 let _ = writeln!(out, "  aura_gc_add_root((void **)&{class});");
-                emit_json_decode_declarations(
-                    out,
-                    field.nested.as_ref().expect("nested JSON node"),
-                    &field_path,
-                );
+                emit_json_decode_declarations(out, nested, &field_path);
             }
         }
     }
@@ -393,6 +396,13 @@ fn emit_json_decode_parse(
             }
             _ => {
                 let class = json_decode_var(&field_path, "class");
+                let nested = field.nested.as_ref().expect("nested JSON node");
+                if nested.is_struct {
+                    emit_json_decode_parse(out, nested, &field_path, &raw, checked);
+                    let args = emit_json_decode_ctor_args(nested, &field_path);
+                    let _ = writeln!(out, "  {class} = {}({args});", c_ctor_name(&nested.mono));
+                    continue;
+                }
                 if field.nullable {
                     let _ = writeln!(
                         out,
@@ -401,14 +411,7 @@ fn emit_json_decode_parse(
                 } else {
                     let _ = writeln!(out, "  {{");
                 }
-                emit_json_decode_parse(
-                    out,
-                    field.nested.as_ref().expect("nested JSON node"),
-                    &field_path,
-                    &raw,
-                    checked,
-                );
-                let nested = field.nested.as_ref().expect("nested JSON node");
+                emit_json_decode_parse(out, nested, &field_path, &raw, checked);
                 let args = nested
                     .fields
                     .iter()
@@ -478,8 +481,10 @@ fn emit_json_decode_cleanup(out: &mut String, node: &JsonDecodeNode, path: &str)
         }
         if let Some(nested) = &field.nested {
             emit_json_decode_cleanup(out, nested, &field_path);
-            let class = json_decode_var(&field_path, "class");
-            let _ = writeln!(out, "  aura_gc_remove_root((void **)&{class});");
+            if !nested.is_struct {
+                let class = json_decode_var(&field_path, "class");
+                let _ = writeln!(out, "  aura_gc_remove_root((void **)&{class});");
+            }
         }
     }
 }

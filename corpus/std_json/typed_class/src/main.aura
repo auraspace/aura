@@ -14,6 +14,8 @@ class ClassBatch<T>(val values: Array<Leaf<T>>) {}
 enum Phase { case Ready case Done }
 class PhaseValue<T>(val phase: Phase, val value: T) {}
 class PhaseBatch(val phases: Array<Phase>) {}
+struct Coordinates(val city: String, val zip: Int) {}
+class StructEnvelope(val location: Coordinates) {}
 
 fun main() {
   val decoded = decode<Config>(Value("{\"name\":\"aura\",\"enabled\":true,\"count\":7,\"address\":{\"city\":\"Hanoi\",\"zip\":1000}}"))
@@ -84,4 +86,9 @@ fun main() {
   if (decode<PhaseBatch>(Value("{\"phases\":[\"Ready\",\"Unknown\"]}")) != null) {
     throw "typed class decode accepted an unknown enum array variant"
   }
+  val structValue = decode<StructEnvelope>(Value("{\"location\":{\"city\":\"Hue\",\"zip\":99}}"))
+  if (structValue == null || structValue!!.location.city != "Hue" || structValue!!.location.zip != 99) {
+    throw "typed class decode failed for struct fields"
+  }
+  println("struct")
 }
