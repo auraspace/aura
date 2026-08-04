@@ -102,21 +102,25 @@ pub(crate) fn validate_build(
     Ok(())
 }
 
-/// The alpha's `Native` target is intentionally narrower than “any platform
-/// on which a C compiler happens to run”. Keep the supported release matrix in
-/// one place so a build cannot be advertised as native on an untested host.
+/// The native target follows the release matrix. Keep the supported host set
+/// here so a build cannot be advertised as native on an untested platform.
 fn validate_native_host() -> Result<(), ValidationError> {
     let host = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
     let supported = matches!(
         (std::env::consts::OS, std::env::consts::ARCH),
-        ("linux", "x86_64") | ("macos", "aarch64") | ("macos", "x86_64")
+        ("linux", "x86_64")
+            | ("linux", "aarch64")
+            | ("macos", "aarch64")
+            | ("macos", "x86_64")
+            | ("windows", "x86_64")
+            | ("windows", "aarch64")
     );
     if supported {
         Ok(())
     } else {
         Err(ValidationError::UnsupportedHostTarget {
             host,
-            alternatives: "linux-x86_64, macos-aarch64, macos-x86_64",
+            alternatives: "linux-x86_64, linux-aarch64, macos-aarch64, macos-x86_64, windows-x86_64, windows-aarch64",
         })
     }
 }
@@ -230,7 +234,12 @@ mod tests {
         let host = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
         let supported = matches!(
             (std::env::consts::OS, std::env::consts::ARCH),
-            ("linux", "x86_64") | ("macos", "aarch64") | ("macos", "x86_64")
+            ("linux", "x86_64")
+                | ("linux", "aarch64")
+                | ("macos", "aarch64")
+                | ("macos", "x86_64")
+                | ("windows", "x86_64")
+                | ("windows", "aarch64")
         );
         assert_eq!(
             result.is_ok(),
