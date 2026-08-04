@@ -14,9 +14,9 @@ commits, RFCs, or release notes instead of appending progress for every change.
 - Symptom: concurrent tracing write barriers and precise stack maps,
   native artifacts for tier-2 targets, and full LSP protocol behavior are not
   complete. Every packaged toolchain now carries an explicit target-neutral
-  runtime/std sysroot manifest. LSP references and rename now use
-  snapshot-scoped binding identities, while durable identity and scheduling
-  are still open.
+  runtime/std sysroot manifest. LSP references and rename now use durable
+  server-lifetime binding identities; overload-aware results, suggestions, and
+  scheduling are still open.
   Declarative macro hygiene and invocation-span attribution are
   now bounded and tested; macro expansion inspection and broader plugin
   provenance remain outside this inventory item. Verified local self-update
@@ -24,21 +24,21 @@ commits, RFCs, or release notes instead of appending progress for every change.
 - Why deferred: these are separate distribution, GC, macro, and tooling
   contracts rather than prerequisites for the current alpha compiler.
 - Next step: build and execute native Linux arm64/Windows artifacts on their
-  supported hosts, then add durable LSP identities and a cancellable scheduler;
-  the concurrent GC contract still needs a tri-color collector and compiler
-  stack maps.
+  supported hosts, then add the remaining LSP protocol contracts; the
+  concurrent GC contract still needs a tri-color collector and compiler stack
+  maps.
 
 ### LSP-001 language-server MVP limits (2026-07-29)
 
 - Area: `crates/aura-lsp`, `auralsp`
 - Symptom: lifecycle, diagnostics, formatting, navigation, completion, and
-  code actions work. References and rename now resolve snapshot-scoped binding
-  identities, but persistent IDs across edits, overload-aware results, precise
+  code actions work. References and rename now use durable server-lifetime
+  binding IDs across span-shifting edits, but overload-aware results, precise
   suggestions, and preemptive cancellation are missing.
 - Why deferred: the analysis API and serial stdio loop do not yet provide the
-  required persistent identity and scheduling contracts.
-- Next step: make binding identities durable across document revisions, then
-  move long queries to a cancellable scheduler.
+  required overload/suggestion and scheduling contracts.
+- Next step: move long queries to a cancellable scheduler, then add semantic
+  overload resolution and structured suggestions.
 
 ### ASYNC-001 remaining aggregate/runtime ownership cases (2026-08-03)
 

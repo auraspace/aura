@@ -24,6 +24,15 @@ struct PackageExpressionCache {
     source_bases: HashMap<PathBuf, u32>,
 }
 
+#[derive(Debug, Clone)]
+struct BindingRecord {
+    id: u64,
+    name: String,
+    kind: u32,
+    scope: String,
+    span: Span,
+}
+
 pub fn run_stdio() -> io::Result<()> {
     run_stdio_with_std_root(None)
 }
@@ -105,6 +114,8 @@ struct Server {
     cancelled_requests: HashSet<String>,
     reported_analysis_failures: RefCell<HashSet<String>>,
     package_expression_cache: RefCell<HashMap<PathBuf, PackageExpressionCache>>,
+    binding_records: HashMap<String, Vec<BindingRecord>>,
+    next_binding_id: u64,
 }
 
 impl Server {
@@ -126,6 +137,8 @@ impl Server {
             cancelled_requests: HashSet::new(),
             reported_analysis_failures: RefCell::new(HashSet::new()),
             package_expression_cache: RefCell::new(HashMap::new()),
+            binding_records: HashMap::new(),
+            next_binding_id: 1,
         }
     }
 
@@ -217,6 +230,7 @@ impl Server {
             self.documents
                 .entry(uri.clone())
                 .or_insert_with(|| json!({"version":0,"text":text,"diskText":text,"open":false}));
+            self.refresh_binding_index(&uri, &text);
             self.host.set_document(DocumentId::from(uri), text);
         }
     }
@@ -261,6 +275,7 @@ impl Server {
             overlay["diskText"] = disk_text;
         }
         self.documents.insert(uri.to_owned(), overlay);
+        self.refresh_binding_index(uri, text);
         self.publish_diagnostics(uri, text);
     }
 
@@ -300,6 +315,7 @@ impl Server {
             overlay["diskText"] = disk_text;
         }
         self.documents.insert(uri.to_owned(), overlay);
+        self.refresh_binding_index(uri, &text);
         self.publish_diagnostics(uri, &text);
     }
 
@@ -332,9 +348,11 @@ impl Server {
                 document["version"] = json!(0);
                 document["text"] = Value::String(disk_text.clone());
             }
+            self.refresh_binding_index(uri, &disk_text);
             self.host.set_document(DocumentId::from(uri), disk_text);
         } else {
             self.documents.remove(uri);
+            self.binding_records.remove(uri);
             self.host.remove_document(&DocumentId::from(uri));
         }
         self.pending_notifications.push_back(json!({"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":uri,"diagnostics":[]}}));
@@ -368,6 +386,7 @@ impl Server {
             .unwrap_or(false)
         {
             document["text"] = Value::String(saved_text.clone());
+            self.refresh_binding_index(uri, &saved_text);
             self.host.set_document(DocumentId::from(uri), saved_text);
         }
     }
@@ -397,9 +416,11 @@ impl Server {
                     uri.to_owned(),
                     json!({"version":0,"text":text,"diskText":text,"open":false}),
                 );
+                self.refresh_binding_index(uri, &text);
                 self.host.set_document(DocumentId::from(uri), text);
             } else {
                 self.documents.remove(uri);
+                self.binding_records.remove(uri);
                 self.host.remove_document(&DocumentId::from(uri));
                 self.pending_notifications.push_back(json!({
                     "jsonrpc":"2.0",
@@ -440,6 +461,7 @@ impl Server {
                         continue;
                     }
                     self.documents.remove(&uri);
+                    self.binding_records.remove(&uri);
                     self.host.remove_document(&DocumentId::from(uri.as_str()));
                 }
                 self.workspace_roots.retain(|root| root != &path);
@@ -929,7 +951,7 @@ impl Server {
         else {
             return json!([]);
         };
-        let target_id = binding_id(&target_uri, &target_symbol);
+        let target_id = self.binding_id(&target_uri, &target_symbol);
         let include_declaration = params
             .and_then(|p| p.get("context"))
             .and_then(|context| context.get("includeDeclaration"))
@@ -946,7 +968,7 @@ impl Server {
                 else {
                     continue;
                 };
-                if binding_id(&resolved_uri, &resolved_symbol) != target_id {
+                if self.binding_id(&resolved_uri, &resolved_symbol) != target_id {
                     continue;
                 }
                 if !include_declaration && declaration_at(text, &name, occurrence) {
@@ -985,7 +1007,7 @@ impl Server {
                 -32602,
                 format!("cannot safely rename unresolved symbol `{name}`"),
             ))?;
-        let target_id = binding_id(&target_uri, &target_symbol);
+        let target_id = self.binding_id(&target_uri, &target_symbol);
         let new_name = params
             .and_then(|p| p.get("newName"))
             .and_then(Value::as_str)
@@ -1003,7 +1025,7 @@ impl Server {
                 .filter_map(|span| {
                     let (resolved_uri, resolved_symbol) =
                         self.find_symbol_at(document_uri, name, span)?;
-                    (binding_id(&resolved_uri, &resolved_symbol) == target_id)
+                    (self.binding_id(&resolved_uri, &resolved_symbol) == target_id)
                         .then(|| json!({"range":span_range(text, span),"newText":new_name}))
                 })
                 .collect::<Vec<_>>();
@@ -1384,6 +1406,80 @@ impl Server {
             }
         }
         matches
+    }
+
+    /// Keep binding identities stable when an edit shifts declaration spans.
+    /// Matching is scoped by symbol kind/name and the nearest declaration in
+    /// the same callable or class; unmatched declarations receive new IDs.
+    fn refresh_binding_index(&mut self, uri: &str, source: &str) {
+        let Ok(file) = parse_file(source) else {
+            return;
+        };
+        let mut symbols = Vec::new();
+        for symbol in declaration_symbols(source, &file) {
+            symbols.extend(
+                flatten_symbols(std::slice::from_ref(&symbol))
+                    .into_iter()
+                    .cloned(),
+            );
+        }
+        symbols.extend(local_symbols(source, &file));
+        let mut candidates = symbols
+            .into_iter()
+            .map(|symbol| BindingRecord {
+                id: 0,
+                name: symbol.name.clone(),
+                kind: symbol.kind,
+                scope: binding_scope(&file, &symbol),
+                span: symbol.span,
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_by_key(|record| record.span.start);
+
+        let previous = self.binding_records.remove(uri).unwrap_or_default();
+        let mut used = vec![false; previous.len()];
+        for candidate in &mut candidates {
+            let best = previous
+                .iter()
+                .enumerate()
+                .filter(|(index, record)| {
+                    !used[*index]
+                        && record.name == candidate.name
+                        && record.kind == candidate.kind
+                        && record.scope == candidate.scope
+                })
+                .min_by_key(|(_, record)| {
+                    u64::from(record.span.start.abs_diff(candidate.span.start))
+                })
+                .map(|(index, record)| (index, record.id));
+            if let Some((index, id)) = best {
+                used[index] = true;
+                candidate.id = id;
+            } else {
+                candidate.id = self.next_binding_id;
+                self.next_binding_id = self.next_binding_id.saturating_add(1);
+            }
+        }
+        self.binding_records.insert(uri.to_owned(), candidates);
+    }
+
+    fn binding_id(&self, uri: &str, symbol: &Symbol) -> String {
+        self.binding_records
+            .get(uri)
+            .and_then(|records| {
+                records.iter().find(|record| {
+                    record.name == symbol.name
+                        && record.kind == symbol.kind
+                        && record.span == symbol.span
+                })
+            })
+            .map(|record| format!("binding:{}", record.id))
+            .unwrap_or_else(|| {
+                format!(
+                    "synthetic:{}:{}:{}:{}",
+                    uri, symbol.name, symbol.kind, symbol.span.start
+                )
+            })
     }
 
     fn document_text(&self, uri: &str) -> Option<&str> {
@@ -2282,14 +2378,37 @@ fn declaration_at(source: &str, name: &str, span: Span) -> bool {
         || line.contains(&format!(" fun {name}"))
 }
 
-/// Identity for one resolved binding within the current workspace snapshot.
-fn binding_id(uri: &str, symbol: &Symbol) -> (String, u32, u32, u32) {
-    (
-        uri.to_owned(),
-        symbol.span.start,
-        symbol.span.end,
-        symbol.kind,
-    )
+fn binding_scope(file: &File, symbol: &Symbol) -> String {
+    let offset = symbol.span.start;
+    let mut best: Option<(u32, String)> = None;
+    let mut consider = |span: Span, scope: String| {
+        if span.start <= offset && offset <= span.end {
+            let width = span.end.saturating_sub(span.start);
+            if best.as_ref().is_none_or(|(current, _)| width < *current) {
+                best = Some((width, scope));
+            }
+        }
+    };
+    for function in &file.functions {
+        consider(function.span, format!("fun:{}", function.name.name));
+    }
+    for function in &file.async_functions {
+        consider(function.span, format!("async:{}", function.name.name));
+    }
+    for function in &file.foreign_functions {
+        consider(function.span, format!("foreign:{}", function.name.name));
+    }
+    for class in &file.classes {
+        consider(class.span, format!("class:{}", class.name.name));
+        for method in &class.methods {
+            consider(
+                method.span,
+                format!("method:{}::{}", class.name.name, method.name.name),
+            );
+        }
+    }
+    best.map(|(_, scope)| scope)
+        .unwrap_or_else(|| "module".to_owned())
 }
 
 fn valid_identifier(name: &str) -> bool {
@@ -2360,7 +2479,10 @@ fn full_document_range(source: &str) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::{analysis_error_summary, diagnostic_code, path_to_uri, position_to_offset, Server};
+    use super::{
+        analysis_error_summary, diagnostic_code, path_to_uri, position_to_offset, word_span_at,
+        Server,
+    };
     use serde_json::json;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -2715,6 +2837,26 @@ mod tests {
             .unwrap();
         assert_eq!(edits.len(), 2);
         assert!(edits.iter().all(|edit| edit["range"]["start"]["line"] == 2));
+    }
+
+    #[test]
+    fn binding_identity_survives_span_shifts_across_document_edits() {
+        let mut server = Server::new();
+        let before = "package demo\nfun main() { helper() }\nfun helper() {}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":before}}}));
+        let usage_span = word_span_at(before, before.find("helper() }").unwrap()).unwrap();
+        let (definition_uri, definition) = server
+            .definition_symbol_at("main.aura", "helper", usage_span)
+            .expect("definition");
+        let original_id = server.binding_id(&definition_uri, &definition);
+
+        let after = "package demo\n\nfun main() { helper() }\nfun helper() {}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":"main.aura","version":2},"contentChanges":[{"text":after}]}}));
+        let usage_span = word_span_at(after, after.find("helper() }").unwrap()).unwrap();
+        let (definition_uri, definition) = server
+            .definition_symbol_at("main.aura", "helper", usage_span)
+            .expect("definition after edit");
+        assert_eq!(server.binding_id(&definition_uri, &definition), original_id);
     }
 
     #[test]
