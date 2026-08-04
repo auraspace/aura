@@ -341,9 +341,10 @@ val text = value?.serialize()
 - The shipped bounded value model validates complete values, preserves their
   source text, exposes root classification, traversal, independent cloning,
   size/depth metadata, duplicate-key policy, typed failures, and primitive,
-  string, and flat-class `decode<T>` mappings. `ParseOptions` enforces
-  `maxBytes`, `maxDepth`, and `Reject`/`FirstWins`/`LastWins`; richer nested
-  ownership and derive-driven mappings remain outside this bounded shape.
+  string, recursive generic-class, unit-enum, and primitive/class-array
+  `decode<T>` mappings. `ParseOptions` enforces `maxBytes`, `maxDepth`, and
+  `Reject`/`FirstWins`/`LastWins`; payload-carrying enums, arbitrary aggregate
+  leaves, and derive-driven mappings remain outside this bounded shape.
 
 ### 6.7 Crypto baseline
 
