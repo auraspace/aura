@@ -622,10 +622,10 @@ fn emit_class_gc_hooks(
         let _ = writeln!(out, "  {cty} *self = ({cty} *)p;");
         out.push_str("  if (self == NULL) { return; }\n");
         if class_decl_package(c, checked) == "std.sync" && c.name.name == "Lazy" {
-            out.push_str("  if (self->placeholder != 0) { aura_lazy_cell_destroy((AuraLazyCell *)(uintptr_t)self->placeholder); self->placeholder = 0; }\n");
+            out.push_str("  if (self->runtimeHandle != 0) { aura_lazy_cell_destroy((AuraLazyCell *)(uintptr_t)self->runtimeHandle); self->runtimeHandle = 0; }\n");
         }
         if class_decl_package(c, checked) == "std.task" && c.name.name == "Select" {
-            out.push_str("  if (self->placeholder != 0) { aura_task_select_destroy((AuraTaskSelect *)(uintptr_t)self->placeholder); self->placeholder = 0; }\n");
+            out.push_str("  if (self->runtimeHandle != 0) { aura_task_select_destroy((AuraTaskSelect *)(uintptr_t)self->runtimeHandle); self->runtimeHandle = 0; }\n");
         }
         for name in &string_fields {
             let f = mangle_ident(name);
@@ -976,16 +976,16 @@ fn emit_lazy_method(
     mono: &str,
 ) -> bool {
     let signature = c_method_signature_mono(c, m, checked, params, args, mono);
-    let cell = "(AuraLazyCell *)(uintptr_t)this->placeholder";
+    let cell = "(AuraLazyCell *)(uintptr_t)this->runtimeHandle";
     match (m.name.name.as_str(), m.params.len()) {
         ("isInitialized", 0) => {
-            let _ = writeln!(out, "{signature} {{ return this != NULL && this->placeholder != 0 && aura_lazy_cell_is_initialized({cell}); }}");
+            let _ = writeln!(out, "{signature} {{ return this != NULL && this->runtimeHandle != 0 && aura_lazy_cell_is_initialized({cell}); }}");
             true
         }
         ("get", 0) if !args.is_empty() => {
             let result = c_type_from_ty(&args[0], checked);
             if args[0].mono_suffix() == "Unit" {
-                let _ = writeln!(out, "{signature} {{ if (this != NULL && this->placeholder != 0) (void)aura_lazy_cell_value({cell}); }}");
+                let _ = writeln!(out, "{signature} {{ if (this != NULL && this->runtimeHandle != 0) (void)aura_lazy_cell_value({cell}); }}");
             } else {
                 let _ = writeln!(out, "{signature} {{ {result} *__value = ({result} *)aura_lazy_cell_value({cell}); if (__value == NULL) return ({result}){{0}}; return *__value; }}");
             }
@@ -1010,7 +1010,7 @@ fn emit_select_method(
             let channel = mangle_ident(&m.params[0].name.name);
             let _ = writeln!(
                 out,
-                "{signature} {{ if (this == NULL || this->placeholder == 0 || {channel} == NULL || !aura_task_select_add((AuraTaskSelect *)(uintptr_t)this->placeholder, {channel})) return NULL; return this; }}"
+                "{signature} {{ if (this == NULL || this->runtimeHandle == 0 || {channel} == NULL || !aura_task_select_add((AuraTaskSelect *)(uintptr_t)this->runtimeHandle, {channel})) return NULL; return this; }}"
             );
             true
         }
@@ -1086,7 +1086,7 @@ fn emit_select_next_method(
         );
     let _ = writeln!(out, "  (void)index; if (status == AURA_CHANNEL_PENDING) return AURA_TASK_PENDING; if (status == AURA_CHANNEL_ERROR) return AURA_TASK_FAILED; {result_code} return AURA_TASK_COMPLETE;");
     out.push_str("}\n");
-    let _ = writeln!(out, "{signature} {{ if (this == NULL || this->placeholder == 0 || __aura_task_executor == NULL) return NULL; AuraTaskFrame *__frame = aura_task_frame_new(sizeof({data}), {poll}, {base}_destroy); if (__frame == NULL) return NULL; {data} *__data = ({data} *)aura_task_frame_data(__frame); __data->select = (AuraTaskSelect *)(uintptr_t)this->placeholder; __data->owner = this; aura_gc_add_root(&__data->owner); if (!aura_task_executor_submit(__aura_task_executor, __frame)) {{ aura_task_frame_destroy(__frame); return NULL; }} return __frame; }}");
+    let _ = writeln!(out, "{signature} {{ if (this == NULL || this->runtimeHandle == 0 || __aura_task_executor == NULL) return NULL; AuraTaskFrame *__frame = aura_task_frame_new(sizeof({data}), {poll}, {base}_destroy); if (__frame == NULL) return NULL; {data} *__data = ({data} *)aura_task_frame_data(__frame); __data->select = (AuraTaskSelect *)(uintptr_t)this->runtimeHandle; __data->owner = this; aura_gc_add_root(&__data->owner); if (!aura_task_executor_submit(__aura_task_executor, __frame)) {{ aura_task_frame_destroy(__frame); return NULL; }} return __frame; }}");
     true
 }
 

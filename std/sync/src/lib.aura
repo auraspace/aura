@@ -63,7 +63,7 @@ pub class Once(private var state: Int) {
 
 /// Exactly-once, task-safe lazy initialization. The compiler supplies the
 /// runtime cell and initializer retention boundary for this declaration.
-pub class Lazy<T>(private val placeholder: Int) {
+pub class Lazy<T>(private val runtimeHandle: Int) {
   pub fun get(): T {
     throw "std.sync Lazy.get requires the runtime intrinsic"
   }

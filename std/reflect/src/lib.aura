@@ -16,7 +16,7 @@ pub enum TypeKind {
 pub class TypeId(pub val value: String) {}
 
 /// Runtime metadata for an opt-in reflected type.
-pub class Type(private val placeholder: Int, pub val nameValue: String) {
+pub class Type(private val metadataHandle: Int, pub val nameValue: String) {
   pub fun name(): String {
     return this.nameValue
   }

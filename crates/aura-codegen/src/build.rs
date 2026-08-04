@@ -13660,7 +13660,7 @@ fun main() {
         let file = parse_file(
             r#"package std.task
 pub class Box(private val value: Int) {}
-pub class Select<T>(private val placeholder: Int) {
+pub class Select<T>(private val runtimeHandle: Int) {
   pub fun add(channel: Channel<T>): Select<T> { throw "intrinsic" }
   pub async fun next(): T? { throw "intrinsic" }
 }
