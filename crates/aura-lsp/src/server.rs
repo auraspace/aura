@@ -921,12 +921,15 @@ impl Server {
             .and_then(|p| p.get("position"))
             .map(|p| position_to_offset(source, p))
             .unwrap_or(0);
-        let Some(name) = word_at(source, offset) else {
+        let Some(word_span) = word_span_at(source, offset) else {
             return json!([]);
         };
-        if self.find_symbol(&name).is_none() {
+        let name = &source[word_span.start as usize..word_span.end as usize];
+        let Some((target_uri, target_symbol)) = self.definition_symbol_at(uri, name, word_span)
+        else {
             return json!([]);
-        }
+        };
+        let target_id = binding_id(&target_uri, &target_symbol);
         let include_declaration = params
             .and_then(|p| p.get("context"))
             .and_then(|context| context.get("includeDeclaration"))
@@ -938,6 +941,14 @@ impl Server {
                 continue;
             };
             for occurrence in word_occurrences(text, &name) {
+                let Some((resolved_uri, resolved_symbol)) =
+                    self.find_symbol_at(document_uri, name, occurrence)
+                else {
+                    continue;
+                };
+                if binding_id(&resolved_uri, &resolved_symbol) != target_id {
+                    continue;
+                }
                 if !include_declaration && declaration_at(text, &name, occurrence) {
                     continue;
                 }
@@ -966,21 +977,15 @@ impl Server {
             .and_then(|p| p.get("position"))
             .map(|p| position_to_offset(source, p))
             .unwrap_or(0);
-        let name = word_at(source, offset)
+        let word_span = word_span_at(source, offset)
             .ok_or((-32602, "rename position is not an identifier".into()))?;
-        let matching_symbols = self.find_symbols(&name);
-        if matching_symbols.is_empty() {
-            return Err((
+        let name = &source[word_span.start as usize..word_span.end as usize];
+        let (target_uri, target_symbol) =
+            self.definition_symbol_at(uri, name, word_span).ok_or((
                 -32602,
                 format!("cannot safely rename unresolved symbol `{name}`"),
-            ));
-        }
-        if matching_symbols.len() > 1 {
-            return Err((
-                -32602,
-                format!("cannot safely rename ambiguous symbol `{name}`"),
-            ));
-        }
+            ))?;
+        let target_id = binding_id(&target_uri, &target_symbol);
         let new_name = params
             .and_then(|p| p.get("newName"))
             .and_then(Value::as_str)
@@ -993,9 +998,14 @@ impl Server {
             let Some(text) = document.get("text").and_then(Value::as_str) else {
                 continue;
             };
-            let edits = word_occurrences(text, &name)
+            let edits = word_occurrences(text, name)
                 .into_iter()
-                .map(|span| json!({"range":span_range(text, span),"newText":new_name}))
+                .filter_map(|span| {
+                    let (resolved_uri, resolved_symbol) =
+                        self.find_symbol_at(document_uri, name, span)?;
+                    (binding_id(&resolved_uri, &resolved_symbol) == target_id)
+                        .then(|| json!({"range":span_range(text, span),"newText":new_name}))
+                })
                 .collect::<Vec<_>>();
             if edits.is_empty() {
                 continue;
@@ -2272,6 +2282,16 @@ fn declaration_at(source: &str, name: &str, span: Span) -> bool {
         || line.contains(&format!(" fun {name}"))
 }
 
+/// Identity for one resolved binding within the current workspace snapshot.
+fn binding_id(uri: &str, symbol: &Symbol) -> (String, u32, u32, u32) {
+    (
+        uri.to_owned(),
+        symbol.span.start,
+        symbol.span.end,
+        symbol.kind,
+    )
+}
+
 fn valid_identifier(name: &str) -> bool {
     let mut chars = name.chars();
     matches!(chars.next(), Some(character) if character.is_ascii_alphabetic() || character == '_')
@@ -2673,6 +2693,28 @@ mod tests {
                 .len(),
             2
         );
+    }
+
+    #[test]
+    fn references_and_rename_keep_same_named_bindings_in_separate_scopes() {
+        let mut server = Server::new();
+        let source = "package demo\nfun first(value: Int) { return value }\nfun second(value: Int) { return value }\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+
+        let references = server.handle(json!({"jsonrpc":"2.0","id":1,"method":"textDocument/references","params":{"textDocument":{"uri":"main.aura"},"position":{"line":2,"character":35},"context":{"includeDeclaration":true}}})).unwrap();
+        assert_eq!(references["result"].as_array().unwrap().len(), 2);
+        assert!(references["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|location| { location["range"]["start"]["line"] == 2 }));
+
+        let rename = server.handle(json!({"jsonrpc":"2.0","id":2,"method":"textDocument/rename","params":{"textDocument":{"uri":"main.aura"},"position":{"line":2,"character":35},"newName":"item"}})).unwrap();
+        let edits = rename["result"]["documentChanges"][0]["edits"]
+            .as_array()
+            .unwrap();
+        assert_eq!(edits.len(), 2);
+        assert!(edits.iter().all(|edit| edit["range"]["start"]["line"] == 2));
     }
 
     #[test]

@@ -13,7 +13,9 @@ commits, RFCs, or release notes instead of appending progress for every change.
 - Area: RFC-001/002/004/005/006/008/010/012/013/014 surfaces
 - Symptom: concurrent tracing write barriers and precise stack maps,
   cross-target sysroot delivery, and full LSP protocol behavior are not
-  complete. Declarative macro hygiene and invocation-span attribution are
+  complete. LSP references and rename now use snapshot-scoped binding
+  identities, while durable identity and scheduling are still open.
+  Declarative macro hygiene and invocation-span attribution are
   now bounded and tested; macro expansion inspection and broader plugin
   provenance remain outside this inventory item. Verified local self-update
   and rollback are complete under the bounded U7/U8 contract.
@@ -27,12 +29,13 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 - Area: `crates/aura-lsp`, `auralsp`
 - Symptom: lifecycle, diagnostics, formatting, navigation, completion, and
-  code actions work, but stable binding IDs, overload-aware results, precise
+  code actions work. References and rename now resolve snapshot-scoped binding
+  identities, but persistent IDs across edits, overload-aware results, precise
   suggestions, and preemptive cancellation are missing.
 - Why deferred: the analysis API and serial stdio loop do not yet provide the
-  required identity and scheduling contracts.
-- Next step: share the package cache with all semantic queries, add binding IDs
-  and structured suggestions, then move long queries to a cancellable scheduler.
+  required persistent identity and scheduling contracts.
+- Next step: make binding identities durable across document revisions, then
+  move long queries to a cancellable scheduler.
 
 ### ASYNC-001 remaining aggregate/runtime ownership cases (2026-08-03)
 
