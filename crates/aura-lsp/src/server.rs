@@ -11,12 +11,15 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 
 const SERVER_NAME: &str = "auralsp";
 
 type ExpressionTypes = Arc<HashMap<(u32, u32), aura_sema::Ty>>;
 type PackageExpressionResult = (ExpressionTypes, HashMap<PathBuf, u32>);
+type CancellationToken = Arc<AtomicBool>;
+type CancellationRegistry = Arc<Mutex<HashMap<String, CancellationToken>>>;
 
 struct PackageExpressionCache {
     revision: u64,
@@ -41,23 +44,101 @@ pub fn run_stdio() -> io::Result<()> {
 pub fn run_stdio_with_std_root(std_root: Option<PathBuf>) -> io::Result<()> {
     let stdin = io::stdin();
     let mut input = stdin.lock();
-    let stdout = io::stdout();
-    let mut output = stdout.lock();
-    let mut server = Server::with_std_root(std_root);
+    let (work_tx, work_rx) = mpsc::channel::<(Value, Option<CancellationToken>)>();
+    let cancellations: CancellationRegistry = Arc::new(Mutex::new(HashMap::new()));
+    let worker_cancellations = Arc::clone(&cancellations);
+    let output_error = Arc::new(Mutex::new(None::<io::Error>));
+    let worker_output_error = Arc::clone(&output_error);
+    let worker = std::thread::spawn(move || {
+        let stdout = io::stdout();
+        let mut output = stdout.lock();
+        let mut server = Server::with_std_root(std_root);
+        while let Ok((message, token)) = work_rx.recv() {
+            let id = message.get("id").cloned();
+            if let Some(token) = &token {
+                server.active_cancellation = Some(Arc::clone(token));
+            }
+            let response = if token
+                .as_ref()
+                .is_some_and(|token| token.load(Ordering::Acquire))
+            {
+                id.as_ref().map(cancelled_response)
+            } else {
+                server.handle(message)
+            };
+            let response = if token
+                .as_ref()
+                .is_some_and(|token| token.load(Ordering::Acquire))
+            {
+                id.as_ref().map(cancelled_response)
+            } else {
+                response
+            };
+            let write_result = (|| -> io::Result<()> {
+                if let Some(response) = response {
+                    write_message(&mut output, &response)?;
+                }
+                while let Some(notification) = server.pending_notifications.pop_front() {
+                    write_message(&mut output, &notification)?;
+                }
+                Ok(())
+            })();
+            server.active_cancellation = None;
+            if let Some(id) = id {
+                if let Ok(mut requests) = worker_cancellations.lock() {
+                    requests.remove(&request_id_key(&id));
+                }
+            }
+            if let Err(error) = write_result {
+                if let Ok(mut output_error) = worker_output_error.lock() {
+                    *output_error = Some(error);
+                }
+                break;
+            }
+            if server.exited {
+                break;
+            }
+        }
+    });
 
     while let Some(message) = read_message(&mut input)? {
-        let response = server.handle(message);
-        if let Some(response) = response {
-            write_message(&mut output, &response)?;
+        let id = message.get("id").cloned();
+        if message.get("method").and_then(Value::as_str) == Some("$/cancelRequest") {
+            if let Some(request_id) = message.get("params").and_then(|params| params.get("id")) {
+                if let Ok(requests) = cancellations.lock() {
+                    if let Some(token) = requests.get(&request_id_key(request_id)) {
+                        token.store(true, Ordering::Release);
+                    }
+                }
+            }
         }
-        while let Some(notification) = server.pending_notifications.pop_front() {
-            write_message(&mut output, &notification)?;
-        }
-        if server.exited {
+        let token = id.as_ref().map(|id| {
+            let token = Arc::new(AtomicBool::new(false));
+            if let Ok(mut requests) = cancellations.lock() {
+                requests.insert(request_id_key(id), Arc::clone(&token));
+            }
+            token
+        });
+        if work_tx.send((message, token)).is_err() {
             break;
         }
     }
+    drop(work_tx);
+    let _ = worker.join();
+    if let Ok(mut error) = output_error.lock() {
+        if let Some(error) = error.take() {
+            return Err(error);
+        }
+    }
     Ok(())
+}
+
+fn cancelled_response(id: &Value) -> Value {
+    json!({
+        "jsonrpc":"2.0",
+        "id":id,
+        "error":{"code":-32800,"message":"request cancelled"}
+    })
 }
 
 fn read_message(input: &mut impl BufRead) -> io::Result<Option<Value>> {
@@ -116,6 +197,7 @@ struct Server {
     package_expression_cache: RefCell<HashMap<PathBuf, PackageExpressionCache>>,
     binding_records: HashMap<String, Vec<BindingRecord>>,
     next_binding_id: u64,
+    active_cancellation: Option<CancellationToken>,
 }
 
 impl Server {
@@ -139,6 +221,7 @@ impl Server {
             package_expression_cache: RefCell::new(HashMap::new()),
             binding_records: HashMap::new(),
             next_binding_id: 1,
+            active_cancellation: None,
         }
     }
 
@@ -959,10 +1042,16 @@ impl Server {
             .unwrap_or(true);
         let mut locations = Vec::new();
         for (document_uri, document) in &self.documents {
+            if self.is_cancelled() {
+                return Value::Array(locations);
+            }
             let Some(text) = document.get("text").and_then(Value::as_str) else {
                 continue;
             };
             for occurrence in word_occurrences(text, &name) {
+                if self.is_cancelled() {
+                    return Value::Array(locations);
+                }
                 let Some((resolved_uri, resolved_symbol)) =
                     self.find_symbol_at(document_uri, name, occurrence)
                 else {
@@ -1017,12 +1106,18 @@ impl Server {
         }
         let mut document_changes = Vec::new();
         for (document_uri, document) in &self.documents {
+            if self.is_cancelled() {
+                return Ok(json!({"documentChanges":document_changes}));
+            }
             let Some(text) = document.get("text").and_then(Value::as_str) else {
                 continue;
             };
             let edits = word_occurrences(text, name)
                 .into_iter()
                 .filter_map(|span| {
+                    if self.is_cancelled() {
+                        return None;
+                    }
                     let (resolved_uri, resolved_symbol) =
                         self.find_symbol_at(document_uri, name, span)?;
                     (self.binding_id(&resolved_uri, &resolved_symbol) == target_id)
@@ -1047,6 +1142,9 @@ impl Server {
             .to_ascii_lowercase();
         let mut results = Vec::new();
         for (uri, document) in &self.documents {
+            if self.is_cancelled() {
+                return Value::Array(results);
+            }
             let Some(source) = document.get("text").and_then(Value::as_str) else {
                 continue;
             };
@@ -1054,6 +1152,9 @@ impl Server {
                 continue;
             };
             for symbol in flatten_symbols(&declaration_symbols(source, &file)) {
+                if self.is_cancelled() {
+                    return Value::Array(results);
+                }
                 if !symbol.name.to_ascii_lowercase().contains(&query) {
                     continue;
                 }
@@ -1406,6 +1507,12 @@ impl Server {
             }
         }
         matches
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.active_cancellation
+            .as_ref()
+            .is_some_and(|token| token.load(Ordering::Acquire))
     }
 
     /// Keep binding identities stable when an edit shifts declaration spans.
