@@ -305,10 +305,10 @@ Mutex.withLock(mu) { /* ... */ }
 
 #### 6.4.1 C22 task/channel API contract
 
-`std.task` exposes the task operations from RFC-003. Its alpha placeholder
-surface also reserves `Select<T>`, `select<T>()`, and
-`spawnBlocking<T>(() -> T)`; these fail explicitly until the scheduler and
-worker runtime contracts are implemented. `async fun f(...): T`
+`std.task` exposes the task operations from RFC-003. The bounded runtime
+surface includes `Select<T>`, `select<T>()`, and
+`spawnBlocking<T>(() -> T)`, with explicit ownership and cancellation
+behavior. `async fun f(...): T`
 produces `Task<T>`; `spawn` returns `TaskHandle<T>`. `join` is repeatable and
 returns a typed task outcome for primitive, nullable primitive, and aggregate
 payloads. `cancel` is cooperative and has no preemptive
@@ -337,13 +337,12 @@ val value = Json.parse(text)
 val text = value?.serialize()
 ```
 
-- The shipped MVP validates complete values, preserves their input text, and
-  exposes root classification. The alpha API also locks placeholders for
-  traversal (`Value.get`, `at`, `asString`, `keys`), independent ownership
-  (`Value.clone`), size/depth metadata, bounded parsing, duplicate-key policy,
-  typed failures, and `decode<T>`. These calls fail explicitly until the
-  owned tree and reflection/derive mapping backends exist. `ParseOptions`
-  reserves `maxBytes`, `maxDepth`, and `Reject`/`FirstWins`/`LastWins`.
+- The shipped bounded value model validates complete values, preserves their
+  source text, exposes root classification, traversal, independent cloning,
+  size/depth metadata, duplicate-key policy, typed failures, and primitive,
+  string, and flat-class `decode<T>` mappings. `ParseOptions` enforces
+  `maxBytes`, `maxDepth`, and `Reject`/`FirstWins`/`LastWins`; richer nested
+  ownership and derive-driven mappings remain outside this bounded shape.
 
 ### 6.7 Crypto baseline
 
