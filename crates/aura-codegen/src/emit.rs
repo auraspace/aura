@@ -13287,14 +13287,15 @@ pub(crate) fn emit_test_main(out: &mut String, checked: &CheckedFile, detector: 
         let _ = writeln!(out, "    printf(\"{label} {name} ... \");");
         out.push_str("    fflush(stdout);\n");
         out.push_str("    ran++;\n");
+        out.push_str("    int64_t __test_started = aura_time_monotonic_millis();\n");
         out.push_str("    if (setjmp(__tjb) == 0) {\n");
         out.push_str("      aura_try_enter(&__tjb);\n");
         let _ = writeln!(out, "      {fn_c}();");
         out.push_str("      aura_try_leave();\n");
-        out.push_str("      puts(\"ok\");\n");
+        out.push_str("      printf(\"ok (%lld ms)\\n\", (long long)(aura_time_monotonic_millis() - __test_started));\n");
         out.push_str("    } else {\n");
         out.push_str("      const char *__msg = aura_ex_matches(\"String\") ? aura_ex_as_string() : \"exception\";\n");
-        out.push_str("      printf(\"FAILED (%s)\\n\", __msg ? __msg : \"?\");\n");
+        out.push_str("      printf(\"FAILED (%s) [%lld ms]\\n\", __msg ? __msg : \"?\", (long long)(aura_time_monotonic_millis() - __test_started));\n");
         out.push_str("      aura_ex_clear();\n");
         out.push_str("      aura_try_leave();\n");
         out.push_str("      failed++;\n");

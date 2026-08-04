@@ -899,10 +899,36 @@ fn cmd_bench(args: &[String]) -> ExitCode {
         function.is_test = is_bench && selected.iter().any(|name| name == &function.name.name);
     }
     let out = PathBuf::from(format!("target/aura/bench-{}", pkg.bin_name));
+    let started = Instant::now();
     match build_test_package(&bench_pkg, &out) {
-        Ok(bin) => match Command::new(&bin).args(program_args).status() {
-            Ok(status) if status.success() => ExitCode::SUCCESS,
-            Ok(status) => ExitCode::from(status.code().unwrap_or(1) as u8),
+        Ok(bin) => match Command::new(&bin).args(program_args).output() {
+            Ok(output) => {
+                let status = output.status.success();
+                if options.json {
+                    let cases = test_report::cases_from_output(
+                        &pkg.package,
+                        &benchmarks,
+                        &selected,
+                        &output.stdout,
+                        &output.stderr,
+                        status,
+                    );
+                    let report = test_report::TestReport {
+                        package: pkg.package.clone(),
+                        duration_ms: started.elapsed().as_millis(),
+                        tests: cases,
+                    };
+                    println!("{}", report.to_json());
+                } else {
+                    print!("{}", String::from_utf8_lossy(&output.stdout));
+                    eprint!("{}", String::from_utf8_lossy(&output.stderr));
+                }
+                if status {
+                    ExitCode::SUCCESS
+                } else {
+                    ExitCode::from(output.status.code().unwrap_or(1) as u8)
+                }
+            }
             Err(e) => {
                 eprintln!("error: failed to execute {}: {e}", bin.display());
                 ExitCode::from(1)

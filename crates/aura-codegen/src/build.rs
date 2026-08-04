@@ -123,7 +123,7 @@ mod tests {
         JoinExpr, Path, ReturnStmt, Span, SpawnExpr, Stmt, TypeRef,
     };
 
-    use super::{build_from_file, build_from_file_with, emit_c_from_ast};
+    use super::{build_from_file, build_from_file_with, emit_c_from_ast, emit_c_tests_from_ast};
     use crate::driver::{CBackend, Driver};
     use crate::{Backend, CompileOptions, DiagnosticMode, OutputKind, Profile, RuntimeAbi, Target};
     use aura_parser::parse_file;
@@ -2795,6 +2795,8 @@ pub fun assert(condition: Bool) { }
 pub fun assertEqInt(left: Int, right: Int) { }
 pub fun assertEqString(left: String, right: String) { }
 pub fun assertEqBool(left: Bool, right: Bool) { }
+@test
+fun smoke() { }
 fun main() {
   assert(true)
   assertEqInt(2 + 2, 4)
@@ -2808,6 +2810,8 @@ fun main() {
         let generated = emit_c_from_ast(&file).expect("emit std.test fixture");
         assert!(generated.contains("aura_assert_eq_int"));
         assert!(generated.contains("aura_assert_eq_string"));
+        let test_generated = emit_c_tests_from_ast(&file).expect("emit std.test runner fixture");
+        assert!(test_generated.contains("ok (%lld ms)"));
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .and_then(|path| path.parent())

@@ -134,14 +134,21 @@ pub fn cases_from_output(
         } else {
             None
         };
+        let duration_ms = line.and_then(parse_duration_ms).unwrap_or(0);
         cases.push(TestCase {
             name: name.clone(),
             status,
-            duration_ms: 0,
+            duration_ms,
             diagnostic,
         });
     }
     cases
+}
+
+fn parse_duration_ms(line: &str) -> Option<u128> {
+    let end = line.find(" ms)")?;
+    let start = line[..end].rfind('(')? + 1;
+    line[start..end].parse().ok()
 }
 
 fn quote(value: &str) -> String {
@@ -196,5 +203,18 @@ mod tests {
         assert!(json.contains("\"failed\":1"));
         assert!(json.contains("\"skipped\":1"));
         assert!(json.contains("\"code\":\"ETEST\""));
+    }
+
+    #[test]
+    fn cases_capture_native_test_duration() {
+        let cases = cases_from_output(
+            "demo",
+            &["fast".into()],
+            &["fast".into()],
+            b"test fast ... ok (17 ms)\n",
+            b"",
+            true,
+        );
+        assert_eq!(cases[0].duration_ms, 17);
     }
 }
