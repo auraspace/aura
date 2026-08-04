@@ -751,6 +751,10 @@ impl Checker {
         let subst = type_subst_map(&sig.type_params, &type_args);
         let params: Vec<Ty> = sig.params.iter().map(|p| subst_ty(p, &subst)).collect();
         let ret = subst_ty(&sig.ret, &subst);
+        // Generic return layouts (for example Outcome<T, E>) must be present
+        // in the concrete mono set even when only a specialized async emitter
+        // exposes the return type to codegen.
+        self.note_mono_ty(&ret);
         if sig.package == "std.reflect"
             && matches!(sig.name.as_str(), "typeOf" | "typeIdOf")
             && type_args.len() == 1

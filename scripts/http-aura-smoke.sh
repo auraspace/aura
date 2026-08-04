@@ -22,19 +22,24 @@ cleanup() {
 }
 trap cleanup EXIT
 
+runtime_link_args=()
+case "$(uname -s)" in
+  Linux|Darwin) runtime_link_args=(-lz) ;;
+esac
+
 case "$(uname -s)" in
   Linux)
     lib="$tmp/libaura_net_ffi.so"
     "$cc" -D_POSIX_C_SOURCE=200809L -std=c11 -Wall -Wextra -Werror -fPIC -shared \
       -fsanitize=address,undefined -fno-omit-frame-pointer \
-      -o "$lib" std/net/native/aura_net_ffi.c
+      -o "$lib" std/net/native/aura_net_ffi.c "${runtime_link_args[@]}"
     lib_path_var=LD_LIBRARY_PATH
     ;;
   Darwin)
     lib="$tmp/libaura_net_ffi.dylib"
     "$cc" -D_POSIX_C_SOURCE=200809L -std=c11 -Wall -Wextra -Werror -fPIC -dynamiclib \
       -fsanitize=address,undefined -fno-omit-frame-pointer \
-      -o "$lib" std/net/native/aura_net_ffi.c
+      -o "$lib" std/net/native/aura_net_ffi.c "${runtime_link_args[@]}"
     lib_path_var=DYLD_LIBRARY_PATH
     ;;
   *)
