@@ -785,6 +785,15 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
     while (read(executor->wake_pipe[0], buffer, sizeof(buffer)) > 0) {}
   }
 #endif
+#if defined(AURA_TCP_POSIX)
+  /* Keep the owned-list scan and descriptor count consistent with the fill
+   * pass below. poll_waiting already marks the reactor active, so release
+   * cannot destroy one of these frames while the snapshot is in use. */
+  if (executor->workers_started)
+  {
+    pthread_mutex_lock(&executor->worker_lock);
+  }
+#endif
   for (frame = executor->owned_head; frame != NULL; frame = frame->owned_next)
   {
     if (frame->state != AURA_TASK_PENDING)
@@ -796,7 +805,8 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
       int64_t remaining = frame->cancel_deadline_ms - aura_time_monotonic_millis();
       if (remaining <= 0)
       {
-        woke += (size_t)aura_task_executor_cancel(executor, frame);
+        poll_timeout = 0;
+        has_deadline = 1;
         continue;
       }
       if (remaining < poll_timeout) poll_timeout = (int)remaining;
@@ -813,8 +823,8 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
       remaining = frame->fd_wait_deadline_ms - now;
       if (remaining <= 0)
       {
-        frame->fd_wait_timed_out = 1;
-        woke += (size_t)aura_task_executor_wake_waiting(executor, frame);
+        poll_timeout = 0;
+        has_deadline = 1;
         continue;
       }
       if (remaining < poll_timeout)
@@ -828,6 +838,12 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
       count++;
     }
   }
+#if defined(AURA_TCP_POSIX)
+  if (executor->workers_started)
+  {
+    pthread_mutex_unlock(&executor->worker_lock);
+  }
+#endif
   if (woke != 0)
   {
     return (int)woke;
@@ -882,6 +898,12 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
     index++;
   }
 #endif
+#if defined(AURA_TCP_POSIX)
+  if (executor->workers_started)
+  {
+    pthread_mutex_lock(&executor->worker_lock);
+  }
+#endif
   for (frame = executor->owned_head; frame != NULL; frame = frame->owned_next)
   {
     if (!frame->fd_wait_active || frame->waiting_node == NULL ||
@@ -897,6 +919,15 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
     frames[index] = frame;
     index++;
   }
+#if defined(AURA_TCP_POSIX)
+  if (executor->workers_started)
+  {
+    pthread_mutex_unlock(&executor->worker_lock);
+  }
+#endif
+  /* The list can change after the snapshot lock is released; poll only the
+   * descriptors actually copied into the arrays. */
+  descriptor_count = index;
   result = poll(descriptors, descriptor_count, poll_timeout);
   if (result > 0 || (result < 0 && errno != EINTR))
   {
