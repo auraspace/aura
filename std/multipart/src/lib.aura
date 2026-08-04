@@ -11,12 +11,14 @@ pub class Parser(pub val boundary: String) {
     val marker = "--" + this.boundary
     if (!value.startsWith(marker)) { return result }
     val remainder = value.substring(marker.len, value.len)
-    val segments = remainder.split("\r\n" + marker)
+    val segments = remainder.split("\r\n" + marker + "\r\n")
     for (i in 0..segments.len) {
-      val segment = segments.get(i)
-      if (segment.isEmpty() || segment == "--" || segment.startsWith("--")) { continue }
-      if (!segment.startsWith("\r\n")) { continue }
-      val content = segment.substring(2, segment.len)
+      var content = segments.get(i)
+      val closing = content.indexOf("\r\n" + marker + "--")
+      if (closing >= 0) { content = content.substring(0, closing) }
+      if (i > 0) { content = "\r\n" + content }
+      if (content.isEmpty() || !content.startsWith("\r\n")) { continue }
+      content = content.substring(2, content.len)
       val headerEnd = content.indexOf("\r\n\r\n")
       if (headerEnd < 0) { continue }
       val headers = content.substring(0, headerEnd)
