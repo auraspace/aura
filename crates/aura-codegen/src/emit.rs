@@ -16337,6 +16337,30 @@ pub(crate) fn emit_fun(
         }
     }
     if pkg == "std.reflect" {
+        let has_reflect_attribute = |attributes: &[Attribute]| {
+            attributes
+                .iter()
+                .any(|attribute| attribute.name.name == "reflect")
+        };
+        let type_ref_name = |type_ref: &TypeRef| {
+            let mut name = type_ref.name.name.clone();
+            if !type_ref.type_args.is_empty() {
+                name.push('<');
+                name.push_str(
+                    &type_ref
+                        .type_args
+                        .iter()
+                        .map(|arg| arg.name.name.clone())
+                        .collect::<Vec<_>>()
+                        .join(","),
+                );
+                name.push('>');
+            }
+            if type_ref.nullable {
+                name.push('?');
+            }
+            name
+        };
         if f.name.name == "typeOf" && f.params.is_empty() && args.len() == 1 {
             let name = args[0].mono_suffix();
             let _ = writeln!(
@@ -16359,6 +16383,44 @@ pub(crate) fn emit_fun(
             let value = mangle_ident(&f.params[0].name.name);
             out.push_str("  aura_enum_std_reflect_TypeKind __kind = aura_var_std_reflect_TypeKind_Unknown();\n");
             let _ = writeln!(out, "  if ({value} != NULL && (strcmp({value}, \"Int\") == 0 || strcmp({value}, \"Bool\") == 0 || strcmp({value}, \"String\") == 0 || strcmp({value}, \"Unit\") == 0)) __kind = aura_var_std_reflect_TypeKind_Primitive();");
+            for class in &checked.ast.classes {
+                let kind = match class.kind {
+                    NominalKind::Class => "Class",
+                    NominalKind::Struct => "Struct",
+                };
+                let class_name = &class.name.name;
+                let qualified_name =
+                    type_mono(&class_decl_package(class, checked), class_name, &[]);
+                let _ = writeln!(
+                    out,
+                    "  if ({value} != NULL && (strcmp({value}, \"{class_name}\") == 0 || strcmp({value}, \"{qualified_name}\") == 0)) __kind = aura_var_std_reflect_TypeKind_{kind}();"
+                );
+            }
+            for enumeration in &checked.ast.enums {
+                let enum_name = &enumeration.name.name;
+                let qualified_name =
+                    type_mono(&enum_decl_package(enumeration, checked), enum_name, &[]);
+                let _ = writeln!(
+                    out,
+                    "  if ({value} != NULL && (strcmp({value}, \"{enum_name}\") == 0 || strcmp({value}, \"{qualified_name}\") == 0)) __kind = aura_var_std_reflect_TypeKind_Enum();"
+                );
+            }
+            for interface in &checked.ast.interfaces {
+                let interface_name = &interface.name.name;
+                let qualified_name =
+                    type_mono(&iface_decl_package(interface, checked), interface_name, &[]);
+                let _ = writeln!(
+                    out,
+                    "  if ({value} != NULL && (strcmp({value}, \"{interface_name}\") == 0 || strcmp({value}, \"{qualified_name}\") == 0)) __kind = aura_var_std_reflect_TypeKind_Interface();"
+                );
+            }
+            for function in &checked.ast.functions {
+                let function_name = &function.name.name;
+                let _ = writeln!(
+                    out,
+                    "  if ({value} != NULL && strcmp({value}, \"{function_name}\") == 0) __kind = aura_var_std_reflect_TypeKind_Function();"
+                );
+            }
             let _ = writeln!(
                 out,
                 "  return aura_new_std_reflect_TypeInfo(aura_bytes_copy({value}), __kind);"
@@ -16368,7 +16430,45 @@ pub(crate) fn emit_fun(
         }
         if f.name.name == "isReflectable" && f.params.len() == 1 {
             let value = mangle_ident(&f.params[0].name.name);
-            let _ = writeln!(out, "  return {value} != NULL && (strcmp({value}, \"Int\") == 0 || strcmp({value}, \"Bool\") == 0 || strcmp({value}, \"String\") == 0 || strcmp({value}, \"Unit\") == 0);");
+            out.push_str("  return ");
+            let _ = write!(
+                out,
+                "{value} != NULL && (strcmp({value}, \"Int\") == 0 || strcmp({value}, \"Bool\") == 0 || strcmp({value}, \"String\") == 0 || strcmp({value}, \"Unit\") == 0"
+            );
+            for class in &checked.ast.classes {
+                if has_reflect_attribute(&class.attributes) {
+                    let class_name = &class.name.name;
+                    let qualified_name =
+                        type_mono(&class_decl_package(class, checked), class_name, &[]);
+                    let _ = write!(
+                        out,
+                        " || strcmp({value}, \"{class_name}\") == 0 || strcmp({value}, \"{qualified_name}\") == 0"
+                    );
+                }
+            }
+            for enumeration in &checked.ast.enums {
+                if has_reflect_attribute(&enumeration.attributes) {
+                    let enum_name = &enumeration.name.name;
+                    let qualified_name =
+                        type_mono(&enum_decl_package(enumeration, checked), enum_name, &[]);
+                    let _ = write!(
+                        out,
+                        " || strcmp({value}, \"{enum_name}\") == 0 || strcmp({value}, \"{qualified_name}\") == 0"
+                    );
+                }
+            }
+            for interface in &checked.ast.interfaces {
+                if has_reflect_attribute(&interface.attributes) {
+                    let interface_name = &interface.name.name;
+                    let qualified_name =
+                        type_mono(&iface_decl_package(interface, checked), interface_name, &[]);
+                    let _ = write!(
+                        out,
+                        " || strcmp({value}, \"{interface_name}\") == 0 || strcmp({value}, \"{qualified_name}\") == 0"
+                    );
+                }
+            }
+            out.push_str(");\n");
             out.push_str("}\n");
             return;
         }
@@ -16379,12 +16479,14 @@ pub(crate) fn emit_fun(
                     class
                         .fields
                         .iter()
+                        .filter(|field| field.visibility != MemberVisibility::Private)
                         .map(|field| field.name.name.clone())
                         .collect::<Vec<_>>()
                 } else {
                     class
                         .methods
                         .iter()
+                        .filter(|method| method.visibility != MemberVisibility::Private)
                         .map(|method| method.name.name.clone())
                         .collect::<Vec<_>>()
                 }
@@ -16393,6 +16495,9 @@ pub(crate) fn emit_fun(
             out.push_str(&value);
             out.push_str(" == NULL) return aura_new_Array_String(INT64_C(0));\n");
             for class in &checked.ast.classes {
+                if !has_reflect_attribute(&class.attributes) {
+                    continue;
+                }
                 let names = element_names(class);
                 let class_name = &class.name.name;
                 let qualified_name =
@@ -16411,6 +16516,33 @@ pub(crate) fn emit_fun(
                 }
                 out.push_str("    return __metadata;\n  }\n");
             }
+            if f.name.name == "methods" {
+                for interface in &checked.ast.interfaces {
+                    if !has_reflect_attribute(&interface.attributes) {
+                        continue;
+                    }
+                    let interface_name = &interface.name.name;
+                    let qualified_name =
+                        type_mono(&iface_decl_package(interface, checked), interface_name, &[]);
+                    let _ = writeln!(
+                        out,
+                        "  if (strcmp({value}, \"{interface_name}\") == 0 || strcmp({value}, \"{qualified_name}\") == 0) {{"
+                    );
+                    let _ = writeln!(
+                        out,
+                        "    aura_cls_Array_String __metadata = aura_new_Array_String(INT64_C({}));",
+                        interface.methods.len()
+                    );
+                    for (index, method) in interface.methods.iter().enumerate() {
+                        let _ = writeln!(
+                            out,
+                            "    __metadata.data[{index}] = aura_bytes_copy(\"{}\");",
+                            method.name.name
+                        );
+                    }
+                    out.push_str("    return __metadata;\n  }\n");
+                }
+            }
             out.push_str("  return aura_new_Array_String(INT64_C(0));\n}\n");
             return;
         }
@@ -16421,21 +16553,26 @@ pub(crate) fn emit_fun(
             out.push_str(&value);
             out.push_str(" == NULL) return aura_new_Array_String(INT64_C(0));\n");
             for class in &checked.ast.classes {
+                if !has_reflect_attribute(&class.attributes) {
+                    continue;
+                }
                 let metadata = if f.name.name == "fieldMetadata" {
                     class
                         .fields
                         .iter()
-                        .map(|field| format!("{}:{}", field.name.name, field.ty.name.name))
+                        .filter(|field| field.visibility != MemberVisibility::Private)
+                        .map(|field| format!("{}:{}", field.name.name, type_ref_name(&field.ty)))
                         .collect::<Vec<_>>()
                 } else {
                     class
                         .methods
                         .iter()
+                        .filter(|method| method.visibility != MemberVisibility::Private)
                         .map(|method| {
                             let return_name = method
                                 .return_type
                                 .as_ref()
-                                .map(|ty| ty.name.name.clone())
+                                .map(type_ref_name)
                                 .unwrap_or_else(|| "Unit".into());
                             format!("{}:{return_name}", method.name.name)
                         })
@@ -16457,6 +16594,38 @@ pub(crate) fn emit_fun(
                     );
                 }
                 out.push_str("    return __metadata;\n  }\n");
+            }
+            if f.name.name == "methodMetadata" {
+                for interface in &checked.ast.interfaces {
+                    if !has_reflect_attribute(&interface.attributes) {
+                        continue;
+                    }
+                    let interface_name = &interface.name.name;
+                    let qualified_name =
+                        type_mono(&iface_decl_package(interface, checked), interface_name, &[]);
+                    let _ = writeln!(
+                        out,
+                        "  if (strcmp({value}, \"{interface_name}\") == 0 || strcmp({value}, \"{qualified_name}\") == 0) {{"
+                    );
+                    let _ = writeln!(
+                        out,
+                        "    aura_cls_Array_String __metadata = aura_new_Array_String(INT64_C({}));",
+                        interface.methods.len()
+                    );
+                    for (index, method) in interface.methods.iter().enumerate() {
+                        let return_name = method
+                            .return_type
+                            .as_ref()
+                            .map(type_ref_name)
+                            .unwrap_or_else(|| "Unit".into());
+                        let _ = writeln!(
+                            out,
+                            "    __metadata.data[{index}] = aura_bytes_copy(\"{}:{}\");",
+                            method.name.name, return_name
+                        );
+                    }
+                    out.push_str("    return __metadata;\n  }\n");
+                }
             }
             out.push_str("  return aura_new_Array_String(INT64_C(0));\n}\n");
             return;

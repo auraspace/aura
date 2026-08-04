@@ -191,8 +191,8 @@ Pay-as-you-go metadata protects single-binary size and optimization. Attributes 
 
 ## 9. Unresolved / future work
 
-- Backend implementation for the locked `Type`, `Method`, `Field`, `TypeId`,
-  `typeOf<T>()`, and `typeIdOf<T>()` placeholder surface
+- Runtime invocation of reflected methods remains outside v1; type identity,
+  opt-in type kinds, and public member metadata are compiler-backed
 - Annotation processors beyond macros
 - Source generators pipeline
 

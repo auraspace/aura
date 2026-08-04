@@ -1,7 +1,4 @@
-// std.reflect -- bounded compiler-backed type metadata.
-//
-// Type identity and primitive classification are compiler-backed. Member
-// metadata remains empty until declaration metadata is emitted.
+// std.reflect -- opt-in compiler-backed type and member metadata.
 
 package std.reflect
 
@@ -55,7 +52,8 @@ pub class TypeInfo(pub val name: String, pub val kind: TypeKind) {}
 
 pub class MemberInfo(pub val name: String, pub val typeName: String) {}
 
-/// RFC-009 generic reflection entry points. Metadata production is deferred.
+/// RFC-009 generic reflection entry points. Runtime metadata is retained for
+/// primitive types and declarations marked with `@reflect`.
 pub fun typeOf<T>(): Type {
   throw "std.reflect typeOf intrinsic"
 }

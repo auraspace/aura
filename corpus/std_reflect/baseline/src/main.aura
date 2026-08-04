@@ -2,9 +2,21 @@ package demo.stdreflect
 
 import std.reflect
 
-class Widget(val count: Int, val label: String) {
+@reflect
+class Widget(val count: Int, val label: String, private val secret: Int) {
   fun reset(): Unit {}
 }
+
+class Hidden(val value: Int) {}
+
+@reflect
+struct Point(val x: Int) {}
+
+@reflect
+enum Shade { case Light case Dark }
+
+@reflect
+interface Named { fun name(): String }
 
 fun main() {
   val intType = typeOf<Int>()
@@ -15,11 +27,15 @@ fun main() {
   if (intId.value != "Int") { throw "bad type id" }
   val info = typeInfo("Int")
   if (info.name != "Int") { throw "bad type info" }
-  if (!isReflectable("String") || isReflectable("Widget")) { throw "bad reflectability" }
+  if (!isReflectable("String") || !isReflectable("Widget")) { throw "bad reflectability" }
+  if (isReflectable("Hidden")) { throw "unannotated type reflected" }
+  if (!isReflectable("Point") || !isReflectable("Shade") || !isReflectable("Named")) { throw "missing reflected type" }
   if (fields("Int").len != 0 || methods("Int").len != 0) { throw "bad members" }
   if (fields("Widget").len != 2 || methods("Widget").len != 1) { throw "missing metadata" }
   if (fields("Widget").get(0) != "count" || methods("Widget").get(0) != "reset") { throw "bad metadata" }
+  if (fields("Point").len != 1 || methods("Named").len != 1) { throw "missing reflected members" }
   if (widgetType.fields().len != 2 || widgetType.methods().len != 1) { throw "bad type metadata" }
   if (widgetType.fields().get(0).typeName != "Int" || widgetType.methods().get(0).returnType != "Unit") { throw "bad member types" }
+  if (typeOf<Hidden>().fields().len != 0) { throw "hidden metadata leaked" }
   println("reflect-ok")
 }
