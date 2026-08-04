@@ -1645,6 +1645,69 @@ fun main() {
 }
 
 #[test]
+fn nested_mono_expands_three_generic_levels() {
+    let src = r#"
+package t
+class Box<T>(val value: T) {}
+class Pair<A, B>(val left: A, val right: B) {}
+class Shelf<T>(val payload: Array<Box<Pair<String, T>>>) {}
+fun main() {
+  val shelf: Shelf<Int> = Shelf(Array(0))
+}
+"#;
+    let file = parse_file(src).expect("parse three-level generic fixture");
+    let checked = check_file(&file).expect("check three-level generic fixture");
+    let pair = Ty::ClassApp {
+        name: "Pair@t".into(),
+        args: vec![Ty::String, Ty::Int],
+    };
+    let boxed = Ty::ClassApp {
+        name: "Box@t".into(),
+        args: vec![pair.clone()],
+    };
+    assert!(
+        checked
+            .mono_classes
+            .iter()
+            .any(|(name, args)| name == "Shelf" && args == &[Ty::Int]),
+        "expected Shelf<Int>, got {:?}",
+        checked.mono_classes
+    );
+    assert!(
+        checked
+            .mono_classes
+            .iter()
+            .any(|(name, args)| name == "Array" && args.as_slice() == std::slice::from_ref(&boxed)),
+        "expected Array<Box<Pair<String, Int>>>, got {:?}",
+        checked.mono_classes
+    );
+    assert!(
+        checked
+            .mono_classes
+            .iter()
+            .any(|(name, args)| name == "Box" && args.as_slice() == std::slice::from_ref(&pair)),
+        "expected Box<Pair<String, Int>>, got {:?}",
+        checked.mono_classes
+    );
+    assert!(
+        checked
+            .mono_classes
+            .iter()
+            .any(|(name, args)| name == "Pair" && args == &[Ty::String, Ty::Int]),
+        "expected Pair<String, Int>, got {:?}",
+        checked.mono_classes
+    );
+    assert!(
+        checked
+            .mono_classes
+            .iter()
+            .all(|(_, args)| args.iter().all(|ty| !ty.is_open())),
+        "open generic monomorph recorded: {:?}",
+        checked.mono_classes
+    );
+}
+
+#[test]
 fn import_allows_pub_function() {
     use aura_ast::ImportDecl;
     let mut lib = parse_file(

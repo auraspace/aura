@@ -2963,6 +2963,51 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_three_level_generic_class_layout() {
+        let file = aura_parser::parse_file(
+            r#"package demo.generic.three_level
+class Box<T>(val value: T) {}
+class Pair<A, B>(val left: A, val right: B) {}
+class Shelf<T>(val payload: Array<Box<Pair<String, T>>>) {}
+fun main() {
+  val payload: Array<Box<Pair<String, Int>>> = Array(0)
+  payload.push(Box(Pair("deep", 7)))
+  val shelf: Shelf<Int> = Shelf(payload)
+  val item = shelf.payload.get(0).value
+  if (item.left != "deep" || item.right != 7) { throw "three-level generic failed" }
+  println(item.left)
+}
+"#,
+        )
+        .expect("parse three-level generic fixture");
+        let generated = emit_c_from_ast(&file).expect("emit three-level generic fixture");
+        assert!(generated.contains("aura_new_demo_generic_three_level_Shelf_Int"));
+        assert!(generated.contains(
+            "aura_new_demo_generic_three_level_Box_demo_generic_three_level_Pair_String_Int"
+        ));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-three-level-generic-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile three-level generic fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run three-level generic fixture");
+        assert!(
+            output.status.success(),
+            "three-level generic failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "deep\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_std_signal_shutdown_state() {
         let file = aura_parser::parse_file(
             r#"package std.signal

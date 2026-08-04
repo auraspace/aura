@@ -159,7 +159,7 @@ when their Rust and C toolchains are available.
 - **Compiler C4r** Free Array buffer on owner reassignment
 - **Compiler C4s** Safe call `?.` on nullable receivers
 - **Compiler C4t** If as expression (value from last branch expr)
-- **Compiler C4u** Nested mono audit (skip open monomorphs, return-type resolve, C struct forwards)
+- **Compiler C4u** Nested mono audit (skip open monomorphs, recursive multi-level substitution, return-type resolve, C struct forwards)
 - **Compiler C4v** `String.isEmpty()` (UTF-8 byte length == 0)
 - **Compiler C4w** `String.charAt(i)` (UTF-8 byte as Int; OOB throws)
 - **Compiler C4x** Clear diagnostic for unsupported Array element types (interface still)

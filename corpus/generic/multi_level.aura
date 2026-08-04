@@ -1,0 +1,14 @@
+// Generic substitution may be nested through any concrete aggregate level.
+package demo.generic.multi_level
+
+class Box<T>(val value: T) {}
+class Pair<A, B>(val left: A, val right: B) {}
+class Shelf<T>(val payload: Array<Box<Pair<String, T>>>) {}
+
+fun main() {
+    val payload: Array<Box<Pair<String, Int>>> = Array(0)
+    payload.push(Box(Pair("deep", 7)))
+    val shelf: Shelf<Int> = Shelf(payload)
+    val item: Pair<String, Int> = shelf.payload.get(0).value
+    assert_eq(item.right, 7)
+}
