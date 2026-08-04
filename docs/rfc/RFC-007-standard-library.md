@@ -36,7 +36,7 @@ structured logging/metrics. Some operations remain intentionally bounded or
 runtime-backed: strict file APIs may throw `String`, `std.net` uses endpoint
 strings with loopback as the port-only default,
 JSON exposes bounded traversal/mapping, including recursive generic class decoding
-with primitive leaves and primitive arrays, and Unix sockets plus framework-level
+with primitive leaves and primitive/class arrays, and Unix sockets plus framework-level
 HTTP routing remain outside this alpha core.
 
 ## 2. Motivation

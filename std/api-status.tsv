@@ -5,7 +5,7 @@ std.collections	implemented	docs/api/std-alpha.md	linear and hash collections, i
 std.error	implemented	docs/api/std-alpha.md	shared errors and Outcome
 std.bytes	implemented	docs/api/std-alpha.md	owned byte strings and buffers
 std.encoding	implemented	docs/api/std-alpha.md	UTF-8, hex, base64, percent encoding
-std.json	implemented	docs/api/std-alpha.md	bounded JSON validation, root values, recursive generic classes, and primitive arrays
+std.json	implemented	docs/api/std-alpha.md	bounded JSON validation, root values, recursive generic classes, and primitive/class arrays
 std.mime	implemented	docs/api/std-alpha.md	media types and filename sanitization
 std.fs	implemented	docs/api/std-alpha.md	paths and filesystem metadata
 std.os	implemented	docs/api/std-alpha.md	environment and process helpers

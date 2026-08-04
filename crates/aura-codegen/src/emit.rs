@@ -36,6 +36,7 @@ struct JsonDecodeField {
     key: String,
     nullable: bool,
     array_element: Option<String>,
+    array_nested: Option<Box<JsonDecodeNode>>,
     nested: Option<Box<JsonDecodeNode>>,
 }
 
@@ -80,25 +81,40 @@ fn build_json_decode_node(
     seen.push(full.clone());
     let mut fields = Vec::with_capacity(class.fields.len());
     for field in &class.fields {
-        let field_key = type_ref_local_key_expand(&field.ty, &params, &class_args, checked);
+        let local_key = type_ref_local_key_expand(&field.ty, &params, &class_args, checked);
+        let field_key = if crate::array_emit::is_array_type_key(&local_key) {
+            crate::expr::full_type_mono(&local_key, checked)
+        } else {
+            local_key
+        };
         let array_element = crate::expr::array_elem_local_key(&field_key, checked)
             .filter(|element| matches!(element.as_str(), "Int" | "Bool" | "String"));
-        let nested =
-            if matches!(field_key.as_str(), "Int" | "Bool" | "String") || array_element.is_some() {
-                None
-            } else {
-                Some(Box::new(build_json_decode_node(
-                    &field_key,
-                    checked,
-                    seen,
-                    depth + 1,
-                )?))
-            };
+        let array_nested = if array_element.is_none() {
+            crate::expr::array_elem_local_key(&field_key, checked).and_then(|element| {
+                build_json_decode_node(&element, checked, seen, depth + 1).map(Box::new)
+            })
+        } else {
+            None
+        };
+        let nested = if matches!(field_key.as_str(), "Int" | "Bool" | "String")
+            || array_element.is_some()
+            || array_nested.is_some()
+        {
+            None
+        } else {
+            Some(Box::new(build_json_decode_node(
+                &field_key,
+                checked,
+                seen,
+                depth + 1,
+            )?))
+        };
         fields.push(JsonDecodeField {
             name: field.name.name.clone(),
             key: field_key,
             nullable: field.ty.nullable,
             array_element,
+            array_nested,
             nested,
         });
     }
@@ -137,9 +153,17 @@ fn emit_json_decode_declarations(out: &mut String, node: &JsonDecodeNode, path: 
                     json_decode_var(&field_path, "string")
                 );
             }
-            _ if field.array_element.is_some() => {
+            _ if field.array_element.is_some() || field.array_nested.is_some() => {
                 let array = json_decode_var(&field_path, "array");
                 let _ = writeln!(out, "  {} {array} = {{ 0 }};", c_class_type(&field.key));
+                let rooted = json_decode_var(&field_path, "array_rooted");
+                let _ = writeln!(out, "  bool {rooted} = false;");
+                if let Some(nested) = &field.array_nested {
+                    let item = json_decode_var(&field_path, "array_item");
+                    let _ = writeln!(out, "  {} *{item} = NULL;", c_class_type(&nested.mono));
+                    let _ = writeln!(out, "  aura_gc_add_root((void **)&{item});");
+                    emit_json_decode_declarations(out, nested, &format!("{field_path}_item"));
+                }
             }
             _ => {
                 let class = json_decode_var(&field_path, "class");
@@ -191,7 +215,7 @@ fn emit_json_decode_parse(out: &mut String, node: &JsonDecodeNode, path: &str, s
                     "  {decoded} = aura_json_decode_string({raw}); if ({decoded} == NULL) goto __json_decode_fail;"
                 );
             }
-            _ if field.array_element.is_some() => {
+            _ if field.array_element.is_some() || field.array_nested.is_some() => {
                 let array = json_decode_var(&field_path, "array");
                 let array_ctor = c_ctor_name(&field.key);
                 let array_push = c_method_name(&field.key, "push");
@@ -200,6 +224,11 @@ fn emit_json_decode_parse(out: &mut String, node: &JsonDecodeNode, path: &str, s
                     "  if (!aura_json_is_array({raw})) goto __json_decode_fail;"
                 );
                 let _ = writeln!(out, "  {array} = {array_ctor}(0);");
+                let rooted = json_decode_var(&field_path, "array_rooted");
+                let _ = writeln!(
+                    out,
+                    "  aura_gc_add_array_root((void **)&{array}.data, &{array}.len); {rooted} = true;"
+                );
                 out.push_str("  for (int64_t __json_i = 0, __json_n = aura_json_array_count(");
                 let _ = writeln!(out, "{raw}); __json_i < __json_n; __json_i++) {{");
                 let _ = writeln!(
@@ -216,11 +245,29 @@ fn emit_json_decode_parse(out: &mut String, node: &JsonDecodeNode, path: &str, s
                     Some("String") => out.push_str(
                         "    const char *__json_item_value = aura_json_decode_string(__json_item); if (__json_item_value == NULL) { free((void *)__json_item); goto __json_decode_fail; }\n",
                     ),
-                    _ => unreachable!(),
+                    _ => {
+                        let nested = field.array_nested.as_ref().expect("nested array node");
+                        let item = json_decode_var(&field_path, "array_item");
+                        let item_path = format!("{field_path}_item");
+                        emit_json_decode_parse(out, nested, &item_path, "__json_item");
+                        let args = emit_json_decode_ctor_args(nested, &item_path);
+                        let _ = writeln!(
+                            out,
+                            "    {item} = {}({args}); if ({item} == NULL) goto __json_decode_fail;",
+                            c_ctor_name(&nested.mono)
+                        );
+                        emit_json_decode_transfer_arrays(out, nested, &item_path);
+                        let _ = writeln!(out, "    {array_push}(&{array}, {item});");
+                        out.push_str("    ");
+                        emit_json_decode_item_cleanup(out, nested, &item_path);
+                        let _ = writeln!(out, "    {item} = NULL;");
+                    }
                 }
-                let _ = writeln!(out, "    {array_push}(&{array}, __json_item_value);");
-                if field.array_element.as_deref() == Some("String") {
-                    out.push_str("    free((void *)__json_item_value);\n");
+                if field.array_element.is_some() {
+                    let _ = writeln!(out, "    {array_push}(&{array}, __json_item_value);");
+                    if field.array_element.as_deref() == Some("String") {
+                        out.push_str("    free((void *)__json_item_value);\n");
+                    }
                 }
                 out.push_str("    free((void *)__json_item);\n  }\n");
             }
@@ -277,13 +324,23 @@ fn emit_json_decode_cleanup(out: &mut String, node: &JsonDecodeNode, path: &str)
             let string = json_decode_var(&field_path, "string");
             let _ = writeln!(out, "  if ({string} != NULL) free((void *){string});");
         }
-        if field.array_element.is_some() {
+        if field.array_element.is_some() || field.array_nested.is_some() {
             let array = json_decode_var(&field_path, "array");
             let array_type = c_class_type(&field.key);
+            let rooted = json_decode_var(&field_path, "array_rooted");
+            let _ = writeln!(
+                out,
+                "  if ({rooted}) aura_gc_remove_array_root((void **)&{array}.data);"
+            );
             let _ = writeln!(
                 out,
                 "  if ({array}.data != NULL) {array_type}_drop(&{array});"
             );
+            if let Some(nested) = &field.array_nested {
+                emit_json_decode_cleanup(out, nested, &format!("{field_path}_item"));
+                let item = json_decode_var(&field_path, "array_item");
+                let _ = writeln!(out, "  aura_gc_remove_root((void **)&{item});");
+            }
         }
         if let Some(nested) = &field.nested {
             emit_json_decode_cleanup(out, nested, &field_path);
@@ -293,18 +350,46 @@ fn emit_json_decode_cleanup(out: &mut String, node: &JsonDecodeNode, path: &str)
     }
 }
 
+fn emit_json_decode_item_cleanup(out: &mut String, node: &JsonDecodeNode, path: &str) {
+    for (index, field) in node.fields.iter().enumerate() {
+        let field_path = format!("{path}_{index}");
+        let raw = json_decode_var(&field_path, "raw");
+        let _ = writeln!(
+            out,
+            "if ({raw} != NULL) {{ free((void *){raw}); {raw} = NULL; }}"
+        );
+        if field.key == "String" {
+            let string = json_decode_var(&field_path, "string");
+            let _ = writeln!(
+                out,
+                "if ({string} != NULL) {{ free((void *){string}); {string} = NULL; }}"
+            );
+        }
+        if let Some(nested) = &field.nested {
+            emit_json_decode_item_cleanup(out, nested, &field_path);
+        }
+        if let Some(nested) = &field.array_nested {
+            emit_json_decode_item_cleanup(out, nested, &format!("{field_path}_item"));
+        }
+    }
+}
+
 fn emit_json_decode_transfer_arrays(out: &mut String, node: &JsonDecodeNode, path: &str) {
     for (index, field) in node.fields.iter().enumerate() {
         let field_path = format!("{path}_{index}");
-        if field.array_element.is_some() {
+        if field.array_element.is_some() || field.array_nested.is_some() {
             let array = json_decode_var(&field_path, "array");
+            let rooted = json_decode_var(&field_path, "array_rooted");
             let _ = writeln!(
                 out,
-                "  {array}.data = NULL; {array}.len = 0; {array}.cap = 0;"
+                "  if ({rooted}) aura_gc_remove_array_root((void **)&{array}.data); {array}.data = NULL; {array}.len = 0; {array}.cap = 0; {rooted} = false;"
             );
         }
         if let Some(nested) = &field.nested {
             emit_json_decode_transfer_arrays(out, nested, &field_path);
+        }
+        if let Some(nested) = &field.array_nested {
+            emit_json_decode_transfer_arrays(out, nested, &format!("{field_path}_item"));
         }
     }
 }
@@ -319,7 +404,9 @@ fn emit_json_decode_ctor_args(node: &JsonDecodeNode, path: &str) -> String {
                 "Int" => json_decode_var(&field_path, "int"),
                 "Bool" => json_decode_var(&field_path, "bool"),
                 "String" => json_decode_var(&field_path, "string"),
-                _ if field.array_element.is_some() => json_decode_var(&field_path, "array"),
+                _ if field.array_element.is_some() || field.array_nested.is_some() => {
+                    json_decode_var(&field_path, "array")
+                }
                 _ => json_decode_var(&field_path, "class"),
             }
         })

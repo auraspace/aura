@@ -2922,6 +2922,7 @@ class Middle<T>(val leaf: Leaf<T>) {}
 class Root<T>(val middle: Middle<T>) {}
 class OptionalRoot<T>(val child: Leaf<T>?) {}
 class Batch<T>(val values: Array<T>) {}
+class ClassBatch<T>(val values: Array<Leaf<T>>) {}
 fun main() {
   val root = decode<Root<String>>(Value("{\"middle\":{\"leaf\":{\"value\":\"ok\"}}}"))
   if (root == null || root!!.middle.leaf.value != "ok") { throw "recursive generic decode failed" }
@@ -2929,6 +2930,8 @@ fun main() {
   if (optional == null || optional!!.child != null) { throw "nullable generic decode failed" }
   val batch = decode<Batch<String>>(Value("{\"values\":[\"a\",\"b\"]}"))
   if (batch == null || batch!!.values.len != 2 || batch!!.values.get(1) != "b") { throw "generic array decode failed" }
+  val classBatch = decode<ClassBatch<String>>(Value("{\"values\":[{\"value\":\"x\"}]}"))
+  if (classBatch == null || classBatch!!.values.len != 1 || classBatch!!.values.get(0).value != "x") { throw "generic class array decode failed" }
   println(root!!.middle.leaf.value)
 }
 "#,
