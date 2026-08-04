@@ -1,8 +1,9 @@
-# Aura Alpha Deferred Contract Inventory
+# Aura Standard Library Completion Backlog
 
-This inventory separates a locked placeholder from a future surface whose
-syntax is not yet stable enough to expose in `std/`. It is derived from RFC-003,
-RFC-009, RFC-010, and RFC-011.
+This inventory lists implementation work that remains after the current
+standard-library surface. It is a working backlog, not an API lock or a reason
+to expose fake behavior. It is derived from RFC-003, RFC-009, RFC-010, and
+RFC-011.
 
 | RFC             | Surface                                                                    | Alpha status                                                                                                                                                        | Blocking boundary                                                                   |
 | --------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
@@ -26,12 +27,9 @@ RFC-009, RFC-010, and RFC-011.
 
 Rules:
 
-- A source placeholder exists only when its signature and ownership boundary
-  are stable enough to lock.
-- The implemented RFC-003 declarations retain a failing fallback body in the
-  portable source shell; the C backend replaces those bodies with the runtime
-  intrinsics listed in this table.
-- A deferred contract row must not be treated as complete beyond the status
-  and scope stated in this inventory.
-- Each row needs corpus/compiler/runtime coverage before promotion to locked
-  implementation status.
+- A source fallback may exist only as an explicit compiler/runtime intrinsic
+  bridge with a real backend and test coverage.
+- A backlog row must not be described as implemented until corpus, compiler,
+  runtime, and platform evidence exists.
+- Completing a row requires updating this backlog or removing the row in the
+  same change.
