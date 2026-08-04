@@ -184,6 +184,12 @@ _Bool aura_json_is_null(const char *value)
   return *cursor == '\0';
 }
 
+_Bool aura_json_is_array(const char *value)
+{
+  const char *cursor = aura_json_trim_start(value);
+  return *cursor == '[' && aura_json_is_valid(value);
+}
+
 _Bool aura_json_parse_int(const char *value, int64_t *out)
 {
   const char *cursor = aura_json_trim_start(value);

@@ -35,6 +35,7 @@ struct JsonDecodeField {
     name: String,
     key: String,
     nullable: bool,
+    array_element: Option<String>,
     nested: Option<Box<JsonDecodeNode>>,
 }
 
@@ -80,20 +81,24 @@ fn build_json_decode_node(
     let mut fields = Vec::with_capacity(class.fields.len());
     for field in &class.fields {
         let field_key = type_ref_local_key_expand(&field.ty, &params, &class_args, checked);
-        let nested = if matches!(field_key.as_str(), "Int" | "Bool" | "String") {
-            None
-        } else {
-            Some(Box::new(build_json_decode_node(
-                &field_key,
-                checked,
-                seen,
-                depth + 1,
-            )?))
-        };
+        let array_element = crate::expr::array_elem_local_key(&field_key, checked)
+            .filter(|element| matches!(element.as_str(), "Int" | "Bool" | "String"));
+        let nested =
+            if matches!(field_key.as_str(), "Int" | "Bool" | "String") || array_element.is_some() {
+                None
+            } else {
+                Some(Box::new(build_json_decode_node(
+                    &field_key,
+                    checked,
+                    seen,
+                    depth + 1,
+                )?))
+            };
         fields.push(JsonDecodeField {
             name: field.name.name.clone(),
             key: field_key,
             nullable: field.ty.nullable,
+            array_element,
             nested,
         });
     }
@@ -131,6 +136,10 @@ fn emit_json_decode_declarations(out: &mut String, node: &JsonDecodeNode, path: 
                     "  const char *{} = NULL;",
                     json_decode_var(&field_path, "string")
                 );
+            }
+            _ if field.array_element.is_some() => {
+                let array = json_decode_var(&field_path, "array");
+                let _ = writeln!(out, "  {} {array} = {{ 0 }};", c_class_type(&field.key));
             }
             _ => {
                 let class = json_decode_var(&field_path, "class");
@@ -182,6 +191,39 @@ fn emit_json_decode_parse(out: &mut String, node: &JsonDecodeNode, path: &str, s
                     "  {decoded} = aura_json_decode_string({raw}); if ({decoded} == NULL) goto __json_decode_fail;"
                 );
             }
+            _ if field.array_element.is_some() => {
+                let array = json_decode_var(&field_path, "array");
+                let array_ctor = c_ctor_name(&field.key);
+                let array_push = c_method_name(&field.key, "push");
+                let _ = writeln!(
+                    out,
+                    "  if (!aura_json_is_array({raw})) goto __json_decode_fail;"
+                );
+                let _ = writeln!(out, "  {array} = {array_ctor}(0);");
+                out.push_str("  for (int64_t __json_i = 0, __json_n = aura_json_array_count(");
+                let _ = writeln!(out, "{raw}); __json_i < __json_n; __json_i++) {{");
+                let _ = writeln!(
+                    out,
+                    "    const char *__json_item = aura_json_array_at({raw}, __json_i); if (__json_item == NULL) goto __json_decode_fail;"
+                );
+                match field.array_element.as_deref() {
+                    Some("Int") => out.push_str(
+                        "    int64_t __json_item_value = 0; if (!aura_json_parse_int(__json_item, &__json_item_value)) { free((void *)__json_item); goto __json_decode_fail; }\n",
+                    ),
+                    Some("Bool") => out.push_str(
+                        "    bool __json_item_value = false; if (!aura_json_parse_bool(__json_item, &__json_item_value)) { free((void *)__json_item); goto __json_decode_fail; }\n",
+                    ),
+                    Some("String") => out.push_str(
+                        "    const char *__json_item_value = aura_json_decode_string(__json_item); if (__json_item_value == NULL) { free((void *)__json_item); goto __json_decode_fail; }\n",
+                    ),
+                    _ => unreachable!(),
+                }
+                let _ = writeln!(out, "    {array_push}(&{array}, __json_item_value);");
+                if field.array_element.as_deref() == Some("String") {
+                    out.push_str("    free((void *)__json_item_value);\n");
+                }
+                out.push_str("    free((void *)__json_item);\n  }\n");
+            }
             _ => {
                 let class = json_decode_var(&field_path, "class");
                 if field.nullable {
@@ -219,6 +261,7 @@ fn emit_json_decode_parse(out: &mut String, node: &JsonDecodeNode, path: &str, s
                     "    {class} = {}({args}); if ({class} == NULL) goto __json_decode_fail;",
                     c_ctor_name(&nested.mono)
                 );
+                emit_json_decode_transfer_arrays(out, nested, &field_path);
                 out.push_str("  }\n");
             }
         }
@@ -234,10 +277,34 @@ fn emit_json_decode_cleanup(out: &mut String, node: &JsonDecodeNode, path: &str)
             let string = json_decode_var(&field_path, "string");
             let _ = writeln!(out, "  if ({string} != NULL) free((void *){string});");
         }
+        if field.array_element.is_some() {
+            let array = json_decode_var(&field_path, "array");
+            let array_type = c_class_type(&field.key);
+            let _ = writeln!(
+                out,
+                "  if ({array}.data != NULL) {array_type}_drop(&{array});"
+            );
+        }
         if let Some(nested) = &field.nested {
             emit_json_decode_cleanup(out, nested, &field_path);
             let class = json_decode_var(&field_path, "class");
             let _ = writeln!(out, "  aura_gc_remove_root((void **)&{class});");
+        }
+    }
+}
+
+fn emit_json_decode_transfer_arrays(out: &mut String, node: &JsonDecodeNode, path: &str) {
+    for (index, field) in node.fields.iter().enumerate() {
+        let field_path = format!("{path}_{index}");
+        if field.array_element.is_some() {
+            let array = json_decode_var(&field_path, "array");
+            let _ = writeln!(
+                out,
+                "  {array}.data = NULL; {array}.len = 0; {array}.cap = 0;"
+            );
+        }
+        if let Some(nested) = &field.nested {
+            emit_json_decode_transfer_arrays(out, nested, &field_path);
         }
     }
 }
@@ -252,6 +319,7 @@ fn emit_json_decode_ctor_args(node: &JsonDecodeNode, path: &str) -> String {
                 "Int" => json_decode_var(&field_path, "int"),
                 "Bool" => json_decode_var(&field_path, "bool"),
                 "String" => json_decode_var(&field_path, "string"),
+                _ if field.array_element.is_some() => json_decode_var(&field_path, "array"),
                 _ => json_decode_var(&field_path, "class"),
             }
         })
@@ -271,7 +339,11 @@ fn emit_json_decode_node(
     emit_json_decode_declarations(out, node, "root");
     emit_json_decode_parse(out, node, "root", &format!("(*{value}).text"));
     let args = emit_json_decode_ctor_args(node, "root");
-    let _ = writeln!(out, "  {target_type} *__decoded = {constructor}({args});");
+    let _ = writeln!(
+        out,
+        "  {target_type} *__decoded = {constructor}({args}); if (__decoded == NULL) goto __json_decode_fail;"
+    );
+    emit_json_decode_transfer_arrays(out, node, "root");
     out.push_str("  goto __json_decode_done;\n");
     out.push_str("__json_decode_fail:\n");
     emit_json_decode_cleanup(out, node, "root");
@@ -576,6 +648,7 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str("const char *aura_dns_resolve_host_list(const char *host, int prefer_ipv6);\n");
     out.push_str("_Bool aura_json_is_valid(const char *value);\n");
     out.push_str("_Bool aura_json_is_null(const char *value);\n");
+    out.push_str("_Bool aura_json_is_array(const char *value);\n");
     out.push_str("int64_t aura_json_error_offset(const char *value);\n");
     out.push_str("const char *aura_json_escape_string(const char *value);\n");
     out.push_str("const char *aura_json_object_get(const char *value, const char *key);\n");

@@ -9,6 +9,7 @@ class Leaf<T>(val value: T) {}
 class Middle<T>(val leaf: Leaf<T>) {}
 class Root<T>(val middle: Middle<T>) {}
 class OptionalRoot<T>(val child: Leaf<T>?) {}
+class Batch<T>(val values: Array<T>) {}
 
 fun main() {
   val decoded = decode<Config>(Value("{\"name\":\"aura\",\"enabled\":true,\"count\":7,\"address\":{\"city\":\"Hanoi\",\"zip\":1000}}"))
@@ -34,4 +35,20 @@ fun main() {
     throw "typed class decode failed for nullable generic class"
   }
   println("nullable")
+  val batch = decode<Batch<String>>(Value("{\"values\":[\"a\",\"b\"]}"))
+  if (batch == null || batch!!.values.len != 2 || batch!!.values.get(1) != "b") {
+    throw "typed class decode failed for generic primitive arrays"
+  }
+  println(batch!!.values.get(0) + batch!!.values.get(1))
+  val numbers = decode<Batch<Int>>(Value("{\"values\":[2,3]}"))
+  if (numbers == null || numbers!!.values.get(0) != 2 || numbers!!.values.get(1) != 3) {
+    throw "typed class decode failed for integer arrays"
+  }
+  val flags = decode<Batch<Bool>>(Value("{\"values\":[true,false]}"))
+  if (flags == null || !flags!!.values.get(0) || flags!!.values.get(1)) {
+    throw "typed class decode failed for boolean arrays"
+  }
+  if (decode<Batch<String>>(Value("{\"values\":[1]}")) != null) {
+    throw "typed class decode accepted an invalid primitive array element"
+  }
 }
