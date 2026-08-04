@@ -3073,6 +3073,8 @@ fun main() {
   if (ints!!.len != 3 || ints!!.get(2) != 8) { throw "generic int array decode failed" }
   val strings = decode<Array<String>>(Value("[\"a\",\"b\"]"))
   if (strings!!.len != 2 || strings!!.get(1) != "b") { throw "generic string array decode failed" }
+  val nested = decode<Array<Array<Int>>>(Value("[[1,2],[3,4]]"))
+  if (nested!!.len != 2 || nested!!.get(1).get(0) != 3) { throw "nested generic array decode failed" }
   println(ints!!.get(0).toString())
 }
 "#,
@@ -3082,6 +3084,7 @@ fun main() {
         assert!(generated.contains("aura_json_array_count"));
         assert!(generated.contains("aura_new_Array_Int"));
         assert!(generated.contains("aura_new_Array_String"));
+        assert!(generated.contains("aura_new_Array_Array_Int"));
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .and_then(|path| path.parent())

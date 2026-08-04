@@ -693,6 +693,70 @@ fn emit_json_decode_primitive_array(
     );
 }
 
+fn emit_json_decode_nested_primitive_array(
+    out: &mut String,
+    array_key: &str,
+    inner_key: &str,
+    element_key: &str,
+    checked: &CheckedFile,
+) {
+    let outer_type = crate::stmt::local_key_to_c(array_key, checked);
+    let inner_type = crate::stmt::local_key_to_c(inner_key, checked);
+    let outer_ctor = c_ctor_name(array_key);
+    let inner_ctor = c_ctor_name(inner_key);
+    let outer_push = c_method_name(array_key, "push");
+    let inner_push = c_method_name(inner_key, "push");
+    let inner_drop = format!("{inner_type}_drop");
+    let outer_drop = format!("{outer_type}_drop");
+    out.push_str("  if (value == NULL || !aura_json_is_valid((*value).text) || !aura_json_is_array((*value).text)) return (\n");
+    let _ = writeln!(out, "    {outer_type}){{0}};");
+    out.push_str("  aura_gc_add_root((void **)&value);\n");
+    let _ = writeln!(out, "  {outer_type} __decoded = {outer_ctor}(0);");
+    let _ = writeln!(out, "  {inner_type} __json_inner = {inner_ctor}(0);");
+    out.push_str("  bool __json_inner_rooted = false;\n");
+    out.push_str("  aura_gc_add_array_root((void **)&__decoded.data, &__decoded.len);\n");
+    out.push_str(
+        "  for (int64_t __json_i = 0, __json_n = aura_json_array_count((*value).text); __json_i < __json_n; __json_i++) {\n",
+    );
+    out.push_str(
+        "    const char *__json_item = aura_json_array_at((*value).text, __json_i); if (__json_item == NULL || !aura_json_is_array(__json_item)) { if (__json_item != NULL) free((void *)__json_item); goto __json_nested_array_fail; }\n",
+    );
+    let _ = writeln!(out, "    __json_inner = {inner_ctor}(0);");
+    out.push_str("    aura_gc_add_array_root((void **)&__json_inner.data, &__json_inner.len); __json_inner_rooted = true;\n");
+    out.push_str(
+        "    for (int64_t __json_j = 0, __json_m = aura_json_array_count(__json_item); __json_j < __json_m; __json_j++) {\n",
+    );
+    out.push_str(
+        "      const char *__json_nested_item = aura_json_array_at(__json_item, __json_j); if (__json_nested_item == NULL) goto __json_nested_array_fail;\n",
+    );
+    match element_key {
+        "Int" => out.push_str(
+            "      int64_t __json_nested_value = 0; if (!aura_json_parse_int(__json_nested_item, &__json_nested_value)) { free((void *)__json_nested_item); goto __json_nested_array_fail; }\n",
+        ),
+        "Bool" => out.push_str(
+            "      bool __json_nested_value = false; if (!aura_json_parse_bool(__json_nested_item, &__json_nested_value)) { free((void *)__json_nested_item); goto __json_nested_array_fail; }\n",
+        ),
+        "String" => out.push_str(
+            "      const char *__json_nested_value = aura_json_decode_string(__json_nested_item); if (__json_nested_value == NULL) { free((void *)__json_nested_item); goto __json_nested_array_fail; }\n",
+        ),
+        _ => unreachable!("nested JSON array emitter received non-primitive element"),
+    }
+    let _ = writeln!(
+        out,
+        "      {inner_push}(&__json_inner, __json_nested_value);"
+    );
+    if element_key == "String" {
+        out.push_str("      free((void *)__json_nested_value);\n");
+    }
+    out.push_str("      free((void *)__json_nested_item);\n    }\n");
+    out.push_str("    aura_gc_remove_array_root((void **)&__json_inner.data); __json_inner_rooted = false;\n");
+    let _ = writeln!(out, "    {outer_push}(&__decoded, __json_inner);");
+    out.push_str("    __json_inner.data = NULL; __json_inner.len = 0; __json_inner.cap = 0; free((void *)__json_item);\n  }\n");
+    out.push_str("  aura_gc_remove_array_root((void **)&__decoded.data); aura_gc_remove_root((void **)&value); return __decoded;\n");
+    out.push_str("__json_nested_array_fail:\n  if (__json_inner_rooted) aura_gc_remove_array_root((void **)&__json_inner.data); ");
+    let _ = writeln!(out, "{inner_drop}(&__json_inner); aura_gc_remove_array_root((void **)&__decoded.data); {outer_drop}(&__decoded); aura_gc_remove_root((void **)&value); return ({outer_type}){{0}};\n}}");
+}
+
 pub fn emit_c(checked: &CheckedFile) -> String {
     emit_c_with(checked, EmitOptions::default())
 }
@@ -17497,11 +17561,24 @@ pub(crate) fn emit_fun(
         let name = args[0].mono_suffix();
         let array_key = crate::expr::full_type_mono(&name, checked);
         if is_array_type_key(&array_key) {
-            if let Some(element_key) = crate::expr::array_elem_local_key(&array_key, checked)
-                .filter(|element| matches!(element.as_str(), "Int" | "Bool" | "String"))
-            {
-                emit_json_decode_primitive_array(out, &array_key, &element_key, checked);
-                return;
+            if let Some(element_key) = crate::expr::array_elem_local_key(&array_key, checked) {
+                if let Some(inner_element_key) = element_key
+                    .strip_prefix("Array_")
+                    .filter(|element| matches!(*element, "Int" | "Bool" | "String"))
+                {
+                    emit_json_decode_nested_primitive_array(
+                        out,
+                        &array_key,
+                        &element_key,
+                        inner_element_key,
+                        checked,
+                    );
+                    return;
+                }
+                if matches!(element_key.as_str(), "Int" | "Bool" | "String") {
+                    emit_json_decode_primitive_array(out, &array_key, &element_key, checked);
+                    return;
+                }
             }
         }
         if let Some((class_name, class_args)) = match &args[0] {
