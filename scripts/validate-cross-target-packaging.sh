@@ -142,4 +142,5 @@ done
 
 grep -Eq 'RUST_TARGET' "$package_script" || die "package script has no explicit cross-target input"
 grep -Eq 'unsupported RUST_TARGET' "$package_script" || die "package script does not fail closed for unknown Rust targets"
+grep -Eq 'sysroot-manifest\.txt' "$package_script" || die "package script does not declare a target-neutral sysroot manifest"
 info "PASS: ${#required[@]} required mappings and ${#rows[@]} policy rows validated across release and CI matrices (no cross build executed)"

@@ -12,18 +12,21 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 - Area: RFC-001/002/004/005/006/008/010/012/013/014 surfaces
 - Symptom: concurrent tracing write barriers and precise stack maps,
-  cross-target sysroot delivery, and full LSP protocol behavior are not
-  complete. LSP references and rename now use snapshot-scoped binding
-  identities, while durable identity and scheduling are still open.
+  native artifacts for tier-2 targets, and full LSP protocol behavior are not
+  complete. Every packaged toolchain now carries an explicit target-neutral
+  runtime/std sysroot manifest. LSP references and rename now use
+  snapshot-scoped binding identities, while durable identity and scheduling
+  are still open.
   Declarative macro hygiene and invocation-span attribution are
   now bounded and tested; macro expansion inspection and broader plugin
   provenance remain outside this inventory item. Verified local self-update
   and rollback are complete under the bounded U7/U8 contract.
 - Why deferred: these are separate distribution, GC, macro, and tooling
   contracts rather than prerequisites for the current alpha compiler.
-- Next step: split the remaining GC, sysroot, and LSP contracts into
-  independently testable boundaries and track acceptance on the relevant
-  host/tooling matrix.
+- Next step: build and execute native Linux arm64/Windows artifacts on their
+  supported hosts, then add durable LSP identities and a cancellable scheduler;
+  the concurrent GC contract still needs a tri-color collector and compiler
+  stack maps.
 
 ### LSP-001 language-server MVP limits (2026-07-29)
 

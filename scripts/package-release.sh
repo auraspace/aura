@@ -128,6 +128,19 @@ for package_dir in "${std_packages[@]}"; do
   find "$STAGE/share/aura/std/$pkg" -type f -print -quit | grep -q . \
     || die "required std package copied no files: std/$pkg"
 done
+
+# Make the target-neutral runtime/std payload explicit for cross-target build
+# consumers. The executable remains target-specific; this manifest describes
+# the source sysroot shipped alongside it.
+SYSROOT_MANIFEST="$STAGE/share/aura/sysroot-manifest.txt"
+{
+  printf 'format=1\n'
+  printf 'runtime=share/aura/runtime\n'
+  for package_dir in "${std_packages[@]}"; do
+    [[ -d "$package_dir" ]] || continue
+    printf 'std=%s\n' "$(basename "$package_dir")"
+  done
+} >"$SYSROOT_MANIFEST"
 cp "$ROOT/LICENSE" "$STAGE/LICENSE"
 cat >"$STAGE/README.txt" <<EOF
 Aura toolchain ${TAG_VERSION} (${OS}/${ARCH})
@@ -203,6 +216,7 @@ archive_has_path() {
 for required in \
   "$NAME/bin/aura" \
   "$NAME/share/aura/runtime/runtime.c" \
+  "$NAME/share/aura/sysroot-manifest.txt" \
   "$NAME/LICENSE" \
   "$NAME/README.txt"; do
   archive_has_path "$required" || die "archive is missing $required"
@@ -215,6 +229,15 @@ done
 README_CONTENT="$(tar -xOzf "$TAR" "$NAME/README.txt")"
 [[ "$README_CONTENT" == *"Aura toolchain ${TAG_VERSION} (${OS}/${ARCH})"* ]] \
   || die "archive README has incorrect version or platform metadata"
+SYSROOT_CONTENT="$(tar -xOzf "$TAR" "$NAME/share/aura/sysroot-manifest.txt")"
+grep -Fxq 'format=1' <<<"$SYSROOT_CONTENT" || die "archive sysroot manifest has no format"
+grep -Fxq 'runtime=share/aura/runtime' <<<"$SYSROOT_CONTENT" \
+  || die "archive sysroot manifest has no runtime entry"
+for package_dir in "${std_packages[@]}"; do
+  [[ -d "$package_dir" ]] || continue
+  grep -Fxq "std=$(basename "$package_dir")" <<<"$SYSROOT_CONTENT" \
+    || die "archive sysroot manifest is missing std/$(basename "$package_dir")"
+done
 
 echo "wrote $TAR"
 echo "wrote $CHECKSUM"
