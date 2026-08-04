@@ -334,7 +334,7 @@ ownership, cancellation, and exactly-once cleanup rules.
   complete JSON). Member/array traversal, serializer ordering,
   typed mapping, and configurable limits remain open.
 
-- [ ] S11 Complete `std.log`, `std.metrics`, and `std.signal` integration.
+- [x] S11 Complete `std.log`, `std.metrics`, and `std.signal` integration.
 
   Progress: embedded `std.log` now exposes bounded debug/info/warn/error text
   levels with deterministic stderr prefixes and flush behavior. Native codegen

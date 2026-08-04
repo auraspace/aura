@@ -3,10 +3,10 @@
 package std.signal
 
 /// Install SIGINT/SIGTERM handlers on supported native targets.
-pub fun installShutdown(): Bool { return false }
+pub fun installShutdown(): Bool { throw "std.signal installShutdown intrinsic" }
 
 /// Observe whether SIGINT/SIGTERM has been received.
-pub fun shutdownRequested(): Bool { return false }
+pub fun shutdownRequested(): Bool { throw "std.signal shutdownRequested intrinsic" }
 
 /// Clear the in-process shutdown flag after a graceful drain.
-pub fun clearShutdown() { }
+pub fun clearShutdown() { throw "std.signal clearShutdown intrinsic" }
