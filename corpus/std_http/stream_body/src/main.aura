@@ -3,14 +3,25 @@
 package demo.stdhttp.streambody
 
 import std.http
+import std.error as StreamErrs
 
 async fun readTwoChunks(request: Request, response: Response): Unit {
-  val body = request.bodyReader()
-  val first: String = await body.readChunk(3)
-  val second: String = await body.readChunk(16384)
-  response.setBody(first + second)
+    val body = request.bodyReader()
+    val first: String = await body.readChunk(3)
+    val second: String = await body.readChunk(16384)
+    response.setBody(first + second)
+}
+
+async fun readTypedChunk(request: Request): Unit {
+    val result: StreamErrs.Outcome<String, StreamErrs.HttpError> = await request.bodyReader().readChunkResult(16)
+    if (StreamErrs.isSuccess(result)) { println("body-ok") }
+}
+
+async fun writeTypedChunk(response: Response): Unit {
+    val result: StreamErrs.Outcome<Bool, StreamErrs.HttpError> = await response.writeChunkResult("ok")
+    if (StreamErrs.isSuccess(result)) { println("write-ok") }
 }
 
 fun main() {
-  println("std.http RequestBody compiles")
+    println("std.http RequestBody compiles")
 }

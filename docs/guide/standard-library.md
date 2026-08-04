@@ -369,9 +369,11 @@ raw foreign handles remain package-private.
 | `Request.headerCount` / `headerName` / `headerValue`            | Bounded header snapshot access                                                                     |
 | `Request.body` / `bodyReader`                                   | Body snapshot or single-reader body adapter                                                        |
 | `RequestBody.readChunk`                                         | Async bounded single-reader chunk read; claim is held across suspension and empty string means EOF |
+| `RequestBody.readChunkResult`                                   | Typed `Outcome<String, HttpError>` body-read boundary                                              |
 | `Response.status` / `keepAlive`                                 | Inspect response state                                                                             |
 | `Response.setStatus` / `setKeepAlive` / `setBody` / `addHeader` | Configure response before commit                                                                   |
 | `Response.writeChunk`                                           | Async chunked response write; commits on first call                                                |
+| `Response.writeChunkResult`                                     | Typed `Outcome<Bool, HttpError>` response-write boundary                                           |
 
 ## `std.stream`
 
