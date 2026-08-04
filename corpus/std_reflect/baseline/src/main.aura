@@ -23,11 +23,15 @@ enum Shade { case Light case Dark }
 @reflect
 interface Named { fun name(): String }
 
+@reflect
+interface Sized<T> { fun get(): T }
+
 fun main() {
     val intType = typeOf<Int>()
     val stringType = typeOf<String>()
     val widgetType = typeOf<Widget>()
     val boxType = typeOf<Box<Int>>()
+    val sizedType = typeOf<Sized<Int>>()
     val intId = typeIdOf<Int>()
     if (intType.name() != "Int" || stringType.name() != "String") { throw "bad type name" }
     if (intId.value != "Int") { throw "bad type id" }
@@ -37,6 +41,7 @@ fun main() {
     if (!isReflectable("String") || !isReflectable("Widget")) { throw "bad reflectability" }
     if (isReflectable("Hidden")) { throw "unannotated type reflected" }
     if (!isReflectable("Point") || !isReflectable("Shade") || !isReflectable("Named")) { throw "missing reflected type" }
+    if (!isReflectable("demo_stdreflect_Sized_Int") || sizedType.methods().len != 1) { throw "missing generic interface metadata" }
     if (fields("Int").len != 0 || methods("Int").len != 0) { throw "bad members" }
     if (fields("Widget").len != 2 || methods("Widget").len != 1) { throw "missing metadata" }
     if (fields("demo_stdreflect_Box_Int").len != 1 || methods("demo_stdreflect_Box_Int").len != 1) { throw "missing generic metadata" }
@@ -45,6 +50,7 @@ fun main() {
     if (widgetType.fields().len != 2 || widgetType.methods().len != 1) { throw "bad type metadata" }
     if (widgetType.fields().get(0).typeName != "Int" || widgetType.methods().get(0).returnType != "Unit") { throw "bad member types" }
     if (!isReflectable("demo_stdreflect_Box_Int") || boxType.fields().get(0).typeName != "Int" || boxType.methods().get(0).returnType != "Int") { throw "bad generic member types" }
+    if (methods("demo_stdreflect_Sized_Int").len != 1 || sizedType.methods().get(0).returnType != "Int") { throw "bad generic interface member types" }
     if (typeOf<Hidden>().fields().len != 0) { throw "hidden metadata leaked" }
     println("reflect-ok")
 }

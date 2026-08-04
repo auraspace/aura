@@ -17052,6 +17052,21 @@ pub(crate) fn emit_fun(
                     out,
                     "  if ({value} != NULL && (strcmp({value}, \"{interface_name}\") == 0 || strcmp({value}, \"{qualified_name}\") == 0)) __kind = aura_var_std_reflect_TypeKind_Interface();"
                 );
+                for (_mono_name, args) in checked
+                    .mono_interfaces
+                    .iter()
+                    .filter(|(name, args)| name == interface_name && !args.iter().any(Ty::is_open))
+                {
+                    let mono = type_mono(
+                        &iface_decl_package(interface, checked),
+                        interface_name,
+                        args,
+                    );
+                    let _ = writeln!(
+                        out,
+                        "  if ({value} != NULL && strcmp({value}, \"{mono}\") == 0) __kind = aura_var_std_reflect_TypeKind_Interface();"
+                    );
+                }
             }
             for function in &checked.ast.functions {
                 let function_name = &function.name.name;
@@ -17114,6 +17129,18 @@ pub(crate) fn emit_fun(
                         out,
                         " || strcmp({value}, \"{interface_name}\") == 0 || strcmp({value}, \"{qualified_name}\") == 0"
                     );
+                    for (_mono_name, args) in
+                        checked.mono_interfaces.iter().filter(|(name, args)| {
+                            name == interface_name && !args.iter().any(Ty::is_open)
+                        })
+                    {
+                        let mono = type_mono(
+                            &iface_decl_package(interface, checked),
+                            interface_name,
+                            args,
+                        );
+                        let _ = write!(out, " || strcmp({value}, \"{mono}\") == 0");
+                    }
                 }
             }
             out.push_str(");\n");
@@ -17208,6 +17235,31 @@ pub(crate) fn emit_fun(
                         );
                     }
                     out.push_str("    return __metadata;\n  }\n");
+                    for (_mono_name, args) in
+                        checked.mono_interfaces.iter().filter(|(name, args)| {
+                            name == interface_name && !args.iter().any(Ty::is_open)
+                        })
+                    {
+                        let mono = type_mono(
+                            &iface_decl_package(interface, checked),
+                            interface_name,
+                            args,
+                        );
+                        let _ = writeln!(out, "  if (strcmp({value}, \"{mono}\") == 0) {{");
+                        let _ = writeln!(
+                            out,
+                            "    aura_cls_Array_String __metadata = aura_new_Array_String(INT64_C({}));",
+                            interface.methods.len()
+                        );
+                        for (index, method) in interface.methods.iter().enumerate() {
+                            let _ = writeln!(
+                                out,
+                                "    __metadata.data[{index}] = aura_bytes_copy(\"{}\");",
+                                method.name.name
+                            );
+                        }
+                        out.push_str("    return __metadata;\n  }\n");
+                    }
                 }
             }
             out.push_str("  return aura_new_Array_String(INT64_C(0));\n}\n");
@@ -17339,6 +17391,36 @@ pub(crate) fn emit_fun(
                         );
                     }
                     out.push_str("    return __metadata;\n  }\n");
+                    for (_mono_name, args) in
+                        checked.mono_interfaces.iter().filter(|(name, args)| {
+                            name == interface_name && !args.iter().any(Ty::is_open)
+                        })
+                    {
+                        let mono = type_mono(
+                            &iface_decl_package(interface, checked),
+                            interface_name,
+                            args,
+                        );
+                        let _ = writeln!(out, "  if (strcmp({value}, \"{mono}\") == 0) {{");
+                        let _ = writeln!(
+                            out,
+                            "    aura_cls_Array_String __metadata = aura_new_Array_String(INT64_C({}));",
+                            interface.methods.len()
+                        );
+                        for (index, method) in interface.methods.iter().enumerate() {
+                            let return_name = method
+                                .return_type
+                                .as_ref()
+                                .map(|ty| reflect_type_ref_name(ty, &interface.type_params, args))
+                                .unwrap_or_else(|| "Unit".into());
+                            let _ = writeln!(
+                                out,
+                                "    __metadata.data[{index}] = aura_bytes_copy(\"{}:{}\");",
+                                method.name.name, return_name
+                            );
+                        }
+                        out.push_str("    return __metadata;\n  }\n");
+                    }
                 }
             }
             out.push_str("  return aura_new_Array_String(INT64_C(0));\n}\n");
