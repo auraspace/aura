@@ -43,6 +43,32 @@ struct JsonDecodeField {
     nested: Option<Box<JsonDecodeNode>>,
 }
 
+fn reflect_type_ref_name(type_ref: &TypeRef, params: &[TypeParam], args: &[Ty]) -> String {
+    let mut name = if type_ref.type_args.is_empty() {
+        params
+            .iter()
+            .position(|param| param.name.name == type_ref.name.name)
+            .and_then(|index| args.get(index))
+            .map(Ty::display)
+            .unwrap_or_else(|| type_ref.name.name.clone())
+    } else {
+        format!(
+            "{}<{}>",
+            type_ref.name.name,
+            type_ref
+                .type_args
+                .iter()
+                .map(|arg| reflect_type_ref_name(arg, params, args))
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+    };
+    if type_ref.nullable {
+        name.push('?');
+    }
+    name
+}
+
 fn json_decode_class_for_mono<'a>(
     full: &str,
     checked: &'a CheckedFile,
@@ -16994,6 +17020,20 @@ pub(crate) fn emit_fun(
                     out,
                     "  if ({value} != NULL && (strcmp({value}, \"{class_name}\") == 0 || strcmp({value}, \"{qualified_name}\") == 0)) __kind = aura_var_std_reflect_TypeKind_{kind}();"
                 );
+                if has_reflect_attribute(&class.attributes) {
+                    for (mono_name, args) in checked
+                        .mono_classes
+                        .iter()
+                        .filter(|(name, args)| name == class_name && !args.iter().any(Ty::is_open))
+                    {
+                        let mono = type_mono(&class_decl_package(class, checked), class_name, args);
+                        let _ = writeln!(
+                            out,
+                            "  if ({value} != NULL && strcmp({value}, \"{mono}\") == 0) __kind = aura_var_std_reflect_TypeKind_{kind}();"
+                        );
+                        let _ = mono_name;
+                    }
+                }
             }
             for enumeration in &checked.ast.enums {
                 let enum_name = &enumeration.name.name;
@@ -17043,6 +17083,15 @@ pub(crate) fn emit_fun(
                         out,
                         " || strcmp({value}, \"{class_name}\") == 0 || strcmp({value}, \"{qualified_name}\") == 0"
                     );
+                    for (mono_name, args) in checked
+                        .mono_classes
+                        .iter()
+                        .filter(|(name, args)| name == class_name && !args.iter().any(Ty::is_open))
+                    {
+                        let mono = type_mono(&class_decl_package(class, checked), class_name, args);
+                        let _ = write!(out, " || strcmp({value}, \"{mono}\") == 0");
+                        let _ = mono_name;
+                    }
                 }
             }
             for enumeration in &checked.ast.enums {
@@ -17114,6 +17163,25 @@ pub(crate) fn emit_fun(
                     );
                 }
                 out.push_str("    return __metadata;\n  }\n");
+                for (_mono_name, args) in checked.mono_classes.iter().filter(|(name, args)| {
+                    name == &class.name.name && !args.iter().any(Ty::is_open)
+                }) {
+                    let mono =
+                        type_mono(&class_decl_package(class, checked), &class.name.name, args);
+                    let _ = writeln!(out, "  if (strcmp({value}, \"{mono}\") == 0) {{");
+                    let _ = writeln!(
+                        out,
+                        "    aura_cls_Array_String __metadata = aura_new_Array_String(INT64_C({}));",
+                        names.len()
+                    );
+                    for (index, name) in names.iter().enumerate() {
+                        let _ = writeln!(
+                            out,
+                            "    __metadata.data[{index}] = aura_bytes_copy(\"{name}\");"
+                        );
+                    }
+                    out.push_str("    return __metadata;\n  }\n");
+                }
             }
             if f.name.name == "methods" {
                 for interface in &checked.ast.interfaces {
@@ -17193,6 +17261,53 @@ pub(crate) fn emit_fun(
                     );
                 }
                 out.push_str("    return __metadata;\n  }\n");
+                for (_mono_name, args) in checked.mono_classes.iter().filter(|(name, args)| {
+                    name == &class.name.name && !args.iter().any(Ty::is_open)
+                }) {
+                    let mono =
+                        type_mono(&class_decl_package(class, checked), &class.name.name, args);
+                    let metadata = if f.name.name == "fieldMetadata" {
+                        class
+                            .fields
+                            .iter()
+                            .filter(|field| field.visibility == MemberVisibility::Public)
+                            .map(|field| {
+                                format!(
+                                    "{}:{}",
+                                    field.name.name,
+                                    reflect_type_ref_name(&field.ty, &class.type_params, args)
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                    } else {
+                        class
+                            .methods
+                            .iter()
+                            .filter(|method| method.visibility == MemberVisibility::Public)
+                            .map(|method| {
+                                let return_name = method
+                                    .return_type
+                                    .as_ref()
+                                    .map(|ty| reflect_type_ref_name(ty, &class.type_params, args))
+                                    .unwrap_or_else(|| "Unit".into());
+                                format!("{}:{return_name}", method.name.name)
+                            })
+                            .collect::<Vec<_>>()
+                    };
+                    let _ = writeln!(out, "  if (strcmp({value}, \"{mono}\") == 0) {{");
+                    let _ = writeln!(
+                        out,
+                        "    aura_cls_Array_String __metadata = aura_new_Array_String(INT64_C({}));",
+                        metadata.len()
+                    );
+                    for (index, name) in metadata.iter().enumerate() {
+                        let _ = writeln!(
+                            out,
+                            "    __metadata.data[{index}] = aura_bytes_copy(\"{name}\");"
+                        );
+                    }
+                    out.push_str("    return __metadata;\n  }\n");
+                }
             }
             if f.name.name == "methodMetadata" {
                 for interface in &checked.ast.interfaces {

@@ -751,6 +751,13 @@ impl Checker {
         let subst = type_subst_map(&sig.type_params, &type_args);
         let params: Vec<Ty> = sig.params.iter().map(|p| subst_ty(p, &subst)).collect();
         let ret = subst_ty(&sig.ret, &subst);
+        if sig.package == "std.reflect"
+            && matches!(sig.name.as_str(), "typeOf" | "typeIdOf")
+            && type_args.len() == 1
+            && !type_args[0].is_open()
+        {
+            self.note_mono_ty(&type_args[0]);
+        }
         self.check_args(&params, &c.args, &name, c.span)?;
         // Always record target package for C3o C symbol mangling.
         self.call_instantiations.insert(
