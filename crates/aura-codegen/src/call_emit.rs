@@ -96,7 +96,11 @@ fn fun_move_srcs_from_args(args: &[Expr], param_keys: &[String], ctx: &EmitCtx<'
 
 /// A mutable Array capture is shared through a box.  Owning call parameters
 /// must receive a clone so the callee cannot free the box's live buffer.
-fn coerce_owner_arg_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>) -> String {
+pub(crate) fn coerce_owner_arg_expr(
+    expr: &Expr,
+    expected_ty: &str,
+    ctx: &mut EmitCtx<'_>,
+) -> String {
     // Outcome values carry owned payloads.  Passing one by value to a
     // predicate such as `isSuccess` must clone the payload so the callee's
     // parameter cleanup cannot consume the caller's live result.
@@ -1412,7 +1416,35 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                         }
                     });
                 let mono = type_mono(pkg, &id.name, &targs);
-                let ctor_index = inst.and_then(|i| i.constructor_index).unwrap_or(0);
+                let ctor_index = inst
+                    .and_then(|i| i.constructor_index)
+                    .or_else(|| {
+                        let primary_required = class
+                            .fields
+                            .iter()
+                            .filter(|field| field.default.is_none())
+                            .count();
+                        if c.args.len() < primary_required || c.args.len() > class.fields.len() {
+                            class
+                                .constructors
+                                .iter()
+                                .enumerate()
+                                .find(|(_, ctor)| {
+                                    let required = ctor
+                                        .params
+                                        .iter()
+                                        .filter(|param| param.default.is_none())
+                                        .count();
+                                    let is_vararg = ctor.params.iter().any(|param| param.is_vararg);
+                                    c.args.len() >= required
+                                        && (is_vararg || c.args.len() <= ctor.params.len())
+                                })
+                                .map(|(index, _)| index + 1)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(0);
                 if ctor_index > 0 {
                     let selected_span = inst.and_then(|i| i.declaration_span);
                     let args = class

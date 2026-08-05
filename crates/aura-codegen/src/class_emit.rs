@@ -1714,7 +1714,15 @@ fn emit_secondary_ctor_mono(
     let delegated = ctor
         .delegation_args
         .iter()
-        .map(|arg| crate::expr::emit_expr(arg, &mut ctx))
+        .enumerate()
+        .map(|(index, arg)| {
+            let expected = c
+                .fields
+                .get(index)
+                .map(|field| type_ref_local_key_expand(&field.ty, params, args, checked))
+                .unwrap_or_else(|| crate::expr::infer_type_name(arg, &ctx));
+            crate::call_emit::coerce_owner_arg_expr(arg, &expected, &mut ctx)
+        })
         .collect::<Vec<_>>()
         .join(", ");
     let _ = writeln!(
