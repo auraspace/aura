@@ -431,6 +431,7 @@ impl Checker {
                     superclass: None,
                     implements: Vec::new(),
                     fields: Vec::new(),
+                    constructors: Vec::new(),
                     methods: HashMap::new(),
                     span: c.span,
                 });
@@ -544,6 +545,7 @@ impl Checker {
                     },
                 );
             }
+
             self.type_params.clear();
             if !method_ok && methods.is_empty() {
                 continue;
@@ -1148,6 +1150,25 @@ impl Checker {
                 }
             }
 
+            let mut constructors = Vec::new();
+            for ctor in &c.constructors {
+                let params = match ctor
+                    .params
+                    .iter()
+                    .map(|p| self.type_from_ref(&p.ty))
+                    .collect::<Result<Vec<_>, _>>()
+                {
+                    Ok(params) => params,
+                    Err(err) => {
+                        self.errors.push(err);
+                        continue;
+                    }
+                };
+                constructors.push(crate::sigs::ConstructorSig {
+                    params,
+                    span: ctor.span,
+                });
+            }
             let mut methods = HashMap::new();
             for m in &c.methods {
                 if methods.contains_key(&m.name.name) {
@@ -1252,6 +1273,7 @@ impl Checker {
                     entry.implements = implements;
                     entry.superclass = superclass;
                     entry.fields = fields;
+                    entry.constructors = constructors;
                     entry.methods = methods;
                 }
             }
@@ -1570,6 +1592,76 @@ impl Checker {
                 if let Err(err) = self.check_method(c, m, &ret) {
                     self.errors.push(err);
                 }
+            }
+            for ctor in &c.constructors {
+                self.locals.push(HashMap::new());
+                for field in &csig.fields {
+                    self.current_locals_mut().insert(
+                        field.name.clone(),
+                        Local {
+                            ty: field.ty.clone(),
+                            mutable: field.mutable,
+                            borrow_source: None,
+                        },
+                    );
+                }
+                let mut valid = true;
+                for param in &ctor.params {
+                    match self.type_from_ref(&param.ty) {
+                        Ok(ty) => {
+                            self.current_locals_mut().insert(
+                                param.name.name.clone(),
+                                Local {
+                                    ty,
+                                    mutable: false,
+                                    borrow_source: None,
+                                },
+                            );
+                        }
+                        Err(err) => {
+                            self.errors.push(err);
+                            valid = false;
+                        }
+                    }
+                }
+                if ctor.delegation_args.len() != csig.fields.len() {
+                    self.errors.push(SemaError {
+                        message: format!(
+                            "constructor delegation expects {} argument(s), got {}",
+                            csig.fields.len(),
+                            ctor.delegation_args.len()
+                        ),
+                        span: ctor.span,
+                    });
+                    valid = false;
+                }
+                for (arg, field) in ctor.delegation_args.iter().zip(csig.fields.iter()) {
+                    match self.check_expr_expected(arg, Some(&field.ty)) {
+                        Ok(got) if self.is_assignable(&got, &field.ty) => {}
+                        Ok(got) => {
+                            self.errors.push(SemaError {
+                                message: format!(
+                                    "constructor delegation for `{}`: expected {}, got {}",
+                                    field.name,
+                                    field.ty.display(),
+                                    got.display()
+                                ),
+                                span: arg.span(),
+                            });
+                            valid = false;
+                        }
+                        Err(err) => {
+                            self.errors.push(err);
+                            valid = false;
+                        }
+                    }
+                }
+                if valid {
+                    if let Err(err) = self.check_block(&ctor.body, &Ty::Unit) {
+                        self.errors.push(err);
+                    }
+                }
+                self.locals.pop();
             }
             self.current_class = None;
             self.type_params.clear();

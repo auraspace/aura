@@ -310,8 +310,19 @@ impl Parser {
         }
         self.apply_where_clause(&mut type_params)?;
         self.expect(TokenKind::LBrace, "`{`")?;
+        let mut constructors = Vec::new();
         let mut methods = Vec::new();
         while !matches!(self.peek().kind, TokenKind::RBrace | TokenKind::Eof) {
+            if matches!(self.peek().kind, TokenKind::Constructor) {
+                if kind == NominalKind::Struct {
+                    return Err(ParseError {
+                        message: "structs cannot contain secondary constructors".into(),
+                        span: self.peek().span,
+                    });
+                }
+                constructors.push(self.parse_secondary_constructor()?);
+                continue;
+            }
             if matches!(self.peek().kind, TokenKind::Companion) {
                 if kind == NominalKind::Struct {
                     return Err(ParseError {
@@ -445,8 +456,55 @@ impl Parser {
             superclass_args,
             implements,
             fields,
+            constructors,
             methods,
             span: Span::new(start, end),
+        })
+    }
+
+    fn parse_secondary_constructor(&mut self) -> Result<ConstructorDecl, ParseError> {
+        let start = self.peek().span.start;
+        self.expect(TokenKind::Constructor, "`constructor`")?;
+        self.expect(TokenKind::LParen, "`(`")?;
+        let mut params = Vec::new();
+        if !matches!(self.peek().kind, TokenKind::RParen) {
+            loop {
+                params.push(self.parse_param()?);
+                if matches!(self.peek().kind, TokenKind::Comma) {
+                    self.bump();
+                    continue;
+                }
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen, "`)`")?;
+        self.expect(TokenKind::Colon, "`:` before constructor delegation")?;
+        let target = self.bump();
+        if !matches!(target.kind, TokenKind::This) {
+            return Err(ParseError {
+                message: "secondary constructors must delegate to `this(...)`".into(),
+                span: target.span,
+            });
+        }
+        self.expect(TokenKind::LParen, "`(` after `this`")?;
+        let mut delegation_args = Vec::new();
+        if !matches!(self.peek().kind, TokenKind::RParen) {
+            loop {
+                delegation_args.push(self.parse_expr(0)?);
+                if matches!(self.peek().kind, TokenKind::Comma) {
+                    self.bump();
+                    continue;
+                }
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen, "`)` after constructor delegation")?;
+        let body = self.parse_block()?;
+        Ok(ConstructorDecl {
+            params,
+            delegation_args,
+            span: Span::new(start, body.span.end),
+            body,
         })
     }
 

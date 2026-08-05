@@ -239,6 +239,16 @@ fn shift_class(c: &mut ClassDecl, delta: BytePos) {
     for f in &mut c.fields {
         shift_field(f, delta);
     }
+    for ctor in &mut c.constructors {
+        for p in &mut ctor.params {
+            shift_param(p, delta);
+        }
+        for arg in &mut ctor.delegation_args {
+            shift_expr(arg, delta);
+        }
+        shift_block(&mut ctor.body, delta);
+        ctor.span = ctor.span.shift(delta);
+    }
     for m in &mut c.methods {
         shift_fun(m, delta);
     }

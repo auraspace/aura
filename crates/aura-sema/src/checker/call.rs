@@ -82,6 +82,7 @@ impl Checker {
                             type_args: class_args.clone(),
                             method_type_args: method_args.clone(),
                             is_static: true,
+                            constructor_index: None,
                             variant: None,
                         },
                     );
@@ -242,6 +243,7 @@ impl Checker {
                         type_args: obj_ty.class_args().to_vec(),
                         method_type_args: method_type_args.clone(),
                         is_static: false,
+                        constructor_index: None,
                         variant: None,
                     },
                 );
@@ -720,18 +722,6 @@ impl Checker {
                 span: c.span,
             });
         }
-        if c.args.len() != class.fields.len() {
-            return Err(SemaError {
-                message: format!(
-                    "constructor `{}` expects {} argument(s), got {}",
-                    name,
-                    class.fields.len(),
-                    c.args.len()
-                ),
-                span: c.span,
-            });
-        }
-
         let type_args = self.resolve_ctor_type_args(class, c, expected)?;
         self.check_type_args_bounds(
             &class.type_params,
@@ -745,14 +735,47 @@ impl Checker {
         }
 
         let subst = type_subst_map(&class.type_params, &type_args);
-        for (arg, field) in c.args.iter().zip(class.fields.iter()) {
-            let exp = subst_ty(&field.ty, &subst);
+        let mut candidates = Vec::new();
+        if c.args.len() == class.fields.len() {
+            candidates.push((
+                0usize,
+                class
+                    .fields
+                    .iter()
+                    .map(|f| f.ty.clone())
+                    .collect::<Vec<_>>(),
+            ));
+        }
+        for (index, ctor) in class.constructors.iter().enumerate() {
+            if c.args.len() == ctor.params.len() {
+                candidates.push((index + 1, ctor.params.clone()));
+            }
+        }
+        let Some((constructor_index, params)) = candidates.into_iter().find(|(_, params)| {
+            c.args.iter().zip(params).all(|(arg, param)| {
+                let exp = subst_ty(param, &subst);
+                self.check_expr_expected(arg, Some(&exp))
+                    .map(|got| self.is_assignable(&got, &exp))
+                    .unwrap_or(false)
+            })
+        }) else {
+            return Err(SemaError {
+                message: format!(
+                    "no constructor of `{}` accepts {} argument(s)",
+                    name,
+                    c.args.len()
+                ),
+                span: c.span,
+            });
+        };
+        for (arg, param) in c.args.iter().zip(params.iter()) {
+            let exp = subst_ty(param, &subst);
             let got = self.check_expr_expected(arg, Some(&exp))?;
             if !self.is_assignable(&got, &exp) {
                 return Err(SemaError {
                     message: format!(
                         "constructor argument for `{}`: expected {}, got {}",
-                        field.name,
+                        name,
                         exp.display(),
                         got.display()
                     ),
@@ -772,6 +795,7 @@ impl Checker {
                 type_args: type_args.clone(),
                 method_type_args: Vec::new(),
                 is_static: false,
+                constructor_index: Some(constructor_index),
                 variant: None,
             },
         );
@@ -836,6 +860,7 @@ impl Checker {
                 type_args: type_args.clone(),
                 method_type_args: Vec::new(),
                 is_static: false,
+                constructor_index: None,
                 variant: None,
             },
         );
@@ -991,6 +1016,7 @@ impl Checker {
                 type_args,
                 method_type_args: Vec::new(),
                 is_static: false,
+                constructor_index: None,
                 variant: Some(variant_name.to_string()),
             },
         );

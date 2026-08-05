@@ -538,6 +538,7 @@ impl Checker {
                     mutable: false,
                     visibility: aura_ast::MemberVisibility::Public,
                 }],
+                constructors: Vec::new(),
                 methods: array_methods,
                 span: Span::new(0, 0),
             }],

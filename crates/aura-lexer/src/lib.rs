@@ -27,6 +27,8 @@ pub enum TokenKind {
     Enum,
     Interface,
     Fun,
+    /// Secondary class constructor declaration.
+    Constructor,
     /// F1: declaration of a symbol supplied by a foreign library.
     Extern,
     /// C9f: `type Name = T`
@@ -150,6 +152,7 @@ impl TokenKind {
                 | TokenKind::Enum
                 | TokenKind::Interface
                 | TokenKind::Fun
+                | TokenKind::Constructor
                 | TokenKind::Type
                 | TokenKind::Const
                 | TokenKind::Val
@@ -491,6 +494,7 @@ impl<'a> Lexer<'a> {
             "enum" => TokenKind::Enum,
             "interface" => TokenKind::Interface,
             "fun" => TokenKind::Fun,
+            "constructor" => TokenKind::Constructor,
             "extern" => TokenKind::Extern,
             "type" => TokenKind::Type,
             "const" => TokenKind::Const,

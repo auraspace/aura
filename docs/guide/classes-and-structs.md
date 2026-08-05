@@ -37,6 +37,22 @@ fun main() {
 
 See corpus under `corpus/class/` for working samples.
 
+### Secondary constructors
+
+Classes may declare additional overloads with `constructor`. Each one must
+delegate to the primary constructor with `this(...)` before running its body:
+
+```aura
+class User(var name: String) {
+  constructor(id: Int): this(id.toString()) {
+    name = name + " (legacy)"
+  }
+}
+```
+
+Constructor calls select the primary or secondary overload by argument count
+and type. Structs only support their primary constructor.
+
 ## Inheritance and overriding
 
 Aura supports **single class inheritance**. Classes are final by default; mark a
@@ -74,8 +90,8 @@ Rules for inheritance:
   method is open.
 
 Superclass constructor chaining is expressed in the class header, for example
-`class Child(x: Int) : Parent(x)`. The current language does not provide a
-separate `super.method()` call syntax.
+`class Child(x: Int) : Parent(x)`. An overriding method may call the parent
+implementation directly with `super.method(...)`.
 
 See `corpus/class/inheritance.aura`, `corpus/class/virtual_dispatch.aura`,
 `corpus/class/generic_inheritance.aura`, and
@@ -219,7 +235,7 @@ class Child<T>(val childValue: T) : Parent<T>(childValue) {
 
 - No multiple class inheritance.
 - No struct inheritance or struct-to-interface implementation.
-- No separate `super.method()` expression.
+- Secondary constructors use explicit `constructor(...) : this(...)` delegation.
 - Dispatch and generic specialization follow the closed-world C backend;
   LLVM remains future work.
 

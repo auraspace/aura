@@ -55,6 +55,12 @@ pub struct FieldSig {
 }
 
 #[derive(Debug, Clone)]
+pub struct ConstructorSig {
+    pub params: Vec<Ty>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
 pub struct ClassSig {
     pub name: String,
     pub is_pub: bool,
@@ -71,6 +77,8 @@ pub struct ClassSig {
     /// Implemented interfaces as `Ty::Interface` or `Ty::InterfaceApp` (C8c).
     pub implements: Vec<Ty>,
     pub fields: Vec<FieldSig>,
+    /// Secondary constructors; index 0 is the implicit primary constructor.
+    pub constructors: Vec<ConstructorSig>,
     pub methods: HashMap<String, ClassMethodSig>,
     pub span: Span,
 }
@@ -117,6 +125,7 @@ pub struct CallInstantiation {
     /// Generic type arguments declared by a class method.
     pub method_type_args: Vec<Ty>,
     pub is_static: bool,
+    pub constructor_index: Option<usize>,
     /// Set for enum variant constructors (`Ok`, `Err`, …).
     pub variant: Option<String>,
 }

@@ -305,6 +305,18 @@ pub(crate) fn c_ctor_name(mono: &str) -> String {
     format!("aura_new_{mono}")
 }
 
+pub(crate) fn c_ctor_name_index(mono: &str, index: usize) -> String {
+    if index == 0 {
+        c_ctor_name(mono)
+    } else {
+        format!("aura_new_{mono}_ctor_{index}")
+    }
+}
+
+pub(crate) fn c_ctor_body_name(mono: &str, index: usize) -> String {
+    c_method_name(mono, &format!("__ctor_body_{index}"))
+}
+
 pub(crate) fn c_method_name(mono: &str, method: &str) -> String {
     format!("aura_method_{mono}_{method}")
 }

@@ -312,6 +312,13 @@ pub(crate) fn emit_class_forwards(
         "{};",
         c_ctor_signature_mono(c, checked, &params, args, &mono)
     );
+    for (index, ctor) in c.constructors.iter().enumerate() {
+        let _ = writeln!(
+            out,
+            "{};",
+            c_ctor_signature_index(c, ctor, checked, &params, args, &mono, index + 1)
+        );
+    }
     for m in &c.methods {
         let method_monos = generic_method_monos(c, m, args, checked);
         for method_args in method_monos {
@@ -778,6 +785,39 @@ pub(crate) fn emit_class_defs(
     emit_class_gc_hooks(out, c, checked, &params, args, &mono);
     emit_ctor_mono(out, c, checked, &params, args, &mono);
     out.push('\n');
+    for (index, ctor) in c.constructors.iter().enumerate() {
+        let index = index + 1;
+        let helper = FunDecl {
+            is_pub: false,
+            origin_package: String::new(),
+            attributes: Vec::new(),
+            modifiers: Vec::new(),
+            visibility: MemberVisibility::Package,
+            is_test: false,
+            name: Ident {
+                name: format!("__ctor_body_{index}"),
+                span: ctor.span,
+            },
+            type_params: Vec::new(),
+            params: ctor.params.clone(),
+            return_type: None,
+            body: ctor.body.clone(),
+            span: ctor.span,
+        };
+        emit_method_mono(
+            out,
+            c,
+            &helper,
+            checked,
+            &params,
+            args,
+            &mono,
+            detector,
+            &[],
+        );
+        emit_secondary_ctor_mono(out, c, ctor, checked, &params, args, &mono, index);
+        out.push('\n');
+    }
     for m in &c.methods {
         if m.modifiers.contains(&Modifier::Abstract) {
             continue;
@@ -1378,6 +1418,38 @@ pub(crate) fn c_ctor_signature_mono(
     format!("{ret} {}({ps})", c_ctor_name(mono))
 }
 
+fn c_ctor_signature_index(
+    c: &ClassDecl,
+    ctor: &ConstructorDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+    index: usize,
+) -> String {
+    let ps = if ctor.params.is_empty() {
+        "void".into()
+    } else {
+        ctor.params
+            .iter()
+            .map(|p| {
+                format!(
+                    "{} {}",
+                    c_type_ref_subst(&p.ty, checked, params, args),
+                    mangle_ident(&p.name.name)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let ret = if is_heap_class_decl(c) {
+        format!("{} *", c_class_type(mono))
+    } else {
+        c_class_type(mono)
+    };
+    format!("{ret} {}({ps})", c_ctor_name_index(mono, index))
+}
+
 pub(crate) fn c_method_signature_mono(
     c: &ClassDecl,
     m: &FunDecl,
@@ -1555,6 +1627,69 @@ pub(crate) fn emit_ctor_mono(
         }
         out.push_str("  return self;\n}\n");
     }
+}
+
+fn emit_secondary_ctor_mono(
+    out: &mut String,
+    c: &ClassDecl,
+    ctor: &ConstructorDecl,
+    checked: &CheckedFile,
+    params: &[String],
+    args: &[Ty],
+    mono: &str,
+    index: usize,
+) {
+    let sig = c_ctor_signature_index(c, ctor, checked, params, args, mono, index);
+    let _ = writeln!(out, "{sig} {{");
+    let mut ctx = EmitCtx {
+        checked,
+        detector: false,
+        method_class: None,
+        type_params: params.to_vec(),
+        type_args: args.to_vec(),
+        locals: vec![HashMap::new()],
+        local_c_names: HashMap::new(),
+        array_owners: vec![HashSet::new()],
+        fun_owners: vec![HashSet::new()],
+        string_owners: vec![HashSet::new()],
+        channel_owners: vec![HashSet::new()],
+        task_result_owners: vec![HashSet::new()],
+        task_handle_owners: vec![HashSet::new()],
+        box_locals: vec![HashSet::new()],
+        box_owners: vec![HashSet::new()],
+        gc_roots: vec![HashSet::new()],
+        array_gc_roots: vec![HashSet::new()],
+        return_key: None,
+        lambda_ids: crate::emit::build_lambda_ids(checked),
+        spawn_params: HashSet::new(),
+        mutable_spawn_captures: HashSet::new(),
+        async_frame: None,
+        task_poller: false,
+    };
+    for param in &ctor.params {
+        let key = type_ref_local_key_expand(&param.ty, params, args, checked);
+        ctx.define_local(&param.name.name, crate::expr::full_type_mono(&key, checked));
+    }
+    let delegated = ctor
+        .delegation_args
+        .iter()
+        .map(|arg| crate::expr::emit_expr(arg, &mut ctx))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let _ = writeln!(
+        out,
+        "  {} *self = {}({delegated});",
+        c_class_type(mono),
+        c_ctor_name(mono)
+    );
+    out.push_str("  if (self == NULL) return NULL;\n");
+    let body = c_ctor_body_name(mono, index);
+    let call_args = std::iter::once("self".to_string())
+        .chain(ctor.params.iter().map(|p| mangle_ident(&p.name.name)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let _ = writeln!(out, "  {body}({call_args});");
+    out.push_str("  return self;\n}\n");
 }
 
 #[allow(clippy::too_many_arguments)]

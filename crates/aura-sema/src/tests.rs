@@ -1274,6 +1274,19 @@ fun main() { val child = Child() child.label() }
 }
 
 #[test]
+fn secondary_constructor_typechecks_and_selects_overload() {
+    let src = r#"
+package t
+class User(var value: Int) {
+  constructor(): this(41) { value = value + 1 }
+}
+fun main() { val user = User() user.value }
+"#;
+    let file = parse_file(src).expect("parse secondary constructor");
+    check_file(&file).expect("secondary constructor typechecks");
+}
+
+#[test]
 fn interface_default_method_satisfies_implementation() {
     let src = r#"
 package t

@@ -269,6 +269,16 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 // C3u: `Alias.Type(...)` constructor vs `Alias.fun(...)`.
                 if inst.map(|i| i.is_constructor).unwrap_or(false) {
                     let mono = type_mono(pkg, name, &targs);
+                    let ctor_index = inst.and_then(|i| i.constructor_index).unwrap_or(0);
+                    if ctor_index > 0 {
+                        let args = c
+                            .args
+                            .iter()
+                            .map(|a| emit_expr(a, ctx))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        return format!("{}({args})", c_ctor_name_index(&mono, ctor_index));
+                    }
                     // C6i: move Array owner args into ctor fields when class is known.
                     if let Some(class) = ctx.checked.ast.classes.iter().find(|x| {
                         x.name.name == *name
@@ -1182,6 +1192,16 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                         }
                     });
                 let mono = type_mono(pkg, &id.name, &targs);
+                let ctor_index = inst.and_then(|i| i.constructor_index).unwrap_or(0);
+                if ctor_index > 0 {
+                    let args = c
+                        .args
+                        .iter()
+                        .map(|a| emit_expr(a, ctx))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    return format!("{}({args})", c_ctor_name_index(&mono, ctor_index));
+                }
                 let params: Vec<String> = class
                     .type_params
                     .iter()

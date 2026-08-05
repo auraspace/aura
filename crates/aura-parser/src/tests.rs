@@ -357,6 +357,17 @@ fun main() {
 }
 
 #[test]
+fn parses_secondary_constructor() {
+    let file = parse_file(
+        "package demo\nclass User(var value: Int) { constructor(): this(41) { value = value + 1 } }\n",
+    )
+    .expect("parse secondary constructor");
+    assert_eq!(file.classes[0].constructors.len(), 1);
+    assert_eq!(file.classes[0].constructors[0].delegation_args.len(), 1);
+    assert_eq!(file.classes[0].constructors[0].body.stmts.len(), 1);
+}
+
+#[test]
 fn generic_type_spans_include_the_closing_bracket() {
     let src = "package main\nclass Notebook(val items: Array<String>) {}\n";
     let file = parse_file(src).expect("parse");

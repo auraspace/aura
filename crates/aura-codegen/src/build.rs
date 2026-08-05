@@ -2955,6 +2955,39 @@ fun main() { val result = Factory.make(42) println("companion") }
     }
 
     #[test]
+    fn builds_and_runs_secondary_constructor() {
+        let file = parse_file(
+            r#"package demo.secondary_ctor
+class User(var value: Int) {
+  constructor(): this(41) { value = value + 1 }
+}
+fun main() { println(User().value.toString()) }
+"#,
+        )
+        .expect("parse secondary constructor fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-secondary-constructor-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile secondary constructor fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run secondary constructor fixture");
+        assert!(
+            output.status.success(),
+            "secondary constructor failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "42\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_super_method_call_without_virtual_reentry() {
         let file = parse_file(
             r#"package demo.super_call

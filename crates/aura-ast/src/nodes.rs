@@ -259,7 +259,17 @@ pub struct ClassDecl {
     /// C8c: may include type args (`: Iterable<Int>`).
     pub implements: Vec<TypeRef>,
     pub fields: Vec<FieldDecl>,
+    pub constructors: Vec<ConstructorDecl>,
     pub methods: Vec<FunDecl>,
+    pub span: Span,
+}
+
+/// Secondary constructor with explicit delegation to the primary constructor.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConstructorDecl {
+    pub params: Vec<Param>,
+    pub delegation_args: Vec<Expr>,
+    pub body: Block,
     pub span: Span,
 }
 
