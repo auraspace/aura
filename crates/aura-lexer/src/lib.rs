@@ -60,6 +60,10 @@ pub enum TokenKind {
     Open,
     Final,
     Static,
+    /// RFC-001 companion object declaration.
+    Companion,
+    /// The `object` half of `companion object`.
+    Object,
     This,
     /// Generic constraint clause: `where T : Named`.
     Where,
@@ -173,6 +177,8 @@ impl TokenKind {
                 | TokenKind::Open
                 | TokenKind::Final
                 | TokenKind::Static
+                | TokenKind::Companion
+                | TokenKind::Object
                 | TokenKind::This
                 | TokenKind::Where
                 | TokenKind::Is
@@ -512,6 +518,8 @@ impl<'a> Lexer<'a> {
             "open" => TokenKind::Open,
             "final" => TokenKind::Final,
             "static" => TokenKind::Static,
+            "companion" => TokenKind::Companion,
+            "object" => TokenKind::Object,
             "this" => TokenKind::This,
             "where" => TokenKind::Where,
             "is" => TokenKind::Is,

@@ -305,6 +305,44 @@ impl Parser {
         self.expect(TokenKind::LBrace, "`{`")?;
         let mut methods = Vec::new();
         while !matches!(self.peek().kind, TokenKind::RBrace | TokenKind::Eof) {
+            if matches!(self.peek().kind, TokenKind::Companion) {
+                if kind == NominalKind::Struct {
+                    return Err(ParseError {
+                        message: "structs cannot contain companion objects".into(),
+                        span: self.peek().span,
+                    });
+                }
+                self.bump();
+                self.expect(TokenKind::Object, "`object` after `companion`")?;
+                self.expect(TokenKind::LBrace, "`{` after `companion object`")?;
+                while !matches!(self.peek().kind, TokenKind::RBrace | TokenKind::Eof) {
+                    let attributes = self.parse_attributes()?;
+                    let mut companion_modifiers = self.parse_modifiers()?;
+                    let visibility = self.parse_member_visibility();
+                    for modifier in self.parse_modifiers()? {
+                        if companion_modifiers.contains(&modifier) {
+                            return Err(ParseError {
+                                message: "duplicate declaration modifier".into(),
+                                span: self.peek().span,
+                            });
+                        }
+                        companion_modifiers.push(modifier);
+                    }
+                    if companion_modifiers.contains(&Modifier::Static) {
+                        return Err(ParseError {
+                            message: "companion members are static implicitly; remove `static`"
+                                .into(),
+                            span: self.peek().span,
+                        });
+                    }
+                    companion_modifiers.push(Modifier::Static);
+                    let mut method = self.parse_class_method(companion_modifiers, visibility)?;
+                    method.attributes = attributes;
+                    methods.push(method);
+                }
+                self.expect(TokenKind::RBrace, "`}` after `companion object`")?;
+                continue;
+            }
             let attributes = self.parse_attributes()?;
             let mut modifiers = self.parse_modifiers()?;
             let visibility = self.parse_member_visibility();
@@ -383,6 +421,59 @@ impl Parser {
             methods,
             span: Span::new(start, end),
         })
+    }
+
+    fn parse_class_method(
+        &mut self,
+        modifiers: Vec<Modifier>,
+        visibility: MemberVisibility,
+    ) -> Result<FunDecl, ParseError> {
+        let mut method = if matches!(self.peek().kind, TokenKind::Async) {
+            let async_method = self.parse_async_fun()?;
+            let task_name = Ident {
+                name: "Task".into(),
+                span: async_method.name.span,
+            };
+            let result = async_method.return_type.unwrap_or(TypeRef {
+                qualifier: None,
+                name: Ident {
+                    name: "Unit".into(),
+                    span: async_method.name.span,
+                },
+                type_args: Vec::new(),
+                nullable: false,
+                reference: false,
+                span: async_method.span,
+                fun: None,
+            });
+            FunDecl {
+                is_pub: async_method.is_pub,
+                origin_package: async_method.origin_package,
+                attributes: async_method.attributes,
+                modifiers: Vec::new(),
+                visibility: MemberVisibility::Package,
+                is_test: async_method.is_test,
+                name: async_method.name,
+                type_params: async_method.type_params,
+                params: async_method.params,
+                return_type: Some(TypeRef {
+                    qualifier: None,
+                    name: task_name,
+                    type_args: vec![result],
+                    nullable: false,
+                    reference: false,
+                    span: async_method.span,
+                    fun: None,
+                }),
+                body: async_method.body,
+                span: async_method.span,
+            }
+        } else {
+            self.parse_fun()?
+        };
+        method.modifiers = modifiers;
+        method.visibility = visibility;
+        Ok(method)
     }
 
     /// `TypeParams?` = `<` TypeParam (`,` TypeParam)* `>`

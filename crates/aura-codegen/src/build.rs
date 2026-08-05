@@ -2920,6 +2920,41 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_companion_object_member() {
+        let file = parse_file(
+            r#"package demo.cobj
+class Factory(val value: Int) {
+  companion object {
+    pub fun make(input: Int): Factory { return Factory(input) }
+  }
+}
+fun main() { val result = Factory.make(42) println("companion") }
+"#,
+        )
+        .expect("parse companion object fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-companion-object-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile companion object fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run companion object fixture");
+        assert!(
+            output.status.success(),
+            "companion fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "companion\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_std_json_validation_and_escape() {
         let file = aura_parser::parse_file(
             r#"package std.json

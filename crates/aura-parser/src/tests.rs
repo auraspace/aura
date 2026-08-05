@@ -229,6 +229,23 @@ class Dog(val breed: Int) : Animal(7) {
 }
 
 #[test]
+fn parses_companion_object_members_as_static_methods() {
+    let src = r#"
+package main
+class Factory(val value: Int) {
+  companion object {
+    pub fun make(value: Int): Factory { return Factory(value) }
+  }
+}
+"#;
+    let file = parse_file(src).expect("parse companion object");
+    let method = &file.classes[0].methods[0];
+    assert_eq!(method.name.name, "make");
+    assert_eq!(method.visibility, MemberVisibility::Public);
+    assert!(method.modifiers.contains(&aura_ast::Modifier::Static));
+}
+
+#[test]
 fn parses_member_visibility() {
     let src = r#"
 package main
