@@ -411,6 +411,8 @@ impl Checker {
                         .collect(),
                     ret: crate::util::subst_ty(&method.ret, &subst),
                     has_default: method.has_default,
+                    required_params: method.required_params,
+                    is_vararg: method.is_vararg,
                     span: method.span,
                 },
             );

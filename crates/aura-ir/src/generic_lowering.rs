@@ -309,6 +309,8 @@ pub fn close_async_method(
     };
     let this_param = Param {
         attributes: Vec::new(),
+        default: None,
+        is_vararg: false,
         name: Ident {
             name: "this".into(),
             span: class_name.span,
@@ -375,6 +377,8 @@ pub fn close_method(
     };
     let this_param = Param {
         attributes: Vec::new(),
+        default: None,
+        is_vararg: false,
         name: Ident {
             name: "this".into(),
             span: class_name.span,

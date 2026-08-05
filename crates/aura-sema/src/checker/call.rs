@@ -72,7 +72,14 @@ impl Checker {
                         .collect();
                     let ret = subst_ty(&method.ret, &class_subst);
                     let ret = subst_ty(&ret, &method_subst);
-                    self.check_args(&params, &c.args, &method.name, c.span)?;
+                    self.check_args_with_shape(
+                        &params,
+                        method.required_params,
+                        method.is_vararg,
+                        &c.args,
+                        &method.name,
+                        c.span,
+                    )?;
                     self.call_instantiations.insert(
                         c.span.start,
                         CallInstantiation {
@@ -83,6 +90,7 @@ impl Checker {
                             method_type_args: method_args.clone(),
                             is_static: true,
                             constructor_index: None,
+                            declaration_span: Some(method.span),
                             variant: None,
                         },
                     );
@@ -108,8 +116,9 @@ impl Checker {
                 if let Some(pkg) = self.import_aliases.get(&id.name).cloned() {
                     let name = fe.field.name.clone();
                     if self.fun_in_package(&name, &pkg).is_some() {
-                        let sig = self.resolve_fun_in_package(&name, &pkg, fe.field.span)?;
-                        return self.check_fun_call_with_sig(&sig, c, expected);
+                        let candidates =
+                            self.resolve_fun_candidates_in_package(&name, &pkg, fe.field.span)?;
+                        return self.check_overloaded_fun_call(&candidates, c, expected);
                     }
                     if let Some(class) = self.class_in_package(&name, &pkg).cloned() {
                         return self.check_class_ctor(&class, c, expected);
@@ -227,8 +236,10 @@ impl Checker {
                     .map(|p| subst_ty(p, &method_subst))
                     .collect();
                 let ret = subst_ty(&method.ret, &method_subst);
-                self.check_args(
+                self.check_args_with_shape(
                     &params,
+                    method.required_params,
+                    method.is_vararg,
                     &c.args,
                     &format!("{}.{}", cname, method.name),
                     c.span,
@@ -244,6 +255,7 @@ impl Checker {
                         method_type_args: method_type_args.clone(),
                         is_static: false,
                         constructor_index: None,
+                        declaration_span: Some(method.span),
                         variant: None,
                     },
                 );
@@ -279,8 +291,10 @@ impl Checker {
                         ),
                         span: fe.field.span,
                     })?;
-                self.check_args(
+                self.check_args_with_shape(
                     &method.params,
+                    method.required_params,
+                    method.is_vararg,
                     &c.args,
                     &format!("{}.{}", iface_name, method.name),
                     c.span,
@@ -297,8 +311,10 @@ impl Checker {
                         .and_then(|i| i.methods.get(&fe.field.name))
                         .cloned()
                     {
-                        self.check_args(
+                        self.check_args_with_shape(
                             &method.params,
+                            method.required_params,
+                            method.is_vararg,
                             &c.args,
                             &format!("{}.{}", iface_name, method.name),
                             c.span,
@@ -702,9 +718,108 @@ impl Checker {
             }
         } else {
             // Free function (possibly generic)
-            let sig = self.resolve_fun(&name, c.callee.span())?;
-            self.check_fun_call_with_sig(&sig, c, expected)
+            let candidates = self.resolve_fun_candidates(&name, c.callee.span())?;
+            self.check_overloaded_fun_call(&candidates, c, expected)
         }
+    }
+
+    fn check_overloaded_fun_call(
+        &mut self,
+        candidates: &[FunSig],
+        c: &CallExpr,
+        expected: Option<&Ty>,
+    ) -> Result<Ty, SemaError> {
+        let mut applicable = Vec::new();
+        for candidate in candidates {
+            let Ok(type_args) = self.resolve_fun_type_args(candidate, c, expected) else {
+                continue;
+            };
+            if self
+                .check_type_args_bounds(
+                    &candidate.type_params,
+                    &candidate.bounds,
+                    &type_args,
+                    c.span,
+                    &format!("function `{}`", candidate.name),
+                )
+                .is_err()
+            {
+                continue;
+            }
+            let subst = type_subst_map(&candidate.type_params, &type_args);
+            let params: Vec<Ty> = candidate
+                .params
+                .iter()
+                .map(|param| subst_ty(param, &subst))
+                .collect();
+            if self
+                .check_args_with_shape(
+                    &params,
+                    candidate.required_params,
+                    candidate.is_vararg,
+                    &c.args,
+                    &candidate.name,
+                    c.span,
+                )
+                .is_ok()
+            {
+                let exact = c
+                    .args
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, arg)| {
+                        let Some(param) = params.get(*index).or_else(|| params.last()) else {
+                            return false;
+                        };
+                        self.check_expr(arg)
+                            .map(|got| got == *param)
+                            .unwrap_or(false)
+                    })
+                    .count();
+                let defaults_used = params.len().saturating_sub(c.args.len());
+                applicable.push((exact, defaults_used, candidate.is_vararg, candidate.clone()));
+            }
+        }
+        if applicable.is_empty() {
+            return Err(SemaError {
+                message: format!(
+                    "no overload of `{}` accepts these arguments",
+                    candidates[0].name
+                ),
+                span: c.span,
+            });
+        }
+        applicable.sort_by(|left, right| {
+            right
+                .0
+                .cmp(&left.0)
+                .then_with(|| left.1.cmp(&right.1))
+                .then_with(|| left.2.cmp(&right.2))
+        });
+        if applicable.len() > 1 {
+            let best = &applicable[0];
+            let tied = applicable.iter().skip(1).any(|candidate| {
+                candidate.0 == best.0 && candidate.1 == best.1 && candidate.2 == best.2
+            });
+            if tied {
+                let spans = applicable
+                    .iter()
+                    .filter(|candidate| {
+                        candidate.0 == best.0 && candidate.1 == best.1 && candidate.2 == best.2
+                    })
+                    .map(|candidate| candidate.3.span.start.to_string())
+                    .collect::<Vec<_>>();
+                return Err(SemaError {
+                    message: format!(
+                        "ambiguous overload of `{}`; candidates at spans {}",
+                        best.3.name,
+                        spans.join(", ")
+                    ),
+                    span: c.span,
+                });
+            }
+        }
+        self.check_fun_call_with_sig(&applicable.remove(0).3, c, expected)
     }
 
     /// Class/struct constructor (unqualified or `Alias.Type`, C3u).
@@ -747,7 +862,9 @@ impl Checker {
             ));
         }
         for (index, ctor) in class.constructors.iter().enumerate() {
-            if c.args.len() == ctor.params.len() {
+            if c.args.len() >= ctor.required_params
+                && (ctor.is_vararg || c.args.len() <= ctor.params.len())
+            {
                 candidates.push((index + 1, ctor.params.clone()));
             }
         }
@@ -768,7 +885,11 @@ impl Checker {
                 span: c.span,
             });
         };
-        for (arg, param) in c.args.iter().zip(params.iter()) {
+        for (index, arg) in c.args.iter().enumerate() {
+            let param = params
+                .get(index)
+                .or_else(|| params.last())
+                .expect("applicable constructor has a parameter");
             let exp = subst_ty(param, &subst);
             let got = self.check_expr_expected(arg, Some(&exp))?;
             if !self.is_assignable(&got, &exp) {
@@ -796,6 +917,14 @@ impl Checker {
                 method_type_args: Vec::new(),
                 is_static: false,
                 constructor_index: Some(constructor_index),
+                declaration_span: if constructor_index == 0 {
+                    Some(class.span)
+                } else {
+                    class
+                        .constructors
+                        .get(constructor_index - 1)
+                        .map(|ctor| ctor.span)
+                },
                 variant: None,
             },
         );
@@ -849,7 +978,14 @@ impl Checker {
         {
             self.note_mono_ty(&type_args[0]);
         }
-        self.check_args(&params, &c.args, &name, c.span)?;
+        self.check_args_with_shape(
+            &params,
+            sig.required_params,
+            sig.is_vararg,
+            &c.args,
+            &name,
+            c.span,
+        )?;
         // Always record target package for C3o C symbol mangling.
         self.call_instantiations.insert(
             c.span.start,
@@ -861,6 +997,7 @@ impl Checker {
                 method_type_args: Vec::new(),
                 is_static: false,
                 constructor_index: None,
+                declaration_span: Some(sig.span),
                 variant: None,
             },
         );
@@ -1017,6 +1154,7 @@ impl Checker {
                 method_type_args: Vec::new(),
                 is_static: false,
                 constructor_index: None,
+                declaration_span: None,
                 variant: Some(variant_name.to_string()),
             },
         );
@@ -1311,6 +1449,53 @@ impl Checker {
             });
         }
         for (arg, expected) in args.iter().zip(params.iter()) {
+            let got = self.check_expr_expected(arg, Some(expected))?;
+            if !self.is_assignable(&got, expected) {
+                return Err(SemaError {
+                    message: format!(
+                        "argument type mismatch for `{name}`: expected {}, got {}",
+                        expected.display(),
+                        got.display()
+                    ),
+                    span: arg.span(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn check_args_with_shape(
+        &mut self,
+        params: &[Ty],
+        required_params: usize,
+        is_vararg: bool,
+        args: &[Expr],
+        name: &str,
+        span: Span,
+    ) -> Result<(), SemaError> {
+        let valid_count =
+            args.len() >= required_params && (is_vararg || args.len() <= params.len());
+        if !valid_count {
+            let expected = if is_vararg {
+                format!("at least {required_params}")
+            } else if required_params == params.len() {
+                params.len().to_string()
+            } else {
+                format!("{required_params}..={}", params.len())
+            };
+            return Err(SemaError {
+                message: format!(
+                    "`{name}` expects {expected} argument(s), got {}",
+                    args.len()
+                ),
+                span,
+            });
+        }
+        for (index, arg) in args.iter().enumerate() {
+            let expected = params
+                .get(index)
+                .or_else(|| params.last())
+                .expect("valid argument shape has a parameter");
             let got = self.check_expr_expected(arg, Some(expected))?;
             if !self.is_assignable(&got, expected) {
                 return Err(SemaError {

@@ -27,6 +27,8 @@ pub enum TokenKind {
     Enum,
     Interface,
     Fun,
+    /// RFC-001 variadic parameter marker.
+    Vararg,
     /// Secondary class constructor declaration.
     Constructor,
     /// F1: declaration of a symbol supplied by a foreign library.
@@ -152,6 +154,7 @@ impl TokenKind {
                 | TokenKind::Enum
                 | TokenKind::Interface
                 | TokenKind::Fun
+                | TokenKind::Vararg
                 | TokenKind::Constructor
                 | TokenKind::Type
                 | TokenKind::Const
@@ -494,6 +497,7 @@ impl<'a> Lexer<'a> {
             "enum" => TokenKind::Enum,
             "interface" => TokenKind::Interface,
             "fun" => TokenKind::Fun,
+            "vararg" => TokenKind::Vararg,
             "constructor" => TokenKind::Constructor,
             "extern" => TokenKind::Extern,
             "type" => TokenKind::Type,

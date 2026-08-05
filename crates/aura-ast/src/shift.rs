@@ -161,6 +161,9 @@ fn shift_type_ref(t: &mut TypeRef, delta: BytePos) {
 
 fn shift_param(p: &mut Param, delta: BytePos) {
     shift_attributes(&mut p.attributes, delta);
+    if let Some(default) = &mut p.default {
+        shift_expr(default, delta);
+    }
     shift_ident(&mut p.name, delta);
     shift_type_ref(&mut p.ty, delta);
     p.span = p.span.shift(delta);

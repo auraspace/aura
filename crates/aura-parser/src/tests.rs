@@ -368,6 +368,18 @@ fn parses_secondary_constructor() {
 }
 
 #[test]
+fn parses_default_and_vararg_parameters() {
+    let file =
+        parse_file("package demo\nfun greet(prefix: String = \"hi\", vararg names: String) {}\n")
+            .expect("parse default and vararg parameters");
+    let params = &file.functions[0].params;
+    assert!(params[0].default.is_some());
+    assert!(!params[0].is_vararg);
+    assert!(params[1].default.is_none());
+    assert!(params[1].is_vararg);
+}
+
+#[test]
 fn generic_type_spans_include_the_closing_bracket() {
     let src = "package main\nclass Notebook(val items: Array<String>) {}\n";
     let file = parse_file(src).expect("parse");

@@ -840,13 +840,25 @@ impl Parser {
 
     pub(crate) fn parse_param(&mut self) -> Result<Param, ParseError> {
         let attributes = self.parse_attributes()?;
+        let is_vararg = matches!(self.peek().kind, TokenKind::Vararg);
+        if is_vararg {
+            self.bump();
+        }
         let name = self.expect_ident()?;
         let start = name.span.start;
         self.expect(TokenKind::Colon, "`:`")?;
         let ty = self.parse_type()?;
-        let end = ty.span.end;
+        let default = if matches!(self.peek().kind, TokenKind::Eq) {
+            self.bump();
+            Some(self.parse_expr(0)?)
+        } else {
+            None
+        };
+        let end = default.as_ref().map_or(ty.span.end, |expr| expr.span().end);
         Ok(Param {
             attributes,
+            default,
+            is_vararg,
             name,
             ty,
             span: Span::new(start, end),

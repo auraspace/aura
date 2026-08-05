@@ -1531,7 +1531,24 @@ pub(crate) fn c_fun_signature(f: &FunDecl, checked: &CheckedFile, args: &[Ty]) -
             .join(", ")
     };
     let pkg = fun_decl_package(f, checked);
-    format!("{ret} {}({ps})", c_fun_name(&pkg, &f.name.name, args))
+    let param_keys = f
+        .params
+        .iter()
+        .map(|p| type_ref_local_key(&p.ty, &params, args))
+        .collect::<Vec<_>>();
+    let overloaded = checked
+        .ast
+        .functions
+        .iter()
+        .filter(|candidate| {
+            candidate.name.name == f.name.name && fun_decl_package(candidate, checked) == pkg
+        })
+        .count()
+        > 1;
+    format!(
+        "{ret} {}({ps})",
+        c_fun_name_with_params(&pkg, &f.name.name, args, &param_keys, overloaded)
+    )
 }
 
 pub(crate) fn emit_ctor_mono(

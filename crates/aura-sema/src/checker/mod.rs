@@ -13,7 +13,7 @@ use crate::error::SemaError;
 use crate::sigs::*;
 use crate::ty::Ty;
 use crate::util::{subst_ty, type_subst_map};
-use aura_ast::{Block, ClassDecl, Expr, FunDecl, MemberVisibility, Span, Stmt};
+use aura_ast::{Block, ClassDecl, Expr, FunDecl, MemberVisibility, Param, Span, Stmt};
 
 /// Builtin `Array<T>` primitives (C3j). Heap class elements allowed in C4c via Checker.
 pub(crate) fn is_array_primitive_elem(ty: &Ty) -> bool {
@@ -293,6 +293,51 @@ pub(crate) struct Checker {
 }
 
 impl Checker {
+    /// Validate parameter shape and type-check call-site defaults in the
+    /// declaration environment. Defaults are expressions, not constants, so
+    /// they must obey the same assignability rules as ordinary arguments.
+    pub(crate) fn validate_params(&mut self, params: &[Param]) -> Result<(), SemaError> {
+        let mut saw_default = false;
+        for (index, param) in params.iter().enumerate() {
+            if param.is_vararg && index + 1 != params.len() {
+                return Err(SemaError {
+                    message: "`vararg` parameter must be the final parameter".into(),
+                    span: param.span,
+                });
+            }
+            if param.is_vararg && param.default.is_some() {
+                return Err(SemaError {
+                    message: "`vararg` parameter cannot have a default value".into(),
+                    span: param.span,
+                });
+            }
+            if param.default.is_some() {
+                saw_default = true;
+            } else if saw_default && !param.is_vararg {
+                return Err(SemaError {
+                    message: "parameters with defaults must be trailing".into(),
+                    span: param.span,
+                });
+            }
+            if let Some(default) = &param.default {
+                let expected = self.type_from_ref(&param.ty)?;
+                let got = self.check_expr_expected(default, Some(&expected))?;
+                if !self.is_assignable(&got, &expected) {
+                    return Err(SemaError {
+                        message: format!(
+                            "default value for `{}`: expected {}, got {}",
+                            param.name.name,
+                            expected.display(),
+                            got.display()
+                        ),
+                        span: default.span(),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn new() -> Self {
         let mut functions: HashMap<String, Vec<FunSig>> = HashMap::new();
         for name in ["print", "println", "eprint", "eprintln"] {
@@ -306,6 +351,8 @@ impl Checker {
                     type_params: Vec::new(),
                     bounds: HashMap::new(),
                     params: vec![Ty::String],
+                    required_params: 1,
+                    is_vararg: false,
                     ret: Ty::Unit,
                     span: Span::new(0, 0),
                 }],
@@ -322,6 +369,8 @@ impl Checker {
                 type_params: Vec::new(),
                 bounds: HashMap::new(),
                 params: vec![Ty::Bool],
+                required_params: 1,
+                is_vararg: false,
                 ret: Ty::Unit,
                 span: Span::new(0, 0),
             }],
@@ -337,6 +386,8 @@ impl Checker {
                 type_params: Vec::new(),
                 bounds: HashMap::new(),
                 params: vec![],
+                required_params: 0,
+                is_vararg: false,
                 ret: Ty::Unit,
                 span: Span::new(0, 0),
             }],
@@ -365,7 +416,9 @@ impl Checker {
                     is_test: false,
                     type_params: Vec::new(),
                     bounds: HashMap::new(),
+                    required_params: params.len(),
                     params,
+                    is_vararg: false,
                     ret,
                     span: Span::new(0, 0),
                 }],
@@ -380,6 +433,8 @@ impl Checker {
                 class: "Array".into(),
                 name: "get".into(),
                 params: vec![Ty::Int],
+                required_params: 1,
+                is_vararg: false,
                 ret: Ty::TypeParam("T".into()),
                 is_open: false,
                 is_abstract: false,
@@ -397,6 +452,8 @@ impl Checker {
                 class: "Array".into(),
                 name: "set".into(),
                 params: vec![Ty::Int, Ty::TypeParam("T".into())],
+                required_params: 2,
+                is_vararg: false,
                 ret: Ty::Unit,
                 is_open: false,
                 is_abstract: false,
@@ -414,6 +471,8 @@ impl Checker {
                 class: "Array".into(),
                 name: "push".into(),
                 params: vec![Ty::TypeParam("T".into())],
+                required_params: 1,
+                is_vararg: false,
                 ret: Ty::Unit,
                 is_open: false,
                 is_abstract: false,
@@ -432,6 +491,8 @@ impl Checker {
                 class: "Array".into(),
                 name: "pop".into(),
                 params: vec![],
+                required_params: 0,
+                is_vararg: false,
                 ret: Ty::TypeParam("T".into()),
                 is_open: false,
                 is_abstract: false,
@@ -450,6 +511,8 @@ impl Checker {
                 class: "Array".into(),
                 name: "clear".into(),
                 params: vec![],
+                required_params: 0,
+                is_vararg: false,
                 ret: Ty::Unit,
                 is_open: false,
                 is_abstract: false,
@@ -468,6 +531,8 @@ impl Checker {
                 class: "Array".into(),
                 name: "isEmpty".into(),
                 params: vec![],
+                required_params: 0,
+                is_vararg: false,
                 ret: Ty::Bool,
                 is_open: false,
                 is_abstract: false,
@@ -486,6 +551,8 @@ impl Checker {
                 class: "Array".into(),
                 name: "reserve".into(),
                 params: vec![Ty::Int],
+                required_params: 1,
+                is_vararg: false,
                 ret: Ty::Unit,
                 is_open: false,
                 is_abstract: false,
@@ -504,6 +571,8 @@ impl Checker {
                 class: "Array".into(),
                 name: "clone".into(),
                 params: vec![],
+                required_params: 0,
+                is_vararg: false,
                 ret: Ty::ClassApp {
                     name: "Array".into(),
                     args: vec![Ty::TypeParam("T".into())],
@@ -675,6 +744,69 @@ impl Checker {
         })
     }
 
+    /// Return all visible overloads in the selected package scope. A same-
+    /// package declaration set wins over imported packages, matching the
+    /// legacy single-function resolver while preserving overload candidates.
+    pub(crate) fn resolve_fun_candidates(
+        &self,
+        name: &str,
+        span: Span,
+    ) -> Result<Vec<FunSig>, SemaError> {
+        let list = self.functions.get(name).ok_or_else(|| SemaError {
+            message: format!("undefined function `{name}`"),
+            span,
+        })?;
+        let visible: Vec<FunSig> = list
+            .iter()
+            .filter(|sig| self.is_visible(name, sig.is_pub, &sig.package))
+            .cloned()
+            .collect();
+        if visible.is_empty() {
+            if let Some(sig) = list.first() {
+                self.check_visible(name, sig.is_pub, &sig.package, span)?;
+            }
+            return Err(SemaError {
+                message: format!("undefined function `{name}`"),
+                span,
+            });
+        }
+        let same_package: Vec<FunSig> = visible
+            .iter()
+            .filter(|sig| sig.package == self.current_package)
+            .cloned()
+            .collect();
+        if !same_package.is_empty() {
+            return Ok(same_package);
+        }
+        let non_builtin: Vec<FunSig> = visible
+            .iter()
+            .filter(|sig| !sig.package.is_empty())
+            .cloned()
+            .collect();
+        if !non_builtin.is_empty() {
+            let std_pref: Vec<FunSig> = non_builtin
+                .iter()
+                .filter(|sig| sig.package.starts_with("std."))
+                .cloned()
+                .collect();
+            if std_pref.len() == 1 {
+                return Ok(std_pref);
+            }
+            if non_builtin.len() == 1 {
+                return Ok(non_builtin);
+            }
+        }
+        if visible.len() == 1 {
+            return Ok(visible);
+        }
+        Err(SemaError {
+            message: format!(
+                "ambiguous function `{name}`; use an import alias to select a package"
+            ),
+            span,
+        })
+    }
+
     pub(crate) fn resolve_fun_in_package(
         &self,
         name: &str,
@@ -695,6 +827,33 @@ impl Checker {
             })?;
         self.check_visible(name, sig.is_pub, &sig.package, span)?;
         Ok(sig)
+    }
+
+    pub(crate) fn resolve_fun_candidates_in_package(
+        &self,
+        name: &str,
+        pkg: &str,
+        span: Span,
+    ) -> Result<Vec<FunSig>, SemaError> {
+        let list = self.functions.get(name).ok_or_else(|| SemaError {
+            message: format!("undefined function `{name}` in package `{pkg}`"),
+            span,
+        })?;
+        let candidates: Vec<FunSig> = list
+            .iter()
+            .filter(|sig| sig.package == pkg)
+            .cloned()
+            .collect();
+        if candidates.is_empty() {
+            return Err(SemaError {
+                message: format!("`{name}` is not a member of package `{pkg}`"),
+                span,
+            });
+        }
+        for candidate in &candidates {
+            self.check_visible(name, candidate.is_pub, &candidate.package, span)?;
+        }
+        Ok(candidates)
     }
 
     pub(crate) fn fun_in_package(&self, name: &str, pkg: &str) -> Option<&FunSig> {
@@ -988,6 +1147,7 @@ impl Checker {
                 },
             );
         }
+        self.validate_params(&m.params)?;
         // Class methods returning Task<T> use the same await context as
         // top-level async functions; `expected_ret` is already unwrapped to T.
         let is_async = m
@@ -1037,6 +1197,7 @@ impl Checker {
                 },
             );
         }
+        self.validate_params(&f.params)?;
         self.note_mono_ty(expected_ret);
         self.check_block(&f.body, expected_ret)?;
         self.locals.pop();
@@ -1080,6 +1241,7 @@ impl Checker {
                     },
                 );
             }
+            self.validate_params(&f.params)?;
             self.note_mono_ty(expected_ret);
             self.check_block(&f.body, expected_ret)?;
             if *expected_ret != Ty::Unit && block_control_flow(&f.body).falls_through {

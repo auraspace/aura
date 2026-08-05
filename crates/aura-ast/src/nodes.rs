@@ -472,6 +472,10 @@ pub fn decl_package<'a>(origin: &'a str, file_package: &'a str) -> &'a str {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
     pub attributes: Vec<Attribute>,
+    /// RFC-001 default argument expression, evaluated at the call site.
+    pub default: Option<Expr>,
+    /// RFC-001 `vararg` parameter; it must be the final parameter.
+    pub is_vararg: bool,
     pub name: Ident,
     pub ty: TypeRef,
     pub span: Span,

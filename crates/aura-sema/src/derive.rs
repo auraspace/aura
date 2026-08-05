@@ -432,6 +432,8 @@ pub(crate) fn expand_equals(file: &mut aura_ast::File) -> Vec<SemaError> {
             type_params: Vec::new(),
             params: vec![Param {
                 attributes: Vec::new(),
+                default: None,
+                is_vararg: false,
                 name: Ident {
                     name: "other".into(),
                     span: derive_span,

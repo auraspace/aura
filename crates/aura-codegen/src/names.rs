@@ -283,6 +283,32 @@ pub(crate) fn c_fun_name(pkg: &str, name: &str, args: &[Ty]) -> String {
     }
 }
 
+/// C symbol for an overloaded free function. C has no overload set, so the
+/// resolved parameter keys become part of the symbol while unique functions
+/// retain the historical ABI name.
+pub(crate) fn c_fun_name_with_params(
+    pkg: &str,
+    name: &str,
+    args: &[Ty],
+    param_keys: &[String],
+    overloaded: bool,
+) -> String {
+    let base = c_fun_name(pkg, name, args);
+    if !overloaded {
+        return base;
+    }
+    let suffix = param_keys
+        .iter()
+        .map(|key| {
+            key.chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("_");
+    format!("{base}__ovl_{suffix}")
+}
+
 /// Package of a function decl for mangling.
 pub(crate) fn fun_decl_package(f: &FunDecl, checked: &CheckedFile) -> String {
     if f.origin_package.is_empty() {

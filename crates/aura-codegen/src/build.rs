@@ -2988,6 +2988,98 @@ fun main() { println(User().value.toString()) }
     }
 
     #[test]
+    fn builds_and_runs_default_argument_call() {
+        let file = parse_file(
+            r#"package demo.default_arg
+fun greet(prefix: Int = 7): Int { return prefix }
+fun main() { println(greet().toString()) }
+"#,
+        )
+        .expect("parse default argument fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-default-argument-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile default argument fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run default argument fixture");
+        assert!(
+            output.status.success(),
+            "default argument failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "7\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_string_default_argument_without_invalid_free() {
+        let file = parse_file(
+            r#"package demo.default_string
+fun greet(prefix: String = "hello"): String { return prefix }
+fun main() { println(greet()) }
+"#,
+        )
+        .expect("parse string default argument fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-default-string-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile string default argument fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run string default argument fixture");
+        assert!(
+            output.status.success(),
+            "string default argument failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "hello\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_top_level_overloads() {
+        let file = parse_file(
+            r#"package demo.overloads
+fun pick(value: Int): Int { return 1 }
+fun pick(value: String): Int { return 2 }
+fun main() { println(pick(1).toString()) println(pick("x").toString()) }
+"#,
+        )
+        .expect("parse overload fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-overloads-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile overload fixture");
+        let output = Command::new(&bin).output().expect("run overload fixture");
+        assert!(
+            output.status.success(),
+            "overload fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "1\n2\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_super_method_call_without_virtual_reentry() {
         let file = parse_file(
             r#"package demo.super_call

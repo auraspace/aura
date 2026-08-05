@@ -1966,12 +1966,28 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
 
     for f in &checked.ast.functions {
         if f.type_params.is_empty() {
-            let emitted_from_mir = ir
-                .and_then(|ir| {
-                    ir.functions
-                        .iter()
-                        .find(|candidate| candidate.name == f.name.name)
+            // MIR's legacy symbol builder is not overload-aware; use the
+            // declaration emitter for overload sets so parameter keys remain
+            // part of the generated C symbol.
+            let overloaded = checked
+                .ast
+                .functions
+                .iter()
+                .filter(|candidate| {
+                    candidate.name.name == f.name.name
+                        && fun_decl_package(candidate, checked) == fun_decl_package(f, checked)
                 })
+                .count()
+                > 1;
+            let emitted_from_mir = (!overloaded)
+                .then(|| {
+                    ir.and_then(|ir| {
+                        ir.functions
+                            .iter()
+                            .find(|candidate| candidate.name == f.name.name)
+                    })
+                })
+                .flatten()
                 .is_some_and(|candidate| crate::mir_emit::emit_function(&mut out, candidate));
             if !emitted_from_mir {
                 emit_fun(&mut out, f, checked, &[], opts.detector);
@@ -14047,6 +14063,8 @@ fn emit_general_spawn_cfg(
         };
         params.push(Param {
             attributes: Vec::new(),
+            default: None,
+            is_vararg: false,
             name: Ident {
                 name: capture.name.clone(),
                 span: spawn.span,

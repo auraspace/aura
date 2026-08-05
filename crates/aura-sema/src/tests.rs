@@ -1280,10 +1280,66 @@ package t
 class User(var value: Int) {
   constructor(): this(41) { value = value + 1 }
 }
+
 fun main() { val user = User() user.value }
 "#;
     let file = parse_file(src).expect("parse secondary constructor");
     check_file(&file).expect("secondary constructor typechecks");
+}
+
+#[test]
+fn default_argument_call_typechecks() {
+    let src = r#"
+package t
+fun greet(prefix: Int = 7): Int { return prefix }
+fun main() { greet() }
+"#;
+    let file = parse_file(src).expect("parse default argument");
+    check_file(&file).expect("default argument typechecks");
+}
+
+#[test]
+fn default_arguments_must_be_trailing_and_type_correct() {
+    let src = "package t\nfun bad(a: Int = 1, b: Int): Int { return b }\n";
+    let file = parse_file(src).expect("parse invalid default placement");
+    let err = check_file(&file).expect_err("non-trailing default must fail");
+    assert!(err.primary().message.contains("defaults must be trailing"));
+
+    let src = "package t\nfun bad(value: Int = \"wrong\"): Int { return value }\n";
+    let file = parse_file(src).expect("parse invalid default type");
+    let err = check_file(&file).expect_err("default type must fail");
+    assert!(err.primary().message.contains("default value for `value`"));
+}
+
+#[test]
+fn vararg_must_be_final_and_cannot_have_default() {
+    let src = "package t\nfun bad(vararg values: Int, tail: Int) {}\n";
+    let file = parse_file(src).expect("parse invalid vararg placement");
+    let err = check_file(&file).expect_err("non-final vararg must fail");
+    assert!(err
+        .primary()
+        .message
+        .contains("vararg` parameter must be the final"));
+
+    let src = "package t\nfun bad(vararg values: Int = 1) {}\n";
+    let file = parse_file(src).expect("parse invalid vararg default");
+    let err = check_file(&file).expect_err("vararg default must fail");
+    assert!(err
+        .primary()
+        .message
+        .contains("vararg` parameter cannot have a default"));
+}
+
+#[test]
+fn resolves_top_level_overloads_by_argument_type() {
+    let src = r#"
+package t
+fun pick(value: Int): String { return "int" }
+fun pick(value: String): String { return "string" }
+fun main() { pick(1) pick("x") }
+"#;
+    let file = parse_file(src).expect("parse overloads");
+    check_file(&file).expect("top-level overloads typecheck");
 }
 
 #[test]

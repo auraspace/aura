@@ -8,8 +8,8 @@ use crate::class_emit::{class_tag, method_owner, virtual_overrides};
 use crate::ctx::EmitCtx;
 use crate::expr::{
     array_field_move_out_lvalue, coerce_expr, emit_channel_receive, emit_channel_send, emit_expr,
-    full_type_mono, infer_type_name, mono_base_name, mono_split, resolve_class_of_expr,
-    resolve_type_name, string_expr_is_owned_temp, type_ref_to_ty,
+    full_type_mono, infer_type_name, mono_base_name, mono_split, owned_string_copy_expr,
+    resolve_class_of_expr, resolve_type_name, string_expr_is_owned_temp, type_ref_to_ty,
 };
 use crate::names::*;
 
@@ -118,6 +118,17 @@ fn coerce_owner_arg_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>) 
     coerce_expr(expr, expected_ty, ctx)
 }
 
+/// Defaults are evaluated at the caller. String literals are static C storage,
+/// while Aura String parameters are owned, so materialize a heap copy before
+/// passing a literal (or another borrowed expression) into the callee.
+fn coerce_default_arg_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>) -> String {
+    let value = coerce_owner_arg_expr(expr, expected_ty, ctx);
+    if expected_ty == "String" && !string_expr_is_owned_temp(expr, ctx) {
+        return owned_string_copy_expr(value, expr.span());
+    }
+    value
+}
+
 /// Return an lvalue for a nested `Array.get`/`pop` receiver. Array accessors
 /// return aggregate values by ABI, but a subsequent Array method still needs
 /// the original element storage as its mutable receiver.
@@ -188,12 +199,47 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     .map(|t| aura_sema::subst_ty(t, &subst))
                     .collect::<Vec<_>>();
                 let mono = type_mono(&inst.package, &id.name, &class_args);
-                let args = c
-                    .args
+                let selected_span = ctx
+                    .checked
+                    .call_instantiations
+                    .get(&c.span.start)
+                    .and_then(|i| i.declaration_span);
+                let args = ctx
+                    .checked
+                    .ast
+                    .classes
                     .iter()
-                    .map(|a| emit_expr(a, ctx))
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                    .find(|class| class.name.name == id.name)
+                    .and_then(|class| {
+                        class.methods.iter().find(|method| {
+                            method.name.name == fe.field.name
+                                && selected_span.is_none_or(|span| method.span == span)
+                        })
+                    })
+                    .map(|method| {
+                        method
+                            .params
+                            .iter()
+                            .enumerate()
+                            .map(|(index, param)| {
+                                c.args
+                                    .get(index)
+                                    .map(|arg| emit_expr(arg, ctx))
+                                    .or_else(|| {
+                                        param.default.as_ref().map(|expr| emit_expr(expr, ctx))
+                                    })
+                                    .unwrap_or_default()
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .unwrap_or_else(|| {
+                        c.args
+                            .iter()
+                            .map(|a| emit_expr(a, ctx))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    });
                 return format!(
                     "{}({args})",
                     c_generic_method_name(&mono, &fe.field.name, &method_args)
@@ -271,12 +317,44 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     let mono = type_mono(pkg, name, &targs);
                     let ctor_index = inst.and_then(|i| i.constructor_index).unwrap_or(0);
                     if ctor_index > 0 {
-                        let args = c
-                            .args
-                            .iter()
-                            .map(|a| emit_expr(a, ctx))
-                            .collect::<Vec<_>>()
-                            .join(", ");
+                        let selected_span = inst.and_then(|i| i.declaration_span);
+                        let args =
+                            ctx.checked
+                                .ast
+                                .classes
+                                .iter()
+                                .find(|class| class.name.name == *name)
+                                .and_then(|class| {
+                                    class.constructors.iter().find(|ctor| {
+                                        selected_span.is_none_or(|span| ctor.span == span)
+                                    })
+                                })
+                                .map(|ctor| {
+                                    ctor.params
+                                        .iter()
+                                        .enumerate()
+                                        .map(|(index, param)| {
+                                            c.args
+                                                .get(index)
+                                                .map(|arg| emit_expr(arg, ctx))
+                                                .or_else(|| {
+                                                    param
+                                                        .default
+                                                        .as_ref()
+                                                        .map(|expr| emit_expr(expr, ctx))
+                                                })
+                                                .unwrap_or_default()
+                                        })
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                })
+                                .unwrap_or_else(|| {
+                                    c.args
+                                        .iter()
+                                        .map(|a| emit_expr(a, ctx))
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                });
                         return format!("{}({args})", c_ctor_name_index(&mono, ctor_index));
                     }
                     // C6i: move Array owner args into ctor fields when class is known.
@@ -453,9 +531,14 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 let tparams: Vec<String> =
                     i.type_params.iter().map(|p| p.name.name.clone()).collect();
                 if let Some(m) = i.methods.iter().find(|m| m.name.name == fe.field.name) {
-                    for (a, p) in c.args.iter().zip(m.params.iter()) {
-                        let expected = type_ref_local_key(&p.ty, &tparams, &iargs);
-                        args.push(coerce_owner_arg_expr(a, &expected, ctx));
+                    for (index, p) in m.params.iter().enumerate() {
+                        if let Some(a) = c.args.get(index) {
+                            let expected = type_ref_local_key(&p.ty, &tparams, &iargs);
+                            args.push(coerce_owner_arg_expr(a, &expected, ctx));
+                        } else if let Some(default) = &p.default {
+                            let expected = type_ref_local_key(&p.ty, &tparams, &iargs);
+                            args.push(coerce_default_arg_expr(default, &expected, ctx));
+                        }
                     }
                 } else {
                     for a in &c.args {
@@ -976,7 +1059,14 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
         };
         let mut args = vec![this_arg];
         if let Some(class) = owner {
-            if let Some(m) = class.methods.iter().find(|m| m.name.name == fe.field.name) {
+            let selected_span = ctx
+                .checked
+                .call_instantiations
+                .get(&c.span.start)
+                .and_then(|inst| inst.declaration_span);
+            if let Some(m) = class.methods.iter().find(|m| {
+                m.name.name == fe.field.name && selected_span.is_none_or(|span| m.span == span)
+            }) {
                 // C4u: substitute class type params for method parameter expected types.
                 let params: Vec<String> = class
                     .type_params
@@ -991,10 +1081,15 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                         .unwrap_or_default()
                 };
                 let mut param_keys = Vec::new();
-                for (a, p) in c.args.iter().zip(m.params.iter()) {
-                    let expected = type_ref_local_key(&p.ty, &params, &targs);
-                    param_keys.push(expected.clone());
-                    args.push(coerce_owner_arg_expr(a, &expected, ctx));
+                for (index, p) in m.params.iter().enumerate() {
+                    if let Some(a) = c.args.get(index) {
+                        let expected = type_ref_local_key(&p.ty, &params, &targs);
+                        param_keys.push(expected.clone());
+                        args.push(coerce_owner_arg_expr(a, &expected, ctx));
+                    } else if let Some(default) = &p.default {
+                        let expected = type_ref_local_key(&p.ty, &params, &targs);
+                        args.push(coerce_default_arg_expr(default, &expected, ctx));
+                    }
                 }
                 let ret_c = c_type_from_opt(&m.return_type, ctx.checked, &params, &targs);
                 let method_args = ctx
@@ -1194,12 +1289,34 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 let mono = type_mono(pkg, &id.name, &targs);
                 let ctor_index = inst.and_then(|i| i.constructor_index).unwrap_or(0);
                 if ctor_index > 0 {
-                    let args = c
-                        .args
+                    let selected_span = inst.and_then(|i| i.declaration_span);
+                    let args = class
+                        .constructors
                         .iter()
-                        .map(|a| emit_expr(a, ctx))
-                        .collect::<Vec<_>>()
-                        .join(", ");
+                        .find(|ctor| selected_span.is_none_or(|span| ctor.span == span))
+                        .map(|ctor| {
+                            ctor.params
+                                .iter()
+                                .enumerate()
+                                .map(|(index, param)| {
+                                    c.args
+                                        .get(index)
+                                        .map(|arg| emit_expr(arg, ctx))
+                                        .or_else(|| {
+                                            param.default.as_ref().map(|expr| emit_expr(expr, ctx))
+                                        })
+                                        .unwrap_or_default()
+                                })
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        })
+                        .unwrap_or_else(|| {
+                            c.args
+                                .iter()
+                                .map(|a| emit_expr(a, ctx))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        });
                     return format!("{}({args})", c_ctor_name_index(&mono, ctor_index));
                 }
                 let params: Vec<String> = class
@@ -1452,36 +1569,55 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             if let Some(f) = ctx.checked.ast.functions.iter().find(|f| {
                 f.name.name == id.name
                     && (pkg.is_empty() || fun_decl_package(f, ctx.checked) == pkg)
+                    && inst
+                        .and_then(|selected| selected.declaration_span)
+                        .is_none_or(|span| f.span == span)
             }) {
                 let params: Vec<String> =
                     f.type_params.iter().map(|p| p.name.name.clone()).collect();
                 let mut param_keys = Vec::new();
                 let mut owned_string_args = Vec::new();
-                let args = c
-                    .args
-                    .iter()
-                    .zip(f.params.iter())
-                    .enumerate()
-                    .map(|(index, (a, p))| {
-                        let expected = type_ref_local_key(&p.ty, &params, &targs);
+                let mut emitted_args = Vec::new();
+                for (index, param) in f.params.iter().enumerate() {
+                    if let Some(arg) = c.args.get(index) {
+                        let expected = type_ref_local_key(&param.ty, &params, &targs);
                         param_keys.push(expected.clone());
-                        let value = coerce_owner_arg_expr(a, &expected, ctx);
-                        if expected == "String" && string_expr_is_owned_temp(a, ctx) {
+                        let value = coerce_owner_arg_expr(arg, &expected, ctx);
+                        if expected == "String" && string_expr_is_owned_temp(arg, ctx) {
                             let temp = format!("__aura_string_arg_{index}");
                             owned_string_args.push((temp.clone(), value));
-                            temp
+                            emitted_args.push(temp);
                         } else {
-                            value
+                            emitted_args.push(value);
                         }
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                    } else if let Some(default) = &param.default {
+                        let expected = type_ref_local_key(&param.ty, &params, &targs);
+                        emitted_args.push(coerce_default_arg_expr(default, &expected, ctx));
+                    }
+                }
+                let args = emitted_args.join(", ");
                 let ret_c = c_type_from_opt(&f.return_type, ctx.checked, &params, &targs);
                 let fpkg = fun_decl_package(f, ctx.checked);
                 // Do not inherit method inference arguments when the free
                 // function itself is non-generic (e.g. fields(...).get(...)).
                 let call_name = if f.type_params.is_empty() {
-                    c_fun_name(&fpkg, &id.name, &[])
+                    let overload_keys = f
+                        .params
+                        .iter()
+                        .map(|param| type_ref_local_key(&param.ty, &params, &[]))
+                        .collect::<Vec<_>>();
+                    let overloaded = ctx
+                        .checked
+                        .ast
+                        .functions
+                        .iter()
+                        .filter(|candidate| {
+                            candidate.name.name == id.name
+                                && fun_decl_package(candidate, ctx.checked) == fpkg
+                        })
+                        .count()
+                        > 1;
+                    c_fun_name_with_params(&fpkg, &id.name, &[], &overload_keys, overloaded)
                 } else {
                     c_fun_name(&fpkg, &id.name, &targs)
                 };
@@ -1508,13 +1644,23 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             if let Some(f) = ctx.checked.ast.async_functions.iter().find(|f| {
                 f.name.name == id.name
                     && (pkg.is_empty() || async_fun_decl_package(f, ctx.checked) == pkg)
+                    && inst
+                        .and_then(|selected| selected.declaration_span)
+                        .is_none_or(|span| f.span == span)
             }) {
                 let params: Vec<String> =
                     f.type_params.iter().map(|p| p.name.name.clone()).collect();
                 let mut args = Vec::new();
                 let mut prelude = String::new();
                 let mut cleanup = String::new();
-                for (index, (a, p)) in c.args.iter().zip(f.params.iter()).enumerate() {
+                for (index, p) in f.params.iter().enumerate() {
+                    let Some(a) = c.args.get(index) else {
+                        if let Some(default) = &p.default {
+                            let expected = type_ref_local_key(&p.ty, &params, &targs);
+                            args.push(coerce_default_arg_expr(default, &expected, ctx));
+                        }
+                        continue;
+                    };
                     let expected = type_ref_local_key(&p.ty, &params, &targs);
                     let value = coerce_owner_arg_expr(a, &expected, ctx);
                     if expected == "String" && string_expr_is_owned_temp(a, ctx) {
@@ -1539,7 +1685,24 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     }
                 }
                 let call_name = if f.type_params.is_empty() {
-                    c_fun_name(&async_fun_decl_package(f, ctx.checked), &id.name, &[])
+                    let fpkg = async_fun_decl_package(f, ctx.checked);
+                    let overload_keys = f
+                        .params
+                        .iter()
+                        .map(|param| type_ref_local_key(&param.ty, &params, &[]))
+                        .collect::<Vec<_>>();
+                    let overloaded = ctx
+                        .checked
+                        .ast
+                        .async_functions
+                        .iter()
+                        .filter(|candidate| {
+                            candidate.name.name == id.name
+                                && async_fun_decl_package(candidate, ctx.checked) == fpkg
+                        })
+                        .count()
+                        > 1;
+                    c_fun_name_with_params(&fpkg, &id.name, &[], &overload_keys, overloaded)
                 } else {
                     c_fun_name(&async_fun_decl_package(f, ctx.checked), &id.name, &targs)
                 };

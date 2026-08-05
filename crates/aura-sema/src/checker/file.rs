@@ -541,6 +541,12 @@ impl Checker {
                         params,
                         ret,
                         has_default: m.body.is_some(),
+                        required_params: m
+                            .params
+                            .iter()
+                            .take_while(|p| p.default.is_none())
+                            .count(),
+                        is_vararg: m.params.last().is_some_and(|p| p.is_vararg),
                         span: m.span,
                     },
                 );
@@ -781,6 +787,12 @@ impl Checker {
                     type_params: Vec::new(),
                     bounds: HashMap::new(),
                     params,
+                    required_params: foreign
+                        .params
+                        .iter()
+                        .filter(|p| p.default.is_none())
+                        .count(),
+                    is_vararg: foreign.params.last().is_some_and(|p| p.is_vararg),
                     ret,
                     span: foreign.span,
                 });
@@ -861,6 +873,8 @@ impl Checker {
                     type_params: f.type_params.iter().map(|p| p.name.name.clone()).collect(),
                     bounds: Self::bounds_map_from_params(&f.type_params),
                     params,
+                    required_params: f.params.iter().take_while(|p| p.default.is_none()).count(),
+                    is_vararg: f.params.last().is_some_and(|p| p.is_vararg),
                     ret: task_ty,
                     span: f.span,
                 });
@@ -1166,6 +1180,12 @@ impl Checker {
                 };
                 constructors.push(crate::sigs::ConstructorSig {
                     params,
+                    required_params: ctor
+                        .params
+                        .iter()
+                        .take_while(|p| p.default.is_none())
+                        .count(),
+                    is_vararg: ctor.params.last().is_some_and(|p| p.is_vararg),
                     span: ctor.span,
                 });
             }
@@ -1223,6 +1243,12 @@ impl Checker {
                         class: c.name.name.clone(),
                         name: m.name.name.clone(),
                         params,
+                        required_params: m
+                            .params
+                            .iter()
+                            .take_while(|p| p.default.is_none())
+                            .count(),
+                        is_vararg: m.params.last().is_some_and(|p| p.is_vararg),
                         ret,
                         type_params: m.type_params.iter().map(|p| p.name.name.clone()).collect(),
                         bounds: Self::bounds_map_from_params(&m.type_params),
@@ -1406,15 +1432,6 @@ impl Checker {
                 });
                 continue;
             }
-            if let Some(existing) = self.functions.get(&f.name.name) {
-                if existing.iter().any(|s| s.package == pkg) {
-                    self.errors.push(SemaError {
-                        message: format!("duplicate function `{}` in package `{pkg}`", f.name.name),
-                        span: f.name.span,
-                    });
-                    continue;
-                }
-            }
             if let Err(err) = self.bind_type_params(&f.type_params) {
                 self.errors.push(err);
                 self.type_params.clear();
@@ -1456,6 +1473,23 @@ impl Checker {
                 None => Ty::Unit,
             };
             self.note_mono_ty(&ret);
+            if self.functions.get(&f.name.name).is_some_and(|existing| {
+                existing.iter().any(|sig| {
+                    sig.package == pkg
+                        && sig.type_params.len() == f.type_params.len()
+                        && sig.params == params
+                })
+            }) {
+                self.errors.push(SemaError {
+                    message: format!(
+                        "duplicate function overload `{}` with the same parameter types in package `{pkg}`",
+                        f.name.name
+                    ),
+                    span: f.name.span,
+                });
+                self.type_params.clear();
+                continue;
+            }
             self.functions
                 .entry(f.name.name.clone())
                 .or_default()
@@ -1467,6 +1501,8 @@ impl Checker {
                     type_params: f.type_params.iter().map(|p| p.name.name.clone()).collect(),
                     bounds: Self::bounds_map_from_params(&f.type_params),
                     params,
+                    required_params: f.params.iter().take_while(|p| p.default.is_none()).count(),
+                    is_vararg: f.params.last().is_some_and(|p| p.is_vararg),
                     ret,
                     span: f.span,
                 });
@@ -1623,6 +1659,10 @@ impl Checker {
                             valid = false;
                         }
                     }
+                }
+                if let Err(err) = self.validate_params(&ctor.params) {
+                    self.errors.push(err);
+                    valid = false;
                 }
                 if ctor.delegation_args.len() != csig.fields.len() {
                     self.errors.push(SemaError {

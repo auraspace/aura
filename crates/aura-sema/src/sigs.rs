@@ -17,6 +17,9 @@ pub struct FunSig {
     /// Bounds per type param name (interface names in C2e).
     pub bounds: HashMap<String, Vec<String>>,
     pub params: Vec<Ty>,
+    /// Number of leading parameters that cannot be omitted.
+    pub required_params: usize,
+    pub is_vararg: bool,
     pub ret: Ty,
     pub span: Span,
 }
@@ -26,6 +29,8 @@ pub struct ClassMethodSig {
     pub class: String,
     pub name: String,
     pub params: Vec<Ty>,
+    pub required_params: usize,
+    pub is_vararg: bool,
     pub ret: Ty,
     pub type_params: Vec<String>,
     pub bounds: HashMap<String, Vec<String>>,
@@ -41,6 +46,8 @@ pub struct ClassMethodSig {
 pub struct IfaceMethodSig {
     pub name: String,
     pub params: Vec<Ty>,
+    pub required_params: usize,
+    pub is_vararg: bool,
     pub ret: Ty,
     pub has_default: bool,
     pub span: Span,
@@ -57,6 +64,8 @@ pub struct FieldSig {
 #[derive(Debug, Clone)]
 pub struct ConstructorSig {
     pub params: Vec<Ty>,
+    pub required_params: usize,
+    pub is_vararg: bool,
     pub span: Span,
 }
 
@@ -126,6 +135,7 @@ pub struct CallInstantiation {
     pub method_type_args: Vec<Ty>,
     pub is_static: bool,
     pub constructor_index: Option<usize>,
+    pub declaration_span: Option<Span>,
     /// Set for enum variant constructors (`Ok`, `Err`, …).
     pub variant: Option<String>,
 }
