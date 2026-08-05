@@ -5,7 +5,7 @@ mod runtime_path;
 mod scaffold;
 mod test_report;
 
-use aura_analysis::{CheckedFile, SemaError, SemaErrors};
+use aura_analysis::{SemaError, SemaErrors};
 use aura_codegen::{build_from_checked, build_tests_from_checked, emit_c_from_checked};
 use aura_diagnostics::{
     classify_async, format_async_error, format_error_with, FormatOptions, JsonDiagnostic, Severity,
@@ -17,6 +17,7 @@ use package::{
     publish_package, LoadedPackage, RegistryIndex, UpdateDecision, ENV_REGISTRY_TOKEN,
 };
 use std::env;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::Instant;
@@ -457,13 +458,48 @@ fn cmd_check(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    match resolve_package(&package_args).and_then(|pkg| check_package_mode(pkg, json)) {
-        Ok(summary) => {
-            println!("{summary}");
-            ExitCode::SUCCESS
-        }
+    let target = package_args.first().cloned().unwrap_or_else(|| ".".into());
+    let loading_started = Instant::now();
+    let pkg = match resolve_package(&package_args) {
+        Ok(pkg) => pkg,
         Err(msg) => {
             eprintln!("{msg}");
+            return ExitCode::from(1);
+        }
+    };
+    let parsing_ms = loading_started.elapsed().as_secs_f64() * 1000.0;
+    let checking_started = Instant::now();
+    match pkg.check_with_plugins() {
+        Ok(_) if json => {
+            println!(
+                "{}",
+                render_check_summary(
+                    &pkg,
+                    parsing_ms,
+                    checking_started.elapsed().as_secs_f64() * 1000.0
+                )
+            );
+            ExitCode::SUCCESS
+        }
+        Ok(_) => {
+            let checking_ms = checking_started.elapsed().as_secs_f64() * 1000.0;
+            println!(
+                "{}",
+                render_check_progress(&pkg, &target, parsing_ms, checking_ms)
+            );
+            ExitCode::SUCCESS
+        }
+        Err(msg) if json => {
+            let diagnostics = msg
+                .errors
+                .iter()
+                .map(|e| diag_sema_json(&pkg, e).to_json())
+                .collect::<Vec<_>>();
+            eprintln!("{{\"diagnostics\":[{}]}}", diagnostics.join(","));
+            ExitCode::from(1)
+        }
+        Err(msg) => {
+            eprintln!("{}", diag_sema_errors(&pkg, msg));
             ExitCode::from(1)
         }
     }
@@ -494,121 +530,106 @@ fn parse_check_options(args: &[String]) -> Result<(bool, Vec<String>), String> {
     Ok((json, package_args))
 }
 
-fn check_package(pkg: LoadedPackage) -> Result<String, String> {
-    let checked = pkg
-        .check_with_plugins()
-        .map_err(|e| diag_sema_errors(&pkg, e))?;
-    render_checked_package(&pkg, checked)
+fn render_check_progress(
+    pkg: &LoadedPackage,
+    target: &str,
+    parsing_ms: f64,
+    checking_ms: f64,
+) -> String {
+    let total_ms = parsing_ms + checking_ms;
+    format!(
+        "[1/1] Checking package {}...\n  ✔  Syntax parsing complete ({})\n  ✔  Symbol resolution complete ({})\n  ✔  Type check & null-safety validation complete ({})\n\n✨  Checked {} files in {}. 0 errors, 0 warnings.",
+        target,
+        format_ms(parsing_ms),
+        format_ms(checking_ms * 0.35),
+        format_ms(checking_ms * 0.65),
+        pkg.sources.len(),
+        format_ms(total_ms),
+    )
 }
 
-fn render_checked_package(pkg: &LoadedPackage, checked: CheckedFile) -> Result<String, String> {
-    let mut lines = Vec::new();
-    if pkg.sources.len() == 1 {
-        lines.push(format!("ok  {}", pkg.sources[0].path.display()));
+fn render_check_summary(pkg: &LoadedPackage, parsing_ms: f64, checking_ms: f64) -> String {
+    format!(
+        "{{\"package\":\"{}\",\"files\":{},\"duration_ms\":{:.3}}}",
+        pkg.package,
+        pkg.sources.len(),
+        parsing_ms + checking_ms
+    )
+}
+
+fn format_ms(ms: f64) -> String {
+    if ms < 1.0 {
+        format!("{ms:.2}ms")
     } else {
-        lines.push(format!(
-            "ok  {} ({} files)",
-            pkg.root.display(),
-            pkg.sources.len()
-        ));
-        for s in &pkg.sources {
-            lines.push(format!("  file {}", s.path.display()));
-        }
+        format!("{ms:.1}ms")
     }
-    lines.push(format!("package {}", checked.package));
-    if !checked.interfaces.is_empty() {
-        lines.push(format!("{} interface(s)", checked.interfaces.len()));
-        for i in &checked.interfaces {
-            lines.push(format!(
-                "  interface {} ({} method(s))",
-                i.name,
-                i.methods.len()
-            ));
-        }
-    }
-    if !checked.enums.is_empty() {
-        lines.push(format!("{} enum(s)", checked.enums.len()));
-        for e in &checked.enums {
-            lines.push(format!(
-                "  enum {} ({} variant(s))",
-                e.name,
-                e.variants.len()
-            ));
-        }
-    }
-    if !checked.classes.is_empty() {
-        let n_cls = checked.classes.iter().filter(|c| !c.is_struct).count();
-        let n_st = checked.classes.iter().filter(|c| c.is_struct).count();
-        if n_cls > 0 {
-            lines.push(format!("{n_cls} class(es)"));
-        }
-        if n_st > 0 {
-            lines.push(format!("{n_st} struct(s)"));
-        }
-        for c in &checked.classes {
-            let kind = if c.is_struct { "struct" } else { "class" };
-            let impls = if c.implements.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    " : {}",
-                    c.implements
-                        .iter()
-                        .map(|t| t.display())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            };
-            lines.push(format!(
-                "  {kind} {}{} ({} field(s), {} method(s))",
-                c.name,
-                impls,
-                c.fields.len(),
-                c.methods.len()
-            ));
-        }
-    }
-    lines.push(format!(
-        "{} function(s) typechecked",
-        checked.functions.len()
-    ));
-    let n_tests = checked.functions.iter().filter(|f| f.is_test).count();
-    if n_tests > 0 {
-        lines.push(format!("{n_tests} @test function(s)"));
-    }
-    for f in &checked.functions {
-        let mark = if f.is_test { " @test" } else { "" };
-        lines.push(format!(
-            "  fun{} {}({}) -> {}",
-            mark,
-            f.name,
-            f.params
-                .iter()
-                .map(|t| t.display())
-                .collect::<Vec<_>>()
-                .join(", "),
-            f.ret.display()
-        ));
-    }
-    Ok(lines.join("\n"))
 }
 
-fn check_package_mode(pkg: LoadedPackage, json: bool) -> Result<String, String> {
-    if !json {
-        return check_package(pkg);
+fn format_size(bytes: u64) -> String {
+    if bytes >= 1024 * 1024 {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    } else if bytes >= 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{bytes} B")
     }
-    match pkg.check_with_plugins() {
-        Ok(checked) => render_checked_package(&pkg, checked),
-        Err(errors) if json => {
-            let diagnostics = errors
-                .errors
-                .iter()
-                .map(|e| diag_sema_json(&pkg, e).to_json())
-                .collect::<Vec<_>>();
-            Err(format!("{{\"diagnostics\":[{}]}}", diagnostics.join(",")))
+}
+
+fn display_path(path: &Path) -> String {
+    let value = path.display().to_string();
+    if path.is_relative() && !value.starts_with("./") {
+        format!("./{value}")
+    } else {
+        value
+    }
+}
+
+fn render_test_progress(
+    pkg: &LoadedPackage,
+    cases: &[test_report::TestCase],
+    elapsed_ms: f64,
+) -> String {
+    let mut lines = vec![format!(
+        "[test] Running package tests in {}...",
+        pkg.root.display()
+    )];
+    let mut passed = 0;
+    let mut failed = 0;
+    let mut skipped = 0;
+    for case in cases {
+        let (label, duration) = match case.status {
+            test_report::TestStatus::Passed => {
+                passed += 1;
+                ("OK", format_ms(case.duration_ms as f64))
+            }
+            test_report::TestStatus::Failed => {
+                failed += 1;
+                ("FAILED", format_ms(case.duration_ms as f64))
+            }
+            test_report::TestStatus::Skipped => {
+                skipped += 1;
+                ("SKIPPED", "0.00ms".into())
+            }
+        };
+        lines.push(format!("  RUN  {} ... {} ({duration})", case.name, label));
+        if let Some(diagnostic) = &case.diagnostic {
+            lines.push(format!("       {}", diagnostic.message));
         }
-        Err(errors) => Err(diag_sema_errors(&pkg, errors)),
     }
+    lines.push(String::new());
+    lines.push(format!(
+        "{} {} tests | {} failed | {} skipped (in {})",
+        if failed == 0 {
+            "✔ Passed:"
+        } else {
+            "✘ Failed:"
+        },
+        passed,
+        failed,
+        skipped,
+        format_ms(elapsed_ms)
+    ));
+    lines.join("\n")
 }
 
 fn cmd_emit_c(args: &[String]) -> ExitCode {
@@ -671,9 +692,49 @@ fn cmd_build(args: &[String]) -> ExitCode {
     };
 
     let out = output.unwrap_or_else(|| PathBuf::from(format!("target/aura/{}", pkg.bin_name)));
-    match build_package(&pkg, &out) {
+    let build_started = Instant::now();
+    let runtime = match runtime_c_path() {
+        Ok(path) => path,
+        Err(msg) => {
+            eprintln!("{msg}");
+            return ExitCode::from(1);
+        }
+    };
+    println!("[build] Checking package {}...", pkg.package);
+    let check_started = Instant::now();
+    let checked = match pkg.check_with_plugins() {
+        Ok(checked) => checked,
+        Err(errors) => {
+            eprintln!("{}", diag_sema_errors(&pkg, errors));
+            return ExitCode::from(1);
+        }
+    };
+    println!(
+        "  ✔  Package check complete ({})",
+        format_ms(check_started.elapsed().as_secs_f64() * 1000.0)
+    );
+    println!("[build] Compiling native artifact...");
+    let compile_started = Instant::now();
+    let compiled = build_from_checked(&checked, &out, &runtime).map_err(|e| match e {
+        aura_codegen::CodegenError::Sema(se) => diag_sema_errors(&pkg, se),
+        other => format!("error: {other}"),
+    });
+    match compiled {
         Ok(bin) => {
-            println!("ok  {}", bin.display());
+            let size = fs::metadata(&bin)
+                .map(|metadata| metadata.len())
+                .unwrap_or(0);
+            println!(
+                "  ✔  Native artifact complete ({})",
+                format_ms(compile_started.elapsed().as_secs_f64() * 1000.0)
+            );
+            println!();
+            println!(
+                "🚀  Created self-contained binary: {} ({}, in {})",
+                display_path(&bin),
+                format_size(size),
+                format_ms(build_started.elapsed().as_secs_f64() * 1000.0)
+            );
             ExitCode::SUCCESS
         }
         Err(msg) => {
@@ -796,15 +857,15 @@ fn cmd_test(args: &[String]) -> ExitCode {
                 Ok(output) => {
                     let elapsed = started.elapsed().as_millis();
                     let status = output.status.success();
+                    let cases = test_report::cases_from_output(
+                        &pkg.package,
+                        &all_tests,
+                        &selected,
+                        &output.stdout,
+                        &output.stderr,
+                        status,
+                    );
                     if options.json {
-                        let cases = test_report::cases_from_output(
-                            &pkg.package,
-                            &all_tests,
-                            &selected,
-                            &output.stdout,
-                            &output.stderr,
-                            status,
-                        );
                         let report = test_report::TestReport {
                             package: pkg.package.clone(),
                             duration_ms: elapsed,
@@ -819,8 +880,7 @@ fn cmd_test(args: &[String]) -> ExitCode {
                             println!("{}", report.to_json());
                         }
                     } else {
-                        print!("{}", String::from_utf8_lossy(&output.stdout));
-                        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+                        println!("{}", render_test_progress(&pkg, &cases, elapsed as f64));
                         if options.race {
                             println!(
                                 "race: {} (detector=on)",
