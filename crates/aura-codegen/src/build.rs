@@ -3080,6 +3080,133 @@ fun main() { println(pick(1).toString()) println(pick("x").toString()) }
     }
 
     #[test]
+    fn builds_and_runs_class_method_overloads() {
+        let file = parse_file(
+            r#"package demo.method_overloads
+class Picker() {
+  fun pick(value: Int): Int { return 1 }
+  fun pick(value: String): Int { return 2 }
+}
+fun main() { println(Picker().pick(1).toString()) println(Picker().pick("x").toString()) }
+"#,
+        )
+        .expect("parse method overload fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-method-overloads-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile method overload fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run method overload fixture");
+        assert!(
+            output.status.success(),
+            "method overload fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "1\n2\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_vararg_array_parameter() {
+        let file = parse_file(
+            r#"package demo.variadic
+fun count(vararg values: Int): Int { return values.len }
+fun main() { println(count(1, 2, 3).toString()) }
+"#,
+        )
+        .expect("parse vararg fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-vararg-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile vararg fixture");
+        let output = Command::new(&bin).output().expect("run vararg fixture");
+        assert!(output.status.success(), "vararg fixture failed: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_string_vararg_array_parameter() {
+        let file = parse_file(
+            r#"package demo.variadic_string
+fun count(vararg values: String): Int { return values.len }
+fun main() { println(count("a", "b").toString()) }
+"#,
+        )
+        .expect("parse string vararg fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-vararg-string-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile string vararg fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run string vararg fixture");
+        assert!(
+            output.status.success(),
+            "string vararg fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "2\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_companion_method_overloads() {
+        let file = parse_file(
+            r#"package demo.static_overloads
+class Picker() {
+  companion object {
+    fun pick(value: Int): Int { return 1 }
+    fun pick(value: String): Int { return 2 }
+  }
+}
+fun main() { println(Picker.pick(1).toString()) println(Picker.pick("x").toString()) }
+"#,
+        )
+        .expect("parse static overload fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-static-overloads-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile static overload fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run static overload fixture");
+        assert!(
+            output.status.success(),
+            "static overload fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "1\n2\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_super_method_call_without_virtual_reentry() {
         let file = parse_file(
             r#"package demo.super_call

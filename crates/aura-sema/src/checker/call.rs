@@ -9,6 +9,81 @@ use crate::ty::{nominal_key, split_nominal, Ty};
 use crate::util::{subst_ty, type_subst_map, unify_ty};
 
 impl Checker {
+    fn select_method_overload(
+        &mut self,
+        candidates: &[(crate::sigs::ClassMethodSig, ClassSig)],
+        c: &CallExpr,
+        expected: Option<&Ty>,
+        label: &str,
+    ) -> Result<(crate::sigs::ClassMethodSig, ClassSig, Vec<Ty>, Vec<Ty>, Ty), SemaError> {
+        let mut applicable = Vec::new();
+        let mut last_error = None;
+        for (method, owner) in candidates {
+            if let Err(err) =
+                self.check_member_visible(owner, method.visibility, &method.name, c.callee.span())
+            {
+                last_error = Some(err);
+                continue;
+            }
+            let method_args = match self.resolve_method_type_args(method, c, expected) {
+                Ok(args) => args,
+                Err(err) => {
+                    last_error = Some(err);
+                    continue;
+                }
+            };
+            if let Err(err) = self.check_type_args_bounds(
+                &method.type_params,
+                &method.bounds,
+                &method_args,
+                c.span,
+                &format!("method `{}`", method.name),
+            ) {
+                last_error = Some(err);
+                continue;
+            }
+            let subst = type_subst_map(&method.type_params, &method_args);
+            let params: Vec<Ty> = method
+                .params
+                .iter()
+                .map(|param| subst_ty(param, &subst))
+                .collect();
+            if let Err(err) = self.check_args_with_shape(
+                &params,
+                method.required_params,
+                method.is_vararg,
+                &c.args,
+                label,
+                c.span,
+            ) {
+                last_error = Some(err);
+                continue;
+            }
+            let ret = subst_ty(&method.ret, &subst);
+            applicable.push((method.clone(), owner.clone(), method_args, params, ret));
+        }
+        match applicable.len() {
+            1 => Ok(applicable.remove(0)),
+            0 => Err(last_error.unwrap_or_else(|| SemaError {
+                message: format!("no overload of `{label}` accepts these arguments"),
+                span: c.span,
+            })),
+            _ => Err(SemaError {
+                message: format!(
+                    "ambiguous overload of `{label}`; candidates at spans {}",
+                    applicable
+                        .iter()
+                        .map(|(method, _, _, _, _)| {
+                            format!("{}..{}", method.span.start, method.span.end)
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                span: c.span,
+            }),
+        }
+    }
+
     pub(crate) fn check_call(
         &mut self,
         c: &CallExpr,
@@ -27,24 +102,32 @@ impl Checker {
             if let Expr::Ident(id) = fe.object.as_ref() {
                 if self.classes.contains_key(&id.name) {
                     let class = self.resolve_class(&id.name, id.span)?;
-                    let method =
-                        class
-                            .methods
-                            .get(&fe.field.name)
-                            .cloned()
-                            .ok_or_else(|| SemaError {
-                                message: format!(
-                                    "unknown static member `{}` on `{}`",
-                                    fe.field.name, id.name
-                                ),
-                                span: fe.field.span,
-                            })?;
-                    if !method.is_static {
+                    let candidates = class
+                        .method_overloads
+                        .get(&fe.field.name)
+                        .cloned()
+                        .or_else(|| class.methods.get(&fe.field.name).cloned().map(|m| vec![m]))
+                        .unwrap_or_default()
+                        .into_iter()
+                        .filter(|method| method.is_static)
+                        .map(|method| (method, class.clone()))
+                        .collect::<Vec<_>>();
+                    if candidates.is_empty() {
                         return Err(SemaError {
-                            message: format!("`{}` is not a static member", fe.field.name),
+                            message: format!(
+                                "unknown static member `{}` on `{}`",
+                                fe.field.name, id.name
+                            ),
                             span: fe.field.span,
                         });
                     }
+                    let (method, _owner, method_args, _method_params, _ret) = self
+                        .select_method_overload(
+                            &candidates,
+                            c,
+                            expected,
+                            &format!("{}.{}", id.name, fe.field.name),
+                        )?;
                     let arg_tys: Vec<Ty> = c
                         .args
                         .iter()
@@ -64,7 +147,6 @@ impl Checker {
                         .iter()
                         .map(|p| subst_ty(p, &class_subst))
                         .collect();
-                    let method_args = self.resolve_method_type_args(&method, c, expected)?;
                     let method_subst = type_subst_map(&method.type_params, &method_args);
                     let params: Vec<Ty> = method_params
                         .iter()
@@ -214,36 +296,21 @@ impl Checker {
             }
 
             if let Some(cname) = obj_ty.class_name() {
-                let (method, owner) = self
-                    .class_method_with_owner_in_hierarchy(&obj_ty, &fe.field.name)
-                    .ok_or_else(|| SemaError {
+                let candidates =
+                    self.class_method_overloads_with_owner_in_hierarchy(&obj_ty, &fe.field.name);
+                if candidates.is_empty() {
+                    return Err(SemaError {
                         message: format!("unknown method `{}` on `{cname}`", fe.field.name),
                         span: fe.field.span,
-                    })?;
-                self.check_member_visible(&owner, method.visibility, &method.name, fe.field.span)?;
-                let method_type_args = self.resolve_method_type_args(&method, c, expected)?;
-                self.check_type_args_bounds(
-                    &method.type_params,
-                    &method.bounds,
-                    &method_type_args,
-                    c.span,
-                    &format!("method `{}`", method.name),
-                )?;
-                let method_subst = type_subst_map(&method.type_params, &method_type_args);
-                let params: Vec<Ty> = method
-                    .params
-                    .iter()
-                    .map(|p| subst_ty(p, &method_subst))
-                    .collect();
-                let ret = subst_ty(&method.ret, &method_subst);
-                self.check_args_with_shape(
-                    &params,
-                    method.required_params,
-                    method.is_vararg,
-                    &c.args,
-                    &format!("{}.{}", cname, method.name),
-                    c.span,
-                )?;
+                    });
+                }
+                let (method, _owner, method_type_args, _params, ret) = self
+                    .select_method_overload(
+                        &candidates,
+                        c,
+                        expected,
+                        &format!("{}.{}", cname, fe.field.name),
+                    )?;
                 self.note_mono_ty(&obj_ty);
                 self.call_instantiations.insert(
                     c.span.start,
@@ -730,20 +797,23 @@ impl Checker {
         expected: Option<&Ty>,
     ) -> Result<Ty, SemaError> {
         let mut applicable = Vec::new();
+        let mut last_error = None;
         for candidate in candidates {
-            let Ok(type_args) = self.resolve_fun_type_args(candidate, c, expected) else {
-                continue;
+            let type_args = match self.resolve_fun_type_args(candidate, c, expected) {
+                Ok(args) => args,
+                Err(err) => {
+                    last_error = Some(err);
+                    continue;
+                }
             };
-            if self
-                .check_type_args_bounds(
-                    &candidate.type_params,
-                    &candidate.bounds,
-                    &type_args,
-                    c.span,
-                    &format!("function `{}`", candidate.name),
-                )
-                .is_err()
-            {
+            if let Err(err) = self.check_type_args_bounds(
+                &candidate.type_params,
+                &candidate.bounds,
+                &type_args,
+                c.span,
+                &format!("function `{}`", candidate.name),
+            ) {
+                last_error = Some(err);
                 continue;
             }
             let subst = type_subst_map(&candidate.type_params, &type_args);
@@ -752,17 +822,16 @@ impl Checker {
                 .iter()
                 .map(|param| subst_ty(param, &subst))
                 .collect();
-            if self
-                .check_args_with_shape(
-                    &params,
-                    candidate.required_params,
-                    candidate.is_vararg,
-                    &c.args,
-                    &candidate.name,
-                    c.span,
-                )
-                .is_ok()
-            {
+            if let Err(err) = self.check_args_with_shape(
+                &params,
+                candidate.required_params,
+                candidate.is_vararg,
+                &c.args,
+                &candidate.name,
+                c.span,
+            ) {
+                last_error = Some(err);
+            } else {
                 let exact = c
                     .args
                     .iter()
@@ -781,13 +850,13 @@ impl Checker {
             }
         }
         if applicable.is_empty() {
-            return Err(SemaError {
+            return Err(last_error.unwrap_or_else(|| SemaError {
                 message: format!(
                     "no overload of `{}` accepts these arguments",
                     candidates[0].name
                 ),
                 span: c.span,
-            });
+            }));
         }
         applicable.sort_by(|left, right| {
             right
@@ -1492,10 +1561,22 @@ impl Checker {
             });
         }
         for (index, arg) in args.iter().enumerate() {
-            let expected = params
-                .get(index)
-                .or_else(|| params.last())
-                .expect("valid argument shape has a parameter");
+            let expected = if is_vararg && index + 1 >= params.len() {
+                match params.last() {
+                    Some(Ty::ClassApp { name, args })
+                        if split_nominal(name).0 == "Array" && args.len() == 1 =>
+                    {
+                        &args[0]
+                    }
+                    Some(other) => other,
+                    None => unreachable!("valid argument shape has a parameter"),
+                }
+            } else {
+                params
+                    .get(index)
+                    .or_else(|| params.last())
+                    .expect("valid argument shape has a parameter")
+            };
             let got = self.check_expr_expected(arg, Some(expected))?;
             if !self.is_assignable(&got, expected) {
                 return Err(SemaError {

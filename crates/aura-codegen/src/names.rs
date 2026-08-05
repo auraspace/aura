@@ -347,6 +347,28 @@ pub(crate) fn c_method_name(mono: &str, method: &str) -> String {
     format!("aura_method_{mono}_{method}")
 }
 
+pub(crate) fn c_method_name_with_params(
+    mono: &str,
+    method: &str,
+    param_keys: &[String],
+    overloaded: bool,
+) -> String {
+    let base = c_method_name(mono, method);
+    if !overloaded {
+        return base;
+    }
+    let suffix = param_keys
+        .iter()
+        .map(|key| {
+            key.chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("_");
+    format!("{base}__ovl_{suffix}")
+}
+
 pub(crate) fn c_generic_method_name(mono: &str, method: &str, args: &[Ty]) -> String {
     if args.is_empty() {
         c_method_name(mono, method)
@@ -354,6 +376,27 @@ pub(crate) fn c_generic_method_name(mono: &str, method: &str, args: &[Ty]) -> St
         format!(
             "{}_{}",
             c_method_name(mono, method),
+            args.iter()
+                .map(Ty::mono_suffix)
+                .collect::<Vec<_>>()
+                .join("_")
+        )
+    }
+}
+
+pub(crate) fn c_generic_method_name_with_params(
+    mono: &str,
+    method: &str,
+    args: &[Ty],
+    param_keys: &[String],
+    overloaded: bool,
+) -> String {
+    let base = c_method_name_with_params(mono, method, param_keys, overloaded);
+    if args.is_empty() {
+        base
+    } else {
+        format!(
+            "{base}_{}",
             args.iter()
                 .map(Ty::mono_suffix)
                 .collect::<Vec<_>>()
@@ -1054,6 +1097,15 @@ pub(crate) fn type_ref_local_key(ty: &TypeRef, params: &[String], args: &[Ty]) -
     base
 }
 
+pub(crate) fn param_local_key(param: &Param, params: &[String], args: &[Ty]) -> String {
+    let key = type_ref_local_key(&param.ty, params, args);
+    if param.is_vararg {
+        format!("Array_{key}")
+    } else {
+        key
+    }
+}
+
 /// C9f: expand type aliases in a TypeRef to the underlying local key when possible.
 pub(crate) fn type_ref_local_key_expand(
     ty: &TypeRef,
@@ -1101,6 +1153,20 @@ pub(crate) fn type_ref_local_key_expand(
         }
     }
     type_ref_local_key(ty, params, args)
+}
+
+pub(crate) fn param_local_key_expand(
+    param: &Param,
+    params: &[String],
+    args: &[Ty],
+    checked: &CheckedFile,
+) -> String {
+    let key = type_ref_local_key_expand(&param.ty, params, args, checked);
+    if param.is_vararg {
+        format!("Array_{key}")
+    } else {
+        key
+    }
 }
 pub(crate) fn escape_c_string(s: &str) -> String {
     let mut out = String::new();

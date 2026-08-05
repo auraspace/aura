@@ -1458,7 +1458,6 @@ pub(crate) fn c_method_signature_mono(
     args: &[Ty],
     mono: &str,
 ) -> String {
-    let _ = c;
     let ret = c_type_from_opt(&m.return_type, checked, params, args);
     let mut ps = if m.modifiers.contains(&Modifier::Static) {
         Vec::new()
@@ -1466,21 +1465,33 @@ pub(crate) fn c_method_signature_mono(
         vec![format!("{} *this", c_class_type(mono))]
     };
     for p in &m.params {
-        ps.push(format!(
-            "{} {}",
-            c_type_ref_subst(&p.ty, checked, params, args),
-            mangle_ident(&p.name.name)
-        ));
+        let cty = if p.is_vararg {
+            crate::stmt::local_key_to_c(&param_local_key(p, params, args), checked)
+        } else {
+            c_type_ref_subst(&p.ty, checked, params, args)
+        };
+        ps.push(format!("{} {}", cty, mangle_ident(&p.name.name)));
     }
+    let param_keys = m
+        .params
+        .iter()
+        .map(|p| param_local_key(p, params, args))
+        .collect::<Vec<_>>();
+    let overloaded = c
+        .methods
+        .iter()
+        .filter(|candidate| candidate.name.name == m.name.name)
+        .count()
+        > 1;
     format!(
         "{ret} {}({})",
-        c_method_name(mono, &m.name.name),
+        c_method_name_with_params(mono, &m.name.name, &param_keys, overloaded),
         ps.join(", ")
     )
 }
 
 fn c_method_signature_with_method_args(
-    _c: &ClassDecl,
+    c: &ClassDecl,
     m: &FunDecl,
     checked: &CheckedFile,
     params: &[String],
@@ -1499,15 +1510,27 @@ fn c_method_signature_with_method_args(
         vec![format!("{} *this", c_class_type(mono))]
     };
     for p in &m.params {
-        ps.push(format!(
-            "{} {}",
-            c_type_ref_subst(&p.ty, checked, &all_params, &all_args),
-            mangle_ident(&p.name.name)
-        ));
+        let cty = if p.is_vararg {
+            crate::stmt::local_key_to_c(&param_local_key(p, &all_params, &all_args), checked)
+        } else {
+            c_type_ref_subst(&p.ty, checked, &all_params, &all_args)
+        };
+        ps.push(format!("{} {}", cty, mangle_ident(&p.name.name)));
     }
+    let param_keys = m
+        .params
+        .iter()
+        .map(|p| param_local_key(p, &all_params, &all_args))
+        .collect::<Vec<_>>();
+    let overloaded = c
+        .methods
+        .iter()
+        .filter(|candidate| candidate.name.name == m.name.name)
+        .count()
+        > 1;
     format!(
         "{ret} {}({})",
-        c_generic_method_name(mono, &m.name.name, method_args),
+        c_generic_method_name_with_params(mono, &m.name.name, method_args, &param_keys, overloaded,),
         ps.join(", ")
     )
 }
@@ -1521,11 +1544,12 @@ pub(crate) fn c_fun_signature(f: &FunDecl, checked: &CheckedFile, args: &[Ty]) -
         f.params
             .iter()
             .map(|p| {
-                format!(
-                    "{} {}",
-                    c_type_ref_subst(&p.ty, checked, &params, args),
-                    mangle_ident(&p.name.name)
-                )
+                let cty = if p.is_vararg {
+                    crate::stmt::local_key_to_c(&param_local_key(p, &params, args), checked)
+                } else {
+                    c_type_ref_subst(&p.ty, checked, &params, args)
+                };
+                format!("{} {}", cty, mangle_ident(&p.name.name))
             })
             .collect::<Vec<_>>()
             .join(", ")
@@ -1534,7 +1558,7 @@ pub(crate) fn c_fun_signature(f: &FunDecl, checked: &CheckedFile, args: &[Ty]) -
     let param_keys = f
         .params
         .iter()
-        .map(|p| type_ref_local_key(&p.ty, &params, args))
+        .map(|p| param_local_key(p, &params, args))
         .collect::<Vec<_>>();
     let overloaded = checked
         .ast
@@ -1765,7 +1789,7 @@ pub(crate) fn emit_method_mono(
         ctx.define_local(&f.name.name, mono_key);
     }
     for p in &m.params {
-        let key = type_ref_local_key_expand(&p.ty, &all_params, &all_args, checked);
+        let key = param_local_key_expand(p, &all_params, &all_args, checked);
         let mono_key = crate::expr::full_type_mono(&key, checked);
         ctx.define_local(&p.name.name, mono_key.clone());
         // C6b/C21d: owning Array params own the buffer; `ref Array<T>` params

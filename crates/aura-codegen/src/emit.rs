@@ -18796,7 +18796,7 @@ pub(crate) fn emit_fun(
         task_poller: false,
     };
     for p in &f.params {
-        let key = type_ref_local_key_expand(&p.ty, &params, args, checked);
+        let key = param_local_key_expand(p, &params, args, checked);
         let mono_key = full_type_mono(&key, checked);
         ctx.define_local(&p.name.name, mono_key.clone());
         // C6b/C21d: owning Array params own the buffer; `ref Array<T>` params

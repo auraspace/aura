@@ -1343,6 +1343,31 @@ fun main() { pick(1) pick("x") }
 }
 
 #[test]
+fn resolves_class_method_overloads_by_argument_type() {
+    let src = r#"
+package t
+class Picker() {
+  fun pick(value: Int): Int { return 1 }
+  fun pick(value: String): Int { return 2 }
+}
+fun main() { Picker().pick(1) Picker().pick("x") }
+"#;
+    let file = parse_file(src).expect("parse method overloads");
+    check_file(&file).expect("class method overloads typecheck");
+}
+
+#[test]
+fn typechecks_vararg_as_an_array_inside_the_callee() {
+    let src = r#"
+package t
+fun count(vararg values: Int): Int { return values.len }
+fun main() { count(1, 2, 3) }
+"#;
+    let file = parse_file(src).expect("parse vararg");
+    check_file(&file).expect("vararg typechecks as Array");
+}
+
+#[test]
 fn interface_default_method_satisfies_implementation() {
     let src = r#"
 package t

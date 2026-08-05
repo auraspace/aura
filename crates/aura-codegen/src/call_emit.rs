@@ -129,6 +129,25 @@ fn coerce_default_arg_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>
     value
 }
 
+fn emit_vararg_array(args: &[Expr], element_key: &str, ctx: &mut EmitCtx<'_>) -> String {
+    let array_key = format!("Array_{element_key}");
+    let array_ty = crate::stmt::local_key_to_c(&array_key, ctx.checked);
+    let ctor = c_ctor_name(&array_key);
+    let set = c_method_name(&array_key, "set");
+    let mut code = format!(
+        "({{ {array_ty} __aura_vararg = {ctor}(INT64_C({})); ",
+        args.len()
+    );
+    for (index, arg) in args.iter().enumerate() {
+        let value = coerce_owner_arg_expr(arg, element_key, ctx);
+        code.push_str(&format!(
+            "{set}(&__aura_vararg, INT64_C({index}), {value}); ",
+        ));
+    }
+    code.push_str("__aura_vararg; })");
+    code
+}
+
 /// Return an lvalue for a nested `Array.get`/`pop` receiver. Array accessors
 /// return aggregate values by ABI, but a subsequent Array method still needs
 /// the original element storage as its mutable receiver.
@@ -204,18 +223,28 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     .call_instantiations
                     .get(&c.span.start)
                     .and_then(|i| i.declaration_span);
-                let args = ctx
+                let selected_class = ctx
                     .checked
                     .ast
                     .classes
                     .iter()
-                    .find(|class| class.name.name == id.name)
-                    .and_then(|class| {
-                        class.methods.iter().find(|method| {
-                            method.name.name == fe.field.name
-                                && selected_span.is_none_or(|span| method.span == span)
-                        })
+                    .find(|class| class.name.name == id.name);
+                let class_params = selected_class
+                    .map(|class| {
+                        class
+                            .type_params
+                            .iter()
+                            .map(|param| param.name.name.clone())
+                            .collect::<Vec<_>>()
                     })
+                    .unwrap_or_default();
+                let selected_method = selected_class.and_then(|class| {
+                    class.methods.iter().find(|method| {
+                        method.name.name == fe.field.name
+                            && selected_span.is_none_or(|span| method.span == span)
+                    })
+                });
+                let args = selected_method
                     .map(|method| {
                         method
                             .params
@@ -242,7 +271,25 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     });
                 return format!(
                     "{}({args})",
-                    c_generic_method_name(&mono, &fe.field.name, &method_args)
+                    c_generic_method_name_with_params(
+                        &mono,
+                        &fe.field.name,
+                        &method_args,
+                        &selected_method
+                            .expect("resolved static method declaration")
+                            .params
+                            .iter()
+                            .map(|param| param_local_key(param, &class_params, &class_args))
+                            .collect::<Vec<_>>(),
+                        selected_class.is_some_and(|class| {
+                            class
+                                .methods
+                                .iter()
+                                .filter(|candidate| candidate.name.name == fe.field.name)
+                                .count()
+                                > 1
+                        }),
+                    )
                 );
             }
             let is_alias = ctx.checked.ast.imports.iter().any(|imp| {
@@ -1082,6 +1129,16 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 };
                 let mut param_keys = Vec::new();
                 for (index, p) in m.params.iter().enumerate() {
+                    if p.is_vararg {
+                        let expected = param_local_key(p, &params, &targs);
+                        let element = expected
+                            .strip_prefix("Array_")
+                            .unwrap_or(expected.as_str())
+                            .to_string();
+                        param_keys.push(expected);
+                        args.push(emit_vararg_array(&c.args[index..], &element, ctx));
+                        break;
+                    }
                     if let Some(a) = c.args.get(index) {
                         let expected = type_ref_local_key(&p.ty, &params, &targs);
                         param_keys.push(expected.clone());
@@ -1106,7 +1163,21 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     .unwrap_or_default();
                 let call = format!(
                     "{}({})",
-                    c_generic_method_name(&owner_mono, &fe.field.name, &method_args),
+                    c_generic_method_name_with_params(
+                        &owner_mono,
+                        &fe.field.name,
+                        &method_args,
+                        &m.params
+                            .iter()
+                            .map(|param| type_ref_local_key(&param.ty, &params, &targs))
+                            .collect::<Vec<_>>(),
+                        class
+                            .methods
+                            .iter()
+                            .filter(|candidate| candidate.name.name == m.name.name)
+                            .count()
+                            > 1,
+                    ),
                     args.join(", ")
                 );
                 let call = if let Some(static_class) = current_class {
@@ -1579,6 +1650,16 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 let mut owned_string_args = Vec::new();
                 let mut emitted_args = Vec::new();
                 for (index, param) in f.params.iter().enumerate() {
+                    if param.is_vararg {
+                        let expected = param_local_key(param, &params, &targs);
+                        let element = expected
+                            .strip_prefix("Array_")
+                            .unwrap_or(expected.as_str())
+                            .to_string();
+                        param_keys.push(expected);
+                        emitted_args.push(emit_vararg_array(&c.args[index..], &element, ctx));
+                        break;
+                    }
                     if let Some(arg) = c.args.get(index) {
                         let expected = type_ref_local_key(&param.ty, &params, &targs);
                         param_keys.push(expected.clone());
@@ -1654,6 +1735,12 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 let mut prelude = String::new();
                 let mut cleanup = String::new();
                 for (index, p) in f.params.iter().enumerate() {
+                    if p.is_vararg {
+                        let expected = param_local_key(p, &params, &targs);
+                        let element = expected.strip_prefix("Array_").unwrap_or(expected.as_str());
+                        args.push(emit_vararg_array(&c.args[index..], element, ctx));
+                        break;
+                    }
                     let Some(a) = c.args.get(index) else {
                         if let Some(default) = &p.default {
                             let expected = type_ref_local_key(&p.ty, &params, &targs);

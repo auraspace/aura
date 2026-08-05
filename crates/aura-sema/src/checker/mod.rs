@@ -293,6 +293,18 @@ pub(crate) struct Checker {
 }
 
 impl Checker {
+    pub(crate) fn param_ty(&self, param: &Param) -> Result<Ty, SemaError> {
+        let ty = self.type_from_ref(&param.ty)?;
+        if param.is_vararg {
+            Ok(Ty::ClassApp {
+                name: crate::ty::nominal_key("", "Array"),
+                args: vec![ty],
+            })
+        } else {
+            Ok(ty)
+        }
+    }
+
     /// Validate parameter shape and type-check call-site defaults in the
     /// declaration environment. Defaults are expressions, not constants, so
     /// they must obey the same assignability rules as ordinary arguments.
@@ -426,7 +438,7 @@ impl Checker {
         }
 
         // Builtin Array<T> (C3j/C4c/C6g) — monomorphized; T ∈ primitives, class, struct, or enum.
-        let mut array_methods = HashMap::new();
+        let mut array_methods: HashMap<String, ClassMethodSig> = HashMap::new();
         array_methods.insert(
             "get".into(),
             ClassMethodSig {
@@ -608,6 +620,10 @@ impl Checker {
                     visibility: aura_ast::MemberVisibility::Public,
                 }],
                 constructors: Vec::new(),
+                method_overloads: array_methods
+                    .iter()
+                    .map(|(name, method)| (name.clone(), vec![method.clone()]))
+                    .collect(),
                 methods: array_methods,
                 span: Span::new(0, 0),
             }],
@@ -1126,7 +1142,7 @@ impl Checker {
             self.current_locals_mut().insert(name, local);
         }
         for p in &m.params {
-            let ty = self.type_from_ref(&p.ty)?;
+            let ty = self.param_ty(p)?;
             let param_frame = self.locals.len() - 1;
             if self.current_locals().contains_key(&p.name.name) {
                 return Err(SemaError {
@@ -1175,7 +1191,7 @@ impl Checker {
     pub(crate) fn check_fun(&mut self, f: &FunDecl, expected_ret: &Ty) -> Result<(), SemaError> {
         self.locals.push(HashMap::new());
         for p in &f.params {
-            let ty = self.type_from_ref(&p.ty)?;
+            let ty = self.param_ty(p)?;
             let param_frame = self.locals.len() - 1;
             self.note_mono_ty(&ty);
             if self.current_locals().contains_key(&p.name.name) {
@@ -1219,7 +1235,7 @@ impl Checker {
         self.async_depth += 1;
         let result = (|| {
             for p in &f.params {
-                let ty = self.type_from_ref(&p.ty)?;
+                let ty = self.param_ty(p)?;
                 let param_frame = self.locals.len() - 1;
                 self.note_mono_ty(&ty);
                 if self.current_locals().contains_key(&p.name.name) {
@@ -1569,6 +1585,57 @@ impl Checker {
                 .map(|parent| subst_ty(parent, &subst));
         }
         None
+    }
+
+    /// Resolve every overload declared by the most-derived class that owns a
+    /// method name, preserving the owner needed for visibility and codegen.
+    pub(crate) fn class_method_overloads_with_owner_in_hierarchy(
+        &self,
+        ty: &Ty,
+        name: &str,
+    ) -> Vec<(ClassMethodSig, ClassSig)> {
+        let mut current = Some(ty.clone());
+        let mut seen = HashSet::new();
+        while let Some(current_ty) = current {
+            let key = match &current_ty {
+                Ty::Class(key) | Ty::ClassApp { name: key, .. } => key.clone(),
+                _ => match current_ty.class_name() {
+                    Some(name) => name.to_string(),
+                    None => return Vec::new(),
+                },
+            };
+            if !seen.insert(key.clone()) {
+                return Vec::new();
+            }
+            let Some(class) = self.class_by_nominal_key(&key) else {
+                return Vec::new();
+            };
+            let subst = type_subst_map(&class.type_params, current_ty.class_args());
+            let methods = class
+                .method_overloads
+                .get(name)
+                .cloned()
+                .or_else(|| class.methods.get(name).cloned().map(|method| vec![method]));
+            if let Some(methods) = methods {
+                return methods
+                    .into_iter()
+                    .map(|mut method| {
+                        method.params = method
+                            .params
+                            .iter()
+                            .map(|param| subst_ty(param, &subst))
+                            .collect();
+                        method.ret = subst_ty(&method.ret, &subst);
+                        (method, class.clone())
+                    })
+                    .collect();
+            }
+            current = class
+                .superclass
+                .as_ref()
+                .map(|parent| subst_ty(parent, &subst));
+        }
+        Vec::new()
     }
 
     pub(crate) fn check_member_visible(

@@ -88,6 +88,9 @@ pub struct ClassSig {
     pub fields: Vec<FieldSig>,
     /// Secondary constructors; index 0 is the implicit primary constructor.
     pub constructors: Vec<ConstructorSig>,
+    /// All declarations for each method name; `methods` retains the first
+    /// declaration for legacy single-method consumers.
+    pub method_overloads: HashMap<String, Vec<ClassMethodSig>>,
     pub methods: HashMap<String, ClassMethodSig>,
     pub span: Span,
 }

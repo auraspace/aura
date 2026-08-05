@@ -231,7 +231,7 @@ impl Checker {
         let params = foreign
             .params
             .iter()
-            .map(|p| self.type_from_ref(&p.ty))
+            .map(|p| self.param_ty(p))
             .collect::<Result<Vec<_>, _>>();
         let ret = foreign
             .return_type
@@ -432,6 +432,7 @@ impl Checker {
                     implements: Vec::new(),
                     fields: Vec::new(),
                     constructors: Vec::new(),
+                    method_overloads: HashMap::new(),
                     methods: HashMap::new(),
                     span: c.span,
                 });
@@ -505,7 +506,7 @@ impl Checker {
                 let params = match m
                     .params
                     .iter()
-                    .map(|p| self.type_from_ref(&p.ty))
+                    .map(|p| self.param_ty(p))
                     .collect::<Result<Vec<_>, _>>()
                 {
                     Ok(p) => p,
@@ -759,7 +760,7 @@ impl Checker {
             let params = match foreign
                 .params
                 .iter()
-                .map(|p| self.type_from_ref(&p.ty))
+                .map(|p| self.param_ty(p))
                 .collect::<Result<Vec<_>, _>>()
             {
                 Ok(params) => params,
@@ -820,7 +821,7 @@ impl Checker {
             let params = match f
                 .params
                 .iter()
-                .map(|p| self.type_from_ref(&p.ty))
+                .map(|p| self.param_ty(p))
                 .collect::<Result<Vec<_>, _>>()
             {
                 Ok(params) => params,
@@ -1169,7 +1170,7 @@ impl Checker {
                 let params = match ctor
                     .params
                     .iter()
-                    .map(|p| self.type_from_ref(&p.ty))
+                    .map(|p| self.param_ty(p))
                     .collect::<Result<Vec<_>, _>>()
                 {
                     Ok(params) => params,
@@ -1190,14 +1191,8 @@ impl Checker {
                 });
             }
             let mut methods = HashMap::new();
+            let mut method_overloads: HashMap<String, Vec<ClassMethodSig>> = HashMap::new();
             for m in &c.methods {
-                if methods.contains_key(&m.name.name) {
-                    self.errors.push(SemaError {
-                        message: format!("duplicate method `{}`", m.name.name),
-                        span: m.name.span,
-                    });
-                    continue;
-                }
                 let class_params = c.type_params.clone();
                 if let Err(err) = self.bind_nested_type_params(&m.type_params) {
                     self.errors.push(err);
@@ -1206,7 +1201,7 @@ impl Checker {
                 let params = match m
                     .params
                     .iter()
-                    .map(|p| self.type_from_ref(&p.ty))
+                    .map(|p| self.param_ty(p))
                     .collect::<Result<Vec<_>, _>>()
                 {
                     Ok(p) => p,
@@ -1237,29 +1232,40 @@ impl Checker {
                     self.errors.push(err);
                     continue;
                 }
-                methods.insert(
-                    m.name.name.clone(),
-                    ClassMethodSig {
-                        class: c.name.name.clone(),
-                        name: m.name.name.clone(),
-                        params,
-                        required_params: m
-                            .params
-                            .iter()
-                            .take_while(|p| p.default.is_none())
-                            .count(),
-                        is_vararg: m.params.last().is_some_and(|p| p.is_vararg),
-                        ret,
-                        type_params: m.type_params.iter().map(|p| p.name.name.clone()).collect(),
-                        bounds: Self::bounds_map_from_params(&m.type_params),
-                        is_static: m.modifiers.contains(&aura_ast::Modifier::Static),
-                        is_open: m.modifiers.contains(&aura_ast::Modifier::Open),
-                        is_abstract: m.modifiers.contains(&aura_ast::Modifier::Abstract),
-                        is_override: m.modifiers.contains(&aura_ast::Modifier::Override),
-                        visibility: m.visibility,
-                        span: m.span,
-                    },
-                );
+                let method = ClassMethodSig {
+                    class: c.name.name.clone(),
+                    name: m.name.name.clone(),
+                    params,
+                    required_params: m.params.iter().take_while(|p| p.default.is_none()).count(),
+                    is_vararg: m.params.last().is_some_and(|p| p.is_vararg),
+                    ret,
+                    type_params: m.type_params.iter().map(|p| p.name.name.clone()).collect(),
+                    bounds: Self::bounds_map_from_params(&m.type_params),
+                    is_static: m.modifiers.contains(&aura_ast::Modifier::Static),
+                    is_open: m.modifiers.contains(&aura_ast::Modifier::Open),
+                    is_abstract: m.modifiers.contains(&aura_ast::Modifier::Abstract),
+                    is_override: m.modifiers.contains(&aura_ast::Modifier::Override),
+                    visibility: m.visibility,
+                    span: m.span,
+                };
+                let overloads = method_overloads.entry(m.name.name.clone()).or_default();
+                if overloads.iter().any(|existing| {
+                    existing.params == method.params
+                        && existing.type_params.len() == method.type_params.len()
+                }) {
+                    self.errors.push(SemaError {
+                        message: format!(
+                            "duplicate method overload `{}` with the same parameter types",
+                            m.name.name
+                        ),
+                        span: m.name.span,
+                    });
+                    continue;
+                }
+                if !methods.contains_key(&m.name.name) {
+                    methods.insert(m.name.name.clone(), method.clone());
+                }
+                overloads.push(method);
             }
 
             for imp in &implements {
@@ -1300,6 +1306,7 @@ impl Checker {
                     entry.superclass = superclass;
                     entry.fields = fields;
                     entry.constructors = constructors;
+                    entry.method_overloads = method_overloads;
                     entry.methods = methods;
                 }
             }
@@ -1440,7 +1447,7 @@ impl Checker {
             let params = match f
                 .params
                 .iter()
-                .map(|p| self.type_from_ref(&p.ty))
+                .map(|p| self.param_ty(p))
                 .collect::<Result<Vec<_>, _>>()
             {
                 Ok(p) => p,
@@ -1643,7 +1650,7 @@ impl Checker {
                 }
                 let mut valid = true;
                 for param in &ctor.params {
-                    match self.type_from_ref(&param.ty) {
+                    match self.param_ty(param) {
                         Ok(ty) => {
                             self.current_locals_mut().insert(
                                 param.name.name.clone(),
