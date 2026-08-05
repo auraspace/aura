@@ -357,7 +357,27 @@ impl Parser {
                 }
                 modifiers.push(modifier);
             }
-            let mut method = if matches!(self.peek().kind, TokenKind::Async) {
+            let mut method = if modifiers.contains(&Modifier::Abstract) {
+                let sig = self.parse_method_sig()?;
+                let body = Block {
+                    stmts: Vec::new(),
+                    span: sig.span,
+                };
+                FunDecl {
+                    is_pub: false,
+                    origin_package: String::new(),
+                    attributes: sig.attributes,
+                    modifiers: Vec::new(),
+                    visibility: MemberVisibility::Package,
+                    is_test: false,
+                    name: sig.name,
+                    type_params: Vec::new(),
+                    params: sig.params,
+                    return_type: sig.return_type,
+                    body,
+                    span: sig.span,
+                }
+            } else if matches!(self.peek().kind, TokenKind::Async) {
                 let async_method = self.parse_async_fun()?;
                 let task_name = Ident {
                     name: "Task".into(),
@@ -428,7 +448,27 @@ impl Parser {
         modifiers: Vec<Modifier>,
         visibility: MemberVisibility,
     ) -> Result<FunDecl, ParseError> {
-        let mut method = if matches!(self.peek().kind, TokenKind::Async) {
+        let mut method = if modifiers.contains(&Modifier::Abstract) {
+            let sig = self.parse_method_sig()?;
+            let body = Block {
+                stmts: Vec::new(),
+                span: sig.span,
+            };
+            FunDecl {
+                is_pub: false,
+                origin_package: String::new(),
+                attributes: sig.attributes,
+                modifiers: Vec::new(),
+                visibility: MemberVisibility::Package,
+                is_test: false,
+                name: sig.name,
+                type_params: Vec::new(),
+                params: sig.params,
+                return_type: sig.return_type,
+                body,
+                span: sig.span,
+            }
+        } else if matches!(self.peek().kind, TokenKind::Async) {
             let async_method = self.parse_async_fun()?;
             let task_name = Ident {
                 name: "Task".into(),

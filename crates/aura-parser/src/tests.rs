@@ -246,6 +246,20 @@ class Factory(val value: Int) {
 }
 
 #[test]
+fn parses_abstract_method_without_body() {
+    let src = r#"
+package main
+abstract class Shape() {
+  abstract fun area(): Int
+}
+"#;
+    let file = parse_file(src).expect("parse abstract method");
+    let method = &file.classes[0].methods[0];
+    assert!(method.modifiers.contains(&aura_ast::Modifier::Abstract));
+    assert!(method.body.stmts.is_empty());
+}
+
+#[test]
 fn parses_member_visibility() {
     let src = r#"
 package main

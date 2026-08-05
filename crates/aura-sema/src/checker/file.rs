@@ -1521,9 +1521,34 @@ impl Checker {
                 }
             }
             for m in &c.methods {
+                if m.modifiers.contains(&aura_ast::Modifier::Abstract) {
+                    if !csig.is_abstract {
+                        self.errors.push(SemaError {
+                            message: format!(
+                                "abstract method `{}` requires an abstract class",
+                                m.name.name
+                            ),
+                            span: m.name.span,
+                        });
+                    }
+                    if m.modifiers.contains(&aura_ast::Modifier::Static)
+                        || m.modifiers.contains(&aura_ast::Modifier::Final)
+                    {
+                        self.errors.push(SemaError {
+                            message: format!(
+                                "abstract method `{}` cannot be static or final",
+                                m.name.name
+                            ),
+                            span: m.name.span,
+                        });
+                    }
+                }
                 let Some(msig) = csig.methods.get(&m.name.name) else {
                     continue;
                 };
+                if m.modifiers.contains(&aura_ast::Modifier::Abstract) {
+                    continue;
+                }
                 // Each method gets a fresh class-generic scope before its own
                 // type parameters are layered on by `check_method`.
                 if let Err(err) = self.bind_type_params(&c.type_params) {

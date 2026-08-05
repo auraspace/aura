@@ -779,6 +779,9 @@ pub(crate) fn emit_class_defs(
     emit_ctor_mono(out, c, checked, &params, args, &mono);
     out.push('\n');
     for m in &c.methods {
+        if m.modifiers.contains(&Modifier::Abstract) {
+            continue;
+        }
         let method_monos = generic_method_monos(c, m, args, checked);
         for method_args in method_monos {
             if class_decl_package(c, checked) == "std.http"

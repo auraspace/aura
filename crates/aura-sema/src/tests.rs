@@ -1246,6 +1246,22 @@ fun main() { Base(1) }
 }
 
 #[test]
+fn abstract_method_can_be_overridden_by_concrete_subclass() {
+    let src = r#"
+package t
+abstract class Shape() {
+  abstract fun area(): Int
+}
+class Square(val side: Int) : Shape() {
+  override fun area(): Int { return this.side }
+}
+fun main() { val shape: Shape = Square(4) }
+"#;
+    let file = parse_file(src).expect("parse abstract method");
+    check_file(&file).expect("abstract method override");
+}
+
+#[test]
 fn private_members_are_only_visible_inside_the_declaring_class() {
     let src = r#"
 package t
