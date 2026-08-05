@@ -62,11 +62,6 @@ fun makeHandler(app: App): (Request, Response) -> Task<Unit> {
     return (request: Request, response: Response) => app.dispatch(request, response)
 }
 
-pub fun webApp(): App {
-    return App(router())
-}
-
-/// Explicit body-limit variant; webApp() defaults to 1 MiB.
-pub fun webAppWithBodyLimit(maxBytes: Int): App {
-    return App(routerWithBodyLimit(maxBytes))
+pub fun webApp(maxBytes: Int = 1048576): App {
+    return App(router(maxBytes))
 }

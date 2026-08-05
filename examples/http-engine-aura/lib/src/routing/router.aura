@@ -3,14 +3,18 @@ package aura.web
 import std.http
 
 pub class Router(private val routes: Array<Route>, private val middlewares: Array<Middleware>,
-                 private val bodyLimit: Int) {
+                 private val bodyLimit: Int, private val matcher: RouteMatcher) {
+    constructor(bodyLimit: Int = 1048576): this(
+        Array<Route>(0), Array<Middleware>(0), bodyLimit, DefaultRouteMatcher()
+    ) {}
+
     pub fun use(handler: (Context) -> Task<Unit>): Router {
         this.middlewares.push(Middleware(handler))
         return this
     }
 
     pub fun get(path: String, handler: (Context) -> Task<Unit>): Router {
-        this.routes.push(Route("GET", path, handler))
+        this.routes.push(Route(path, handler))
         return this
     }
 
@@ -50,7 +54,7 @@ pub class Router(private val routes: Array<Route>, private val middlewares: Arra
     }
 
     async fun dispatch(request: Request, response: Response): Unit {
-        val context = Context(request, response, Array<Param>(0), this.bodyLimit)
+        val context = Context.empty(request, response, Array<Param>(0), this.bodyLimit)
         try {
             for (i in 0..this.middlewares.len) {
                 val middleware = this.middlewares.get(i)
@@ -60,7 +64,7 @@ pub class Router(private val routes: Array<Route>, private val middlewares: Arra
             var pathMatched = false
             for (i in 0..this.routes.len) {
                 val route = this.routes.get(i)
-                val path = matchPath(route.path, request.target())
+                val path = this.matcher.matches(route.path, request.target())
                 if (path.matched) {
                     pathMatched = true
                     if (this.methodMatches(route.method, request.method())) {
@@ -90,11 +94,7 @@ pub class Router(private val routes: Array<Route>, private val middlewares: Arra
     }
 }
 
-pub fun router(): Router {
-    return routerWithBodyLimit(1048576)
-}
-
 /// Configure the maximum aggregated request body accepted by Context helpers.
-pub fun routerWithBodyLimit(maxBytes: Int): Router {
-    return Router(Array<Route>(0), Array<Middleware>(0), maxBytes)
+pub fun router(maxBytes: Int = 1048576): Router {
+    return Router(maxBytes)
 }

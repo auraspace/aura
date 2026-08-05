@@ -4,6 +4,16 @@ pub class Param(pub val name: String, pub val value: String) {}
 
 pub class PathMatch(pub val matched: Bool, pub val params: Array<Param>) {}
 
+// The default implementation keeps matching policy replaceable without
+// coupling Router to a concrete path algorithm.
+pub interface RouteMatcher {
+    fun matches(pattern: String, target: String): PathMatch {
+        return matchPath(pattern, target)
+    }
+}
+
+pub class DefaultRouteMatcher() : RouteMatcher {}
+
 // Match literal segments and Express-style `:name` segments. Query strings
 // are excluded from routing but remain available through Context.query later.
 pub fun matchPath(pattern: String, target: String): PathMatch {

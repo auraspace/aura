@@ -7,6 +7,14 @@ import std.json
 // inside the library boundary, like Express/Fastify request/reply objects.
 pub class Context(pub val request: Request, pub val response: Response,
  pub val params: Array<Param>, private val bodyLimit: Int) {
+    companion object {
+        pub fun empty(req: Request, res: Response,
+                      p: Array<Param> = Array<Param>(0),
+                      limit: Int = 1048576): Context {
+            return Context(req, res, p, limit)
+        }
+    }
+
     pub fun method(): String { return this.request.method() }
     pub fun path(): String { return this.request.target() }
 
@@ -59,6 +67,10 @@ pub class Context(pub val request: Request, pub val response: Response,
         return this.sendText(body)
     }
 
+    pub fun send(statusCode: Int, body: String): Context {
+        return this.status(statusCode).send(body)
+    }
+
     pub fun sendJson<T>(body: T): Context {
         val encoded = encode<T>(body)
         if (encoded == null) {
@@ -84,7 +96,7 @@ pub class Context(pub val request: Request, pub val response: Response,
     }
 
     pub fun created(body: String): Context {
-        return this.status(201).sendText(body)
+        return this.send(201, body)
     }
 
     pub fun notFound(body: String): Context {

@@ -51,7 +51,7 @@ async fun search(ctx: Context): Unit {
 }
 
 fun main() {
-    val app = webAppWithBodyLimit(32)
+    val app = webApp(32)
     app.use((ctx: Context) => trace(ctx))
     app.get("/health", (ctx: Context) => health(ctx))
     app.post("/echo", (ctx: Context) => echo(ctx))

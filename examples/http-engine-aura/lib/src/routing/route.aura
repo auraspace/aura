@@ -3,7 +3,9 @@ package aura.web
 // A route stores a framework-level handler as a class field. Calling this
 // field exercises first-class function storage and invocation in the compiler.
 pub class Route(pub val method: String, pub val path: String,
-                pub val handler: (Context) -> Task<Unit>) {}
+                pub val handler: (Context) -> Task<Unit>) {
+    constructor(path: String, handler: (Context) -> Task<Unit>): this("GET", path, handler) {}
+}
 
 pub async fun invoke(route: Route, context: Context): Unit {
     await route.handler(context)

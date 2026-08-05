@@ -22,6 +22,11 @@ curl -i -X POST http://127.0.0.1:8080/health
 Every response passes through the sample middleware and includes
 `X-Aura-Engine: on`.
 
+The example uses the current OOP surface directly: the library is split into
+responsibility-based source folders, `RouteMatcher` is an interface with a
+default method, `Router` uses a secondary constructor, and `webApp` accepts an
+optional body-limit argument.
+
 Pass a different port as the first argument when `8080` is busy.
 
 Run the complete repeatable smoke test with:
