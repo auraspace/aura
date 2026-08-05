@@ -654,6 +654,11 @@ fun main() {
         let stem = format!("aura-no-await-scheduler-payload-{}", std::process::id());
         let bin = dir.join(&stem);
         let generated_c = dir.join(format!("{stem}.aura.c"));
+        let generated = emit_c_from_ast(&file).expect("emit payload enum std.json encode fixture");
+        assert!(
+            generated.contains("aura_json_encode_variant"),
+            "payload enum encoder was not emitted"
+        );
         build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
             .expect("compile no-await scheduler payload fixture");
         let output = Command::new(&bin)
@@ -1648,7 +1653,7 @@ fun main() {}
     #[test]
     fn builds_async_unit_await_with_control_flow() {
         let file = aura_parser::parse_file(
-            r#"package demo
+            r#"package std.io
 async fun pause(): Unit {}
 async fun handler(ok: Bool): Unit {
   await pause()
@@ -2950,6 +2955,266 @@ fun main() {
             String::from_utf8_lossy(&output.stdout),
             "valid\ninvalid\n2\n\"a\\\"b\\n\"\n"
         );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_std_json_encode_with_json_field_name() {
+        let file = aura_parser::parse_file(
+            r#"package std.json
+pub fun encode<T>(value: T): String? { throw "std.json encode intrinsic" }
+pub fun stringify<T>(value: T): String? { throw "std.json stringify intrinsic" }
+class User(@json(name = "user_id") val userId: Int, val name: String) {}
+fun main() {
+  val encoded = encode<User>(User(7, "a\"b"))
+  if (encoded == null) { throw "encode returned null" }
+  println(encoded!!)
+  val alias = stringify<User>(User(8, "ok"))
+  if (alias == null) { throw "stringify returned null" }
+  println(alias!!)
+  val numbers = Array<Int>(0)
+  numbers.push(1)
+  numbers.push(2)
+  val encodedNumbers = encode<Array<Int>>(numbers)
+  if (encodedNumbers == null) { throw "array encode returned null" }
+  println(encodedNumbers!!)
+}
+"#,
+        )
+        .expect("parse std.json encode fixture");
+        let generated = emit_c_from_ast(&file).expect("emit std.json encode fixture");
+        assert!(generated.contains("aura_json_encode_object"));
+        assert!(generated.contains("\"user_id\""));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-std-json-encode-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile std.json encode fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run std.json encode fixture");
+        assert!(
+            output.status.success(),
+            "std.json encode failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "{\"user_id\":7,\"name\":\"a\\\"b\"}\n{\"user_id\":8,\"name\":\"ok\"}\n[1,2]\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_std_json_encode_nested_aggregates() {
+        let file = aura_parser::parse_file(
+            r#"package std.json
+pub fun encode<T>(value: T): String? { throw "std.json encode intrinsic" }
+class Address(val city: String, val zip: Int) {}
+class User(val name: String, val address: Address, val scores: Array<Int>) {}
+fun main() {
+  val scores = Array<Int>(0)
+  scores.push(3)
+  scores.push(5)
+  val encoded = encode<User>(User("aura", Address("Hanoi", 10000), scores))
+  if (encoded == null) { throw "nested encode returned null" }
+  println(encoded!!)
+}
+"#,
+        )
+        .expect("parse nested std.json encode fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-std-json-nested-encode-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile nested std.json encode fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nested std.json encode fixture");
+        assert!(
+            output.status.success(),
+            "nested std.json failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "{\"name\":\"aura\",\"address\":{\"city\":\"Hanoi\",\"zip\":10000},\"scores\":[3,5]}\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_std_json_encode_generic_nested_aggregates() {
+        let file = aura_parser::parse_file(
+            r#"package std.json
+pub fun encode<T>(value: T): String? { throw "std.json encode intrinsic" }
+class Leaf<T>(val value: T) {}
+class Envelope<T>(val leaf: Leaf<T>, val items: Array<T>) {}
+fun main() {
+  val items = Array<String>(0)
+  items.push("b")
+  val encoded = encode<Envelope<String>>(Envelope<String>(Leaf<String>("a"), items))
+  if (encoded == null) { throw "generic nested encode returned null" }
+  println(encoded!!)
+}
+"#,
+        )
+        .expect("parse generic nested std.json encode fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-std-json-generic-nested-encode-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile generic nested std.json encode fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run generic nested std.json encode fixture");
+        assert!(
+            output.status.success(),
+            "generic nested std.json failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "{\"leaf\":{\"value\":\"a\"},\"items\":[\"b\"]}\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_std_json_encode_payload_enum() {
+        let file = aura_parser::parse_file(
+            r#"package std.json
+pub fun encode<T>(value: T): String? { throw "std.json encode intrinsic" }
+enum Result { case Ok(value: Int) case Err(message: String) }
+fun main() {
+  val ok = encode<Result>(Ok(7))
+  if (ok == null) { throw "enum encode returned null" }
+  println(ok!!)
+  val err = encode<Result>(Err("nope"))
+  if (err == null) { throw "enum error encode returned null" }
+  println(err!!)
+}
+"#,
+        )
+        .expect("parse payload enum std.json encode fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-std-json-enum-encode-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile payload enum std.json encode fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run payload enum std.json encode fixture");
+        assert!(
+            output.status.success(),
+            "payload enum std.json failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "{\"variant\":\"Ok\",\"value\":7}\n{\"variant\":\"Err\",\"message\":\"nope\"}\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_std_json_encode_string_map() {
+        let file = aura_parser::parse_file(
+            r#"package std.json
+pub fun encode<T>(value: T): String? { throw "std.json encode intrinsic" }
+class Map<K, V>(val keys: Array<K>, val vals: Array<V>) {}
+fun main() {
+  val keys = Array<String>(0)
+  val vals = Array<Int>(0)
+  keys.push("one")
+  vals.push(1)
+  val encoded = encode<Map<String, Int>>(Map<String, Int>(keys, vals))
+  if (encoded == null) { throw "map encode returned null" }
+  println(encoded!!)
+}
+"#,
+        )
+        .expect("parse map std.json encode fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-std-json-map-encode-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile map std.json encode fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run map std.json encode fixture");
+        assert!(output.status.success(), "map std.json failed: {output:?}");
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "{\"one\":1}\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_generic_method_that_encodes_its_type_parameter() {
+        let file = aura_parser::parse_file(
+            r#"package std.json
+pub fun encode<T>(value: T): String? { throw "std.json encode intrinsic" }
+class Payload(val id: Int) {}
+class Context() {
+  pub fun sendJson<T>(body: T): String {
+    val encoded = encode<T>(body)
+    if (encoded == null) { return "" }
+    return encoded!!
+  }
+}
+fun main() {
+  println(Context().sendJson(Payload(9)))
+}
+"#,
+        )
+        .expect("parse generic JSON method fixture");
+        let generated = emit_c_from_ast(&file).expect("emit generic JSON method fixture");
+        assert!(generated.contains("aura_method_std_json_Context_sendJson_std_json_Payload"));
+        assert!(generated.contains("aura_fn_std_json_encode_std_json_Payload"));
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-std-json-generic-method-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile generic JSON method fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run generic JSON method fixture");
+        assert!(
+            output.status.success(),
+            "generic JSON method failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "{\"id\":9}\n");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }
@@ -5694,6 +5959,85 @@ fun main() {}
     }
 
     #[test]
+    fn builds_and_runs_function_value_stored_in_class_field() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+class Route(val handler: (Int) -> Int) {
+  fun invoke(value: Int): Int { return this.handler(value) }
+}
+fun main() {
+  val route = Route((value: Int) => value + 1)
+  println(route.invoke(41).toString())
+}
+"#,
+        )
+        .expect("parse class function-field fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-class-function-field-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile class function-field fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run class function-field fixture");
+        assert!(
+            output.status.success(),
+            "class function-field failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "42\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_class_methods_named_channel_operations() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+class Service() {
+  fun send(body: String): Unit { println("send:" + body) }
+  fun receive(): String { return "received" }
+  fun close(): Unit { println("closed") }
+}
+fun main() {
+  val service = Service()
+  service.send("ok")
+  println(service.receive())
+  service.close()
+}
+"#,
+        )
+        .expect("parse channel-named class method fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-class-channel-named-methods-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile channel-named class method fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run channel-named class method fixture");
+        assert!(
+            output.status.success(),
+            "channel-named class method fixture failed: {output:?}"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "send:ok\nreceived\nclosed\n"
+        );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_compiler_generated_async_write_fd() {
         let file = aura_parser::parse_file(
             r#"package std.io
@@ -6774,6 +7118,56 @@ fun main() { request() }
             output.status.success(),
             "owned async String fixture failed: {output:?}"
         );
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn general_cfg_string_accumulation_does_not_free_rhs_source() {
+        let file = aura_parser::parse_file(
+            r#"package std.io
+enum TaskError { case Failed(error: String) case Cancelled }
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+async fun chunk(index: Int): String { return index.toString() }
+async fun collect(): String {
+  var body: String = ""
+  var index: Int = 0
+  while (index < 2) {
+    val part: String = await chunk(index)
+    body = body + part
+    index = index + 1
+  }
+  return body
+}
+fun main() {
+  val task = spawn { return await collect() }
+  val result = join(task)
+  match (result) {
+    case Ok(value) => { println(value) }
+    case Err(error) => { throw "string accumulation failed" }
+  }
+}
+"#,
+        )
+        .expect("parse async string accumulation fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-string-accumulation-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile async string accumulation fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run async string accumulation fixture");
+        assert!(
+            output.status.success(),
+            "async string accumulation fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "01\n");
         let _ = fs::remove_file(bin);
         let _ = fs::remove_file(generated_c);
     }

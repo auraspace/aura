@@ -122,6 +122,7 @@ produce an explicit unsupported diagnostic rather than being silently ignored.
 | `@throws`                       | Doc/tooling only (unchecked exceptions) |
 | `@unsafe`                       | Marks unsafe APIs                       |
 | `@repr(...)`                    | Layout hints for structs/FFI            |
+| `@json(name = "...")`           | JSON wire-name mapping on fields        |
 | `@retention` / meta-attributes  | On attribute types                      |
 
 ### 6.6 Runtime reflection API (sketch)

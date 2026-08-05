@@ -431,6 +431,21 @@ fn attributes_validate_known_sites_and_arguments() {
 }
 
 #[test]
+fn json_attribute_accepts_field_name_mapping_and_rejects_other_arguments() {
+    let file = parse_file("package t\nclass User(@json(name = \"user_id\") val userId: Int) {}\n")
+        .expect("json attribute syntax");
+    check_file(&file).expect("valid json field attribute");
+
+    let file = parse_file("package t\nclass User(@json(\"user_id\") val userId: Int) {}\n")
+        .expect("json attribute syntax");
+    let errors = check_file(&file).expect_err("invalid json attribute");
+    assert!(errors
+        .errors
+        .iter()
+        .any(|error| error.message.contains("@json` accepts only `name")));
+}
+
+#[test]
 fn equals_derive_generates_checked_method_for_supported_fields() {
     let file = parse_file(
         "package t\n@derive(Equals) struct Point(val x: Int, val label: String?, val ok: Bool) {}\n",
@@ -1437,6 +1452,42 @@ fun main() {}
 "#;
     let file = parse_file(src).expect("parse");
     let err = check_file(&file).expect_err("should reject String? as String");
+    assert!(
+        err.primary().message.contains("return type mismatch")
+            || err.primary().message.contains("String")
+    );
+}
+
+#[test]
+fn null_flow_narrows_after_null_branch_returns() {
+    let src = r#"
+package t
+fun f(name: String?): String {
+  if (name == null) {
+    return "x"
+  }
+  return name
+}
+fun main() {}
+"#;
+    let file = parse_file(src).expect("parse");
+    check_file(&file).expect("name should be non-null after null branch returns");
+}
+
+#[test]
+fn null_flow_does_not_narrow_after_non_terminal_null_branch() {
+    let src = r#"
+package t
+fun f(name: String?): String {
+  if (name == null) {
+    println("missing")
+  }
+  return name
+}
+fun main() {}
+"#;
+    let file = parse_file(src).expect("parse");
+    let err = check_file(&file).expect_err("name can still be null after a fall-through branch");
     assert!(
         err.primary().message.contains("return type mismatch")
             || err.primary().message.contains("String")

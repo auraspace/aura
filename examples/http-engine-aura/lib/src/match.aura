@@ -1,0 +1,33 @@
+package aura.web
+
+pub class Param(pub val name: String, pub val value: String) {}
+
+pub class PathMatch(pub val matched: Bool, pub val params: Array<Param>) {}
+
+// Match literal segments and Express-style `:name` segments. Query strings
+// are excluded from routing but remain available through Context.query later.
+pub fun matchPath(pattern: String, target: String): PathMatch {
+    var targetPath = target
+    val queryStart = targetPath.indexOf("?")
+    if (queryStart >= 0) {
+        targetPath = targetPath.substring(0, queryStart)
+    }
+
+    val patternParts = pattern.split("/")
+    val targetParts = targetPath.split("/")
+    if (patternParts.len != targetParts.len) {
+        return PathMatch(false, Array<Param>(0))
+    }
+
+    val params = Array<Param>(0)
+    for (i in 0..patternParts.len) {
+        val expected = patternParts.get(i)
+        val actual = targetParts.get(i)
+        if (expected.startsWith(":") && expected.len > 1) {
+            params.push(Param(expected.substring(1, expected.len), actual))
+        } else if (expected != actual) {
+            return PathMatch(false, Array<Param>(0))
+        }
+    }
+    return PathMatch(true, params)
+}

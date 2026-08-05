@@ -480,6 +480,111 @@ static int aura_json_buffer_append(AuraJsonBuffer *buffer, const unsigned char *
   return 1;
 }
 
+const char *aura_json_encode_int(int64_t value)
+{
+  char text[32];
+  int length = snprintf(text, sizeof(text), "%" PRId64, value);
+  if (length < 0 || (size_t)length >= sizeof(text)) return NULL;
+  char *owned = (char *)malloc((size_t)length + 1);
+  if (owned == NULL) return NULL;
+  memcpy(owned, text, (size_t)length + 1);
+  return owned;
+}
+
+const char *aura_json_encode_bool(bool value)
+{
+  const char *text = value ? "true" : "false";
+  char *owned = (char *)malloc(strlen(text) + 1);
+  if (owned == NULL) return NULL;
+  strcpy(owned, text);
+  return owned;
+}
+
+static const char *aura_json_encode_literal(const char *text)
+{
+  char *owned = (char *)malloc(strlen(text) + 1);
+  if (owned == NULL) return NULL;
+  strcpy(owned, text);
+  return owned;
+}
+
+const char *aura_json_encode_null(void)
+{
+  return aura_json_encode_literal("null");
+}
+
+const char *aura_json_encode_object(const char **keys, const char **values, int64_t count)
+{
+  if (count < 0 || (count > 0 && (keys == NULL || values == NULL))) return NULL;
+  AuraJsonBuffer output = { NULL, 0, 0 };
+  if (!aura_json_buffer_append(&output, (const unsigned char *)"{", 1)) goto fail;
+  for (int64_t i = 0; i < count; i++)
+  {
+    const char *key = aura_json_escape_string(keys[i]);
+    if (key == NULL || values[i] == NULL) { free((void *)key); goto fail; }
+    if (i != 0 && !aura_json_buffer_append(&output, (const unsigned char *)",", 1)) { free((void *)key); goto fail; }
+    if (!aura_json_buffer_append(&output, (const unsigned char *)key, strlen(key)) ||
+        !aura_json_buffer_append(&output, (const unsigned char *)":", 1) ||
+        !aura_json_buffer_append(&output, (const unsigned char *)values[i], strlen(values[i]))) { free((void *)key); goto fail; }
+    free((void *)key);
+  }
+  if (!aura_json_buffer_append(&output, (const unsigned char *)"}", 1)) goto fail;
+  return output.data;
+fail:
+  free(output.data);
+  return NULL;
+}
+
+const char *aura_json_encode_array(const char **values, int64_t count)
+{
+  if (count < 0 || (count > 0 && values == NULL)) return NULL;
+  AuraJsonBuffer output = { NULL, 0, 0 };
+  if (!aura_json_buffer_append(&output, (const unsigned char *)"[", 1)) goto fail;
+  for (int64_t i = 0; i < count; i++)
+  {
+    if (values[i] == NULL || (i != 0 && !aura_json_buffer_append(&output, (const unsigned char *)",", 1)) ||
+        !aura_json_buffer_append(&output, (const unsigned char *)values[i], strlen(values[i]))) goto fail;
+  }
+  if (!aura_json_buffer_append(&output, (const unsigned char *)"]", 1)) goto fail;
+  return output.data;
+fail:
+  free(output.data);
+  return NULL;
+}
+
+const char *aura_json_encode_variant(const char *variant, const char **keys,
+                                     const char **values, int64_t count)
+{
+  const char *variant_value;
+  const char **all_keys;
+  const char **all_values;
+  const char *result;
+  if (variant == NULL || count < 0 || (count > 0 && (keys == NULL || values == NULL))) return NULL;
+  variant_value = aura_json_escape_string(variant);
+  if (variant_value == NULL) return NULL;
+  all_keys = (const char **)malloc((size_t)(count + 1) * sizeof(*all_keys));
+  all_values = (const char **)malloc((size_t)(count + 1) * sizeof(*all_values));
+  if (all_keys == NULL || all_values == NULL)
+  {
+    free((void *)variant_value);
+    free(all_keys);
+    free(all_values);
+    return NULL;
+  }
+  all_keys[0] = "variant";
+  all_values[0] = variant_value;
+  for (int64_t i = 0; i < count; i++)
+  {
+    all_keys[i + 1] = keys[i];
+    all_values[i + 1] = values[i];
+  }
+  result = aura_json_encode_object(all_keys, all_values, count + 1);
+  free((void *)variant_value);
+  free(all_keys);
+  free(all_values);
+  return result;
+}
+
 const char *aura_json_object_keys(const char *value)
 {
   if (value == NULL || !aura_json_is_valid(value)) return NULL;

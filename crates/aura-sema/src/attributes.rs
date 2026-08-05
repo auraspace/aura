@@ -45,6 +45,7 @@ struct AttributeSpec {
 const TYPE: &[Target] = &[Target::Type];
 const FUNCTION: &[Target] = &[Target::Function];
 const PARAMETER: &[Target] = &[Target::Parameter];
+const JSON_TARGETS: &[Target] = &[Target::Field];
 const DECLARATION: &[Target] = &[
     Target::Type,
     Target::Function,
@@ -134,6 +135,13 @@ const REGISTRY: &[AttributeSpec] = &[
         name: "reflect",
         targets: TYPE,
         retention: "Runtime",
+        repeatable: false,
+        conflicts: NO_CONFLICTS,
+    },
+    AttributeSpec {
+        name: "json",
+        targets: JSON_TARGETS,
+        retention: "Source",
         repeatable: false,
         conflicts: NO_CONFLICTS,
     },
@@ -507,6 +515,22 @@ fn validate_arguments(attribute: &Attribute, spec: &AttributeSpec, errors: &mut 
                     attribute.span,
                     errors,
                 );
+            }
+        }
+        "json" => {
+            for arg in &attribute.args {
+                let valid = matches!(
+                    arg,
+                    AttributeArg::Named { name, value, .. }
+                        if name.name == "name" && is_string(value)
+                );
+                if !valid {
+                    invalid(
+                        "`@json` accepts only `name = \"...\"`".into(),
+                        arg.span(),
+                        errors,
+                    );
+                }
             }
         }
         "bench" | "inline" | "noinline" | "cold" | "throws" | "unsafe" | "reflect" | "notNull"

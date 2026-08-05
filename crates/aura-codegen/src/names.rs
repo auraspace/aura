@@ -1023,6 +1023,11 @@ pub(crate) fn type_ref_local_key_expand(
     args: &[Ty],
     checked: &CheckedFile,
 ) -> String {
+    // Resolve function parameter/return classes through the checked package
+    // table; the syntax itself does not retain the imported package name.
+    if ty.fun.is_some() {
+        return type_ref_to_ty_subst(ty, checked, params, args).mono_suffix();
+    }
     if !ty.type_args.is_empty() {
         if let Some(enum_decl) = checked.ast.enums.iter().find(|e| {
             e.name.name == ty.name.name

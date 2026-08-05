@@ -1,0 +1,3 @@
+# aura.lock - path dependencies
+std.http = "../../../std/http"
+std.net = "../../../std/net"

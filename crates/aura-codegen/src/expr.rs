@@ -18,6 +18,27 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
         Expr::Bool(_) => "Bool".into(),
         Expr::String(_) => "String".into(),
         Expr::Call(c) => {
+            // Channel operations stay as ordinary calls until sema. Recover
+            // their typed result here for inferred locals (notably
+            // Channel<Class?>.receive()).
+            if let Expr::Field(field) = c.callee.as_ref() {
+                let receiver_ty = ctx
+                    .checked
+                    .expr_tys
+                    .get(&(field.object.span().start, field.object.span().end));
+                if matches!(receiver_ty, Some(Ty::Channel(_)))
+                    && matches!(field.field.name.as_str(), "send" | "receive" | "close")
+                {
+                    if let Some(ty) = ctx.checked.expr_tys.get(&(c.span.start, c.span.end)) {
+                        return match ty {
+                            Ty::Nullable(inner) if **inner == Ty::Int => "Opt_Int".into(),
+                            Ty::Nullable(inner) if **inner == Ty::Bool => "Opt_Bool".into(),
+                            Ty::Nullable(inner) => inner.mono_suffix(),
+                            other => other.mono_suffix(),
+                        };
+                    }
+                }
+            }
             // Method-call result types are resolved by the same path used for
             // chained receivers. Keep free-function handling below separate.
             if matches!(c.callee.as_ref(), Expr::Field(_))
@@ -1328,11 +1349,9 @@ pub(crate) fn race_write(code: String, lvalue: &str, span: Span, ctx: &EmitCtx<'
 /// that a consuming expression must release after copying or inspection.
 pub(crate) fn string_expr_is_owned_temp(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
     match e {
-        Expr::Ident(id)
-            if ctx.lookup_local(&id.name) == Some("String") && ctx.is_box_local(&id.name) =>
-        {
-            true
-        }
+        // Local strings remain owned by their slot; the assignment lowering
+        // releases the previous value after the concat has been evaluated.
+        Expr::Ident(_) => false,
         Expr::Binary(b) => matches!(b.op, BinOp::Add),
         Expr::Call(_) => crate::stmt::string_call_owns_result(e, ctx),
         Expr::Field(field) => {
@@ -2334,7 +2353,7 @@ fn emit_join(j: &JoinExpr, ctx: &mut EmitCtx<'_>, owned_error: bool) -> String {
         out.push_str(&format!("else {{ __join_value = {result_ok}(); }} "));
     } else if owned_error && inner == "String" {
         out.push_str(&format!(
-            "else {{ size_t __join_success_len = __join_result.data != NULL ? strlen((const char *)__join_result.data) : 0; char *__join_success_owned = (char *)malloc(__join_success_len + 1); if (__join_success_owned == NULL) abort(); if (__join_success_len != 0) memcpy(__join_success_owned, __join_result.data, __join_success_len); __join_success_owned[__join_success_len] = '\\0'; __join_value = {result_ok}Owned(__join_success_owned); }} "
+            "else {{ const char *__join_success = __join_result.data != NULL ? *((const char **)__join_result.data) : NULL; size_t __join_success_len = __join_success != NULL ? strlen(__join_success) : 0; char *__join_success_owned = (char *)malloc(__join_success_len + 1); if (__join_success_owned == NULL) abort(); if (__join_success_len != 0) memcpy(__join_success_owned, __join_success, __join_success_len); __join_success_owned[__join_success_len] = '\\0'; __join_value = {result_ok}Owned(__join_success_owned); }} "
         ));
     } else if owned_error && is_array_type_key(&inner) {
         let clone = crate::names::c_method_name(&full_type_mono(&inner, ctx.checked), "clone");
@@ -2448,7 +2467,7 @@ fn emit_await(a: &AwaitExpr, ctx: &mut EmitCtx<'_>) -> String {
     out.push_str("(void)aura_task_executor_wake(__aura_task_executor, __await); ");
     out.push_str("if (aura_task_executor_run_one(__aura_task_executor) == 0) break; ");
     out.push_str("__await_state = aura_task_frame_state(__await); } } ");
-    out.push_str("if (__await_state != AURA_TASK_COMPLETE) { fputs(\"aura: awaited task failed or was cancelled\\n\", stderr); abort(); } ");
+    out.push_str("if (__await_state == AURA_TASK_CANCELLED) { aura_throw_string(\"task cancelled\"); } if (__await_state == AURA_TASK_FAILED) { AuraTaskResult __await_error = aura_task_frame_error(__await); aura_throw_string(__await_error.data == NULL ? \"awaited task failed\" : (const char *)__await_error.data); } ");
     out.push_str("aura_race_set_source_id(0); ");
     if inner == "Unit" {
         out.push_str("(void)0; ");
@@ -2495,7 +2514,7 @@ fn channel_payload_kind(key: &str, ctx: &EmitCtx<'_>) -> Option<&'static str> {
     }
 }
 
-fn emit_channel_send(s: &ChannelSendExpr, ctx: &mut EmitCtx<'_>) -> String {
+pub(crate) fn emit_channel_send(s: &ChannelSendExpr, ctx: &mut EmitCtx<'_>) -> String {
     let channel = emit_expr(&s.channel, ctx);
     let value = emit_expr(&s.value, ctx);
     if ctx.checked.expr_tys.get(&(s.channel.span().start, s.channel.span().end)).is_some_and(|ty| matches!(ty, Ty::Class(name) if aura_sema::split_nominal(name) == ("Connection", "std.websocket"))) {
@@ -2552,7 +2571,7 @@ fn emit_channel_send(s: &ChannelSendExpr, ctx: &mut EmitCtx<'_>) -> String {
     }
 }
 
-fn emit_channel_receive(r: &ChannelReceiveExpr, ctx: &mut EmitCtx<'_>) -> String {
+pub(crate) fn emit_channel_receive(r: &ChannelReceiveExpr, ctx: &mut EmitCtx<'_>) -> String {
     let channel = emit_expr(&r.channel, ctx);
     if ctx.checked.expr_tys.get(&(r.channel.span().start, r.channel.span().end)).is_some_and(|ty| matches!(ty, Ty::Class(name) if aura_sema::split_nominal(name) == ("Connection", "std.websocket"))) {
         return format!("({{ int64_t __kind = 0; const char *__payload = ({channel} == NULL) ? NULL : aura_ws_receive({channel}->endpoint, &__kind); if (__payload == NULL) return NULL; aura_enum_std_websocket_MessageKind __message_kind = __kind == 0 ? aura_var_std_websocket_MessageKind_Text() : __kind == 1 ? aura_var_std_websocket_MessageKind_Binary() : __kind == 2 ? aura_var_std_websocket_MessageKind_Ping() : __kind == 3 ? aura_var_std_websocket_MessageKind_Pong() : aura_var_std_websocket_MessageKind_Close(); aura_cls_std_websocket_Message *__message = aura_new_std_websocket_Message(__message_kind, __payload); free((void *)__payload); __message; }})");

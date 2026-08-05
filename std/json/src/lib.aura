@@ -254,3 +254,13 @@ pub fun parseResult(value: String,
 pub fun decode<T>(value: Value): T? {
   throw "std.json decode intrinsic"
 }
+
+/// Encode an Aura value as a compact JSON document within the supported shape.
+pub fun encode<T>(value: T): String? {
+  throw "std.json encode intrinsic"
+}
+
+/// Alias for encode<T>, intended for call sites that prefer serializer wording.
+pub fun stringify<T>(value: T): String? {
+  throw "std.json stringify intrinsic"
+}

@@ -15,6 +15,14 @@ impl Checker {
         expected: Option<&Ty>,
     ) -> Result<Ty, SemaError> {
         if let Expr::Field(fe) = c.callee.as_ref() {
+            // A class field may hold a first-class function. Check this before
+            // method dispatch, otherwise `route.handler(...)` is misreported
+            // as an unknown method.
+            if let Ok(callee_ty) = self.check_expr(&c.callee) {
+                if matches!(callee_ty, Ty::Fun { .. }) {
+                    return self.check_fun_value_call(&callee_ty, c);
+                }
+            }
             // Static class member: `Type.member(...)`.
             if let Expr::Ident(id) = fe.object.as_ref() {
                 if self.classes.contains_key(&id.name) {
@@ -99,15 +107,6 @@ impl Checker {
                 if let Some(pkg) = self.import_aliases.get(&id.name).cloned() {
                     let name = fe.field.name.clone();
                     if self.fun_in_package(&name, &pkg).is_some() {
-                        if !c.type_args.is_empty() {
-                            // Generics on qualified free calls still deferred.
-                            return Err(SemaError {
-                                message:
-                                    "type arguments not allowed on package-qualified calls in C3n"
-                                        .into(),
-                                span: c.span,
-                            });
-                        }
                         let sig = self.resolve_fun_in_package(&name, &pkg, fe.field.span)?;
                         return self.check_fun_call_with_sig(&sig, c, expected);
                     }
@@ -139,6 +138,70 @@ impl Checker {
             } else {
                 (raw_obj_ty, false)
             };
+
+            // Channel operations are type-directed. The parser must not lower
+            // these names eagerly because ordinary classes may define methods
+            // named `send`, `receive`, or `close`.
+            if let Ty::Channel(element) = &obj_ty {
+                match fe.field.name.as_str() {
+                    "send" => {
+                        self.reject_async_borrow("channel send", c.span, &fe.object)?;
+                        if c.args.len() != 1 {
+                            return Err(SemaError {
+                                message: format!(
+                                    "channel send expects 1 argument, got {}",
+                                    c.args.len()
+                                ),
+                                span: c.span,
+                            });
+                        }
+                        self.reject_async_borrow("channel send", c.span, &c.args[0])?;
+                        let value = self.check_expr(&c.args[0])?;
+                        if !self.is_assignable(&value, element) {
+                            return Err(SemaError {
+                                message: format!(
+                                    "channel send value mismatch: expected {}, got {}",
+                                    element.display(),
+                                    value.display()
+                                ),
+                                span: c.args[0].span(),
+                            });
+                        }
+                        return Ok(Ty::Unit);
+                    }
+                    "receive" => {
+                        self.reject_async_borrow("channel receive", c.span, &fe.object)?;
+                        if !c.args.is_empty() {
+                            return Err(SemaError {
+                                message: format!(
+                                    "channel receive expects 0 arguments, got {}",
+                                    c.args.len()
+                                ),
+                                span: c.span,
+                            });
+                        }
+                        return Ok(if safe_wrap {
+                            Ty::Nullable(Box::new(Ty::Nullable(element.clone())))
+                        } else {
+                            Ty::Nullable(element.clone())
+                        });
+                    }
+                    "close" => {
+                        self.reject_async_borrow("channel close", c.span, &fe.object)?;
+                        if !c.args.is_empty() {
+                            return Err(SemaError {
+                                message: format!(
+                                    "channel close expects 0 arguments, got {}",
+                                    c.args.len()
+                                ),
+                                span: c.span,
+                            });
+                        }
+                        return Ok(Ty::Unit);
+                    }
+                    _ => {}
+                }
+            }
 
             if let Some(cname) = obj_ty.class_name() {
                 let (method, owner) = self

@@ -181,7 +181,8 @@ remain compiler follow-ons.
 
 `std.http` is a transport-facing standard-library package, not an application
 framework. The initial server contract is HTTP/1.1 on supported POSIX targets
-(Linux amd64 and macOS arm64), origin-form targets, `GET`, `HEAD`, and `POST`,
+(Linux amd64 and macOS arm64), origin-form targets, `GET`, `HEAD`, `POST`,
+`PUT`, `PATCH`, `DELETE`, and `OPTIONS`,
 64 headers, an 8 KiB request line, 16 KiB aggregate headers, an 8 MiB body,
 and a 16 MiB total request. It maps malformed requests to 400, unsupported
 methods to 405, oversized input to 413, handler failure to one bounded 500,
@@ -336,6 +337,7 @@ stored, sent, or retained by a task or channel.
 ```aura
 val value = Json.parse(text)
 val text = value?.serialize()
+val payload = Json.encode<User>(user)
 ```
 
 - The shipped bounded value model validates complete values, preserves their
@@ -345,6 +347,14 @@ val text = value?.serialize()
   `decode<T>` mappings. `ParseOptions` enforces `maxBytes`, `maxDepth`, and
   `Reject`/`FirstWins`/`LastWins`; payload-carrying enums, arbitrary aggregate
   leaves, and derive-driven mappings remain outside this bounded shape.
+
+`encode<T>` converts supported Aura values to compact JSON; `stringify<T>` is
+an equivalent naming alias. The alpha encoder supports primitive values,
+nested classes/structs, recursively nested arrays, string-key maps, and
+payload-carrying enums. A field may use `@json(name = "...")` to choose its
+wire key, while fields without the attribute retain their Aura name. Generic
+type bodies remain erased until a concrete monomorph is emitted, and pretty
+printing is intentionally outside this compact encoder contract.
 
 ### 6.7 Crypto baseline
 

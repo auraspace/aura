@@ -1,0 +1,139 @@
+package aura.web
+
+import std.http
+import std.json
+
+// Per-request facade used by application handlers. The transport types stay
+// inside the library boundary, like Express/Fastify request/reply objects.
+pub class Context(pub val request: Request, pub val response: Response,
+ pub val params: Array<Param>, private val bodyLimit: Int) {
+    pub fun method(): String { return this.request.method() }
+    pub fun path(): String { return this.request.target() }
+
+    pub fun query(name: String): String {
+        val target = this.request.target()
+        val queryStart = target.indexOf("?")
+        if (queryStart < 0 || queryStart + 1 >= target.len) {
+            return ""
+        }
+        val query = target.substring(queryStart + 1, target.len)
+        val pairs = query.split("&")
+        for (i in 0..pairs.len) {
+            val pair = pairs.get(i)
+            val equals = pair.indexOf("=")
+            if (equals >= 0 && pair.substring(0, equals) == name) {
+                return pair.substring(equals + 1, pair.len)
+            }
+        }
+        return ""
+    }
+
+    pub fun param(name: String): String {
+        for (i in 0..this.params.len) {
+            val item = this.params.get(i)
+            if (item.name == name) {
+                return item.value
+            }
+        }
+        return ""
+    }
+
+    pub fun status(code: Int): Context {
+        this.response.setStatus(code)
+        return this
+    }
+
+    pub fun header(name: String, value: String): Context {
+        this.response.addHeader(name, value)
+        return this
+    }
+
+    pub fun sendText(body: String): Context {
+        this.response.addHeader("Content-Type", "text/plain")
+        this.response.setBody(body)
+        return this
+    }
+
+    // Express/Fastify-style text response alias.
+    pub fun send(body: String): Context {
+        return this.sendText(body)
+    }
+
+    pub fun sendJson<T>(body: T): Context {
+        val encoded = encode<T>(body)
+        if (encoded == null) {
+            throw "failed to encode JSON response"
+        }
+        this.response.addHeader("Content-Type", "application/json")
+        this.response.setBody(encoded)
+        return this
+    }
+
+    pub fun json(body: String): Context {
+        this.response.addHeader("Content-Type", "application/json")
+        this.response.setBody(body)
+        return this
+    }
+
+    pub fun isBodyLimitExceeded(): Bool {
+        return this.response.status() == 413
+    }
+
+    pub fun ok(body: String): Context {
+        return this.status(200).sendText(body)
+    }
+
+    pub fun created(body: String): Context {
+        return this.status(201).sendText(body)
+    }
+
+    pub fun notFound(body: String): Context {
+        return this.status(404).sendText(body)
+    }
+
+    pub fun redirect(location: String): Context {
+        this.response.setStatus(302)
+        this.response.addHeader("Location", location)
+        return this
+    }
+
+    /// Read one low-level streaming chunk. Prefer readBody() in handlers.
+    pub async fun readBodyChunk(capacity: Int): String {
+        val reader = this.request.bodyReader()
+        return await reader.readChunk(capacity)
+    }
+
+    /// Aggregate the request body up to the app-configured body limit.
+    pub async fun readBody(): String {
+        val reader = this.request.bodyReader()
+        var body = ""
+        var total = 0
+        while (true) {
+            val chunk = await reader.readChunk(16384)
+            if (chunk.len == 0) {
+                return body
+            }
+            total = total + chunk.len
+            if (total > this.bodyLimit) {
+                this.response.setStatus(413)
+                this.response.addHeader("Content-Type", "application/json")
+                this.response.setBody("{\"error\":\"payload_too_large\"}")
+                return ""
+            }
+            body = body + chunk
+        }
+    }
+
+    /// Parse and decode the complete request body into the requested type.
+    pub async fun readJson(): Value? {
+        val raw = await this.readBody()
+        if (this.isBodyLimitExceeded()) {
+            return null
+        }
+        val value = parse(raw)
+        if (value == null) {
+            return null
+        }
+        return value
+    }
+}

@@ -350,41 +350,10 @@ impl Parser {
                 })));
             }
         }
-        if let Expr::Field(field) = call.callee.as_ref() {
-            let operation = match field.field.name.as_str() {
-                "send" => Some(0),
-                "receive" => Some(1),
-                "close" => Some(2),
-                _ => None,
-            };
-            if let Some(operation) = operation {
-                let expected = if operation == 0 { 1 } else { 0 };
-                if call.args.len() != expected {
-                    if operation == 0 && call.args.is_empty() {
-                        return Err(ParseError {
-                            message: "channel send requires 1 argument".into(),
-                            span,
-                        });
-                    }
-                    // Keep same-named class methods available. Semantic
-                    // checking will diagnose an actual channel arity error.
-                    return Ok(Expr::Call(call));
-                }
-                let channel = field.object.clone();
-                return Ok(match operation {
-                    0 => Expr::Async(AsyncExpr::ChannelSend(ChannelSendExpr {
-                        channel,
-                        value: Box::new(call.args.into_iter().next().unwrap()),
-                        span,
-                    })),
-                    1 => Expr::Async(AsyncExpr::ChannelReceive(ChannelReceiveExpr {
-                        channel,
-                        span,
-                    })),
-                    _ => Expr::Async(AsyncExpr::ChannelClose(ChannelCloseExpr { channel, span })),
-                });
-            }
-        }
+        // `send`, `receive`, and `close` remain ordinary calls here. Their
+        // meaning depends on the receiver type: a class is allowed to define
+        // methods with these names, while Channel<T> gets intrinsic handling
+        // in semantic checking/codegen.
         Ok(Expr::Call(call))
     }
 

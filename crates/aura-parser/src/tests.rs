@@ -626,7 +626,7 @@ fn parses_task_and_channel_operations() {
     assert!(matches!(
         body[2],
         Stmt::Var(VarStmt {
-            init: Expr::Async(AsyncExpr::ChannelReceive(_)),
+            init: Expr::Call(_),
             ..
         })
     ));
@@ -638,10 +638,7 @@ fn parses_task_and_channel_operations() {
         body[4],
         Stmt::Expr(Expr::Async(AsyncExpr::Cancel(_)))
     ));
-    assert!(matches!(
-        body[5],
-        Stmt::Expr(Expr::Async(AsyncExpr::ChannelClose(_)))
-    ));
+    assert!(matches!(body[5], Stmt::Expr(Expr::Call(_))));
 }
 
 #[test]
@@ -678,14 +675,22 @@ fn rejects_malformed_task_and_channel_operations() {
             "package demo\nfun main() { Channel<Int>() }\n",
             "capacity argument",
         ),
-        (
-            "package demo\nfun main() { ch.send() }\n",
-            "requires 1 argument",
-        ),
     ] {
         let err = parse_file(src).expect_err("malformed async operation");
         assert!(err.message.contains(expected), "{src}: {}", err.message);
     }
+}
+
+#[test]
+fn leaves_channel_named_calls_for_semantic_resolution() {
+    let file = parse_file(
+        "package demo\nclass Reply() { fun send(body: String): Unit {} }\nfun main() { Reply().send(\"ok\") }\n",
+    )
+    .expect("same-named class methods must remain ordinary calls");
+    assert!(matches!(
+        file.functions[0].body.stmts.first(),
+        Some(Stmt::Expr(Expr::Call(_)))
+    ));
 }
 
 #[test]

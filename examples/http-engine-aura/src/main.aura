@@ -1,0 +1,74 @@
+package http_engine_aura
+
+import aura.web
+import std.json as Json
+
+class EchoPayload(@json(name = "message") val message: String) {}
+
+async fun health(ctx: Context): Unit {
+    ctx.status(200).send("ok\n")
+}
+
+async fun echo(ctx: Context): Unit {
+    val payload: String = await ctx.readBody()
+    if (ctx.isBodyLimitExceeded()) {
+        return
+    }
+    ctx.send(payload)
+}
+
+async fun jsonEcho(ctx: Context): Unit {
+    val value = await ctx.readJson()
+    if (ctx.isBodyLimitExceeded()) {
+        return
+    }
+    if (value == null) {
+        ctx.status(400).send("invalid payload\n")
+        return
+    }
+    val payload = Json.decode<EchoPayload>(value)
+    if (payload == null) {
+        ctx.status(400).send("invalid payload\n")
+        return
+    }
+    ctx.sendJson(payload)
+}
+
+async fun trace(ctx: Context): Unit {
+    ctx.header("X-Aura-Engine", "on")
+}
+
+async fun user(ctx: Context): Unit {
+    ctx.send("user:" + ctx.param("id") + "\n")
+}
+
+async fun updateUser(ctx: Context): Unit {
+    ctx.send("updated:" + ctx.param("id") + "\n")
+}
+
+async fun search(ctx: Context): Unit {
+    ctx.json("{\"q\":\"" + ctx.query("q") + "\"}\n")
+}
+
+fun main() {
+    val app = webAppWithBodyLimit(32)
+    app.use((ctx: Context) => trace(ctx))
+    app.get("/health", (ctx: Context) => health(ctx))
+    app.post("/echo", (ctx: Context) => echo(ctx))
+    app.post("/json-echo", (ctx: Context) => jsonEcho(ctx))
+    app.get("/users/:id", (ctx: Context) => user(ctx))
+    app.put("/users/:id", (ctx: Context) => updateUser(ctx))
+    app.get("/search", (ctx: Context) => search(ctx))
+    val api = app.group("/api")
+    api.get("/health", (ctx: Context) => health(ctx))
+    var port = 8080
+    val values = args()
+    if (values.len > 1) {
+        val parsedPort = values.get(1).toInt()
+        if (parsedPort != null) {
+            port = parsedPort
+        }
+    }
+    println("listening on http://127.0.0.1:" + port.toString() + "/health")
+    app.listen(port)
+}

@@ -1,0 +1,100 @@
+package aura.web
+
+import std.http
+
+pub class Router(private val routes: Array<Route>, private val middlewares: Array<Middleware>,
+                 private val bodyLimit: Int) {
+    pub fun use(handler: (Context) -> Task<Unit>): Router {
+        this.middlewares.push(Middleware(handler))
+        return this
+    }
+
+    pub fun get(path: String, handler: (Context) -> Task<Unit>): Router {
+        this.routes.push(Route("GET", path, handler))
+        return this
+    }
+
+    pub fun post(path: String, handler: (Context) -> Task<Unit>): Router {
+        this.routes.push(Route("POST", path, handler))
+        return this
+    }
+
+    pub fun put(path: String, handler: (Context) -> Task<Unit>): Router {
+        this.routes.push(Route("PUT", path, handler))
+        return this
+    }
+
+    pub fun patch(path: String, handler: (Context) -> Task<Unit>): Router {
+        this.routes.push(Route("PATCH", path, handler))
+        return this
+    }
+
+    pub fun delete(path: String, handler: (Context) -> Task<Unit>): Router {
+        this.routes.push(Route("DELETE", path, handler))
+        return this
+    }
+
+    pub fun options(path: String, handler: (Context) -> Task<Unit>): Router {
+        this.routes.push(Route("OPTIONS", path, handler))
+        return this
+    }
+
+    pub fun all(path: String, handler: (Context) -> Task<Unit>): Router {
+        this.routes.push(Route("*", path, handler))
+        return this
+    }
+
+    fun methodMatches(routeMethod: String, requestMethod: String): Bool {
+        return routeMethod == "*" || routeMethod == requestMethod ||
+               (requestMethod == "HEAD" && routeMethod == "GET")
+    }
+
+    async fun dispatch(request: Request, response: Response): Unit {
+        val context = Context(request, response, Array<Param>(0), this.bodyLimit)
+        try {
+            for (i in 0..this.middlewares.len) {
+                val middleware = this.middlewares.get(i)
+                await invokeMiddleware(middleware, context)
+            }
+
+            var pathMatched = false
+            for (i in 0..this.routes.len) {
+                val route = this.routes.get(i)
+                val path = matchPath(route.path, request.target())
+                if (path.matched) {
+                    pathMatched = true
+                    if (this.methodMatches(route.method, request.method())) {
+                        val matchedContext = Context(request, response, path.params, this.bodyLimit)
+                        await invoke(route, matchedContext)
+                        return
+                    }
+                }
+            }
+
+            if (pathMatched) {
+                response.setStatus(405)
+                response.setBody("method not allowed\n")
+            } else {
+                response.setStatus(404)
+                response.setBody("not found\n")
+            }
+        } catch (error: String) {
+            if (error == "request body exceeds configured limit") {
+                response.setStatus(413)
+                response.addHeader("Content-Type", "application/json")
+                response.setBody("{\"error\":\"payload_too_large\"}")
+                return
+            }
+            throw error
+        }
+    }
+}
+
+pub fun router(): Router {
+    return routerWithBodyLimit(1048576)
+}
+
+/// Configure the maximum aggregated request body accepted by Context helpers.
+pub fun routerWithBodyLimit(maxBytes: Int): Router {
+    return Router(Array<Route>(0), Array<Middleware>(0), maxBytes)
+}

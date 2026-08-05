@@ -76,6 +76,16 @@ static int aura_http_is_token(unsigned char c)
   }
 }
 
+static int aura_http_method_allowed(const char *method)
+{
+  /* Keep the bounded server contract aligned with common web-framework verbs. */
+  return method != NULL &&
+         (strcmp(method, "GET") == 0 || strcmp(method, "HEAD") == 0 ||
+          strcmp(method, "POST") == 0 || strcmp(method, "PUT") == 0 ||
+          strcmp(method, "PATCH") == 0 || strcmp(method, "DELETE") == 0 ||
+          strcmp(method, "OPTIONS") == 0);
+}
+
 static int aura_http_ascii_equal_ci(const unsigned char *left, size_t left_len,
                                     const char *right)
 {
@@ -699,9 +709,7 @@ static AuraHttpParseStatus aura_http_request_parse_impl(
     aura_http_request_destroy(&parsed);
     return AURA_HTTP_PARSE_ERROR;
   }
-  method_allowed = strcmp(parsed.method, "GET") == 0 ||
-                   strcmp(parsed.method, "HEAD") == 0 ||
-                   strcmp(parsed.method, "POST") == 0;
+  method_allowed = aura_http_method_allowed(parsed.method);
 
   parsed.headers = (AuraHttpHeader *)calloc(AURA_HTTP_MAX_HEADERS,
                                              sizeof(*parsed.headers));
@@ -1328,4 +1336,3 @@ void aura_http_request_body_read_end(const AuraHttpRequest *request)
     request->body_reader->read_active = 0;
   }
 }
-

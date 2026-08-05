@@ -11,6 +11,37 @@ use crate::iface::emit_upcast;
 use crate::names::*;
 use crate::stmt::{emit_block, emit_return_fallback};
 
+fn generic_method_monos(
+    c: &ClassDecl,
+    m: &FunDecl,
+    args: &[Ty],
+    checked: &CheckedFile,
+) -> Vec<Vec<Ty>> {
+    if m.type_params.is_empty() {
+        return vec![Vec::new()];
+    }
+    let mut monos = checked
+        .mono_methods
+        .iter()
+        .filter(|(name, class_args, method, _)| {
+            name == &c.name.name && class_args == args && method == &m.name.name
+        })
+        .map(|(_, _, _, method_args)| method_args.clone())
+        .collect::<Vec<_>>();
+    // A generic method may call another generic method on the same receiver.
+    // Reuse method arguments discovered for sibling monos so the callee body
+    // has a concrete C symbol as well (e.g. json<T> -> sendJson<T>).
+    for (_, class_args, _, method_args) in &checked.mono_methods {
+        if class_args == args
+            && !method_args.iter().any(Ty::is_open)
+            && !monos.contains(method_args)
+        {
+            monos.push(method_args.clone());
+        }
+    }
+    monos
+}
+
 pub(crate) fn direct_superclass<'a>(
     checked: &'a CheckedFile,
     c: &ClassDecl,
@@ -282,18 +313,7 @@ pub(crate) fn emit_class_forwards(
         c_ctor_signature_mono(c, checked, &params, args, &mono)
     );
     for m in &c.methods {
-        let method_monos: Vec<Vec<Ty>> = if m.type_params.is_empty() {
-            vec![Vec::new()]
-        } else {
-            checked
-                .mono_methods
-                .iter()
-                .filter(|(name, class_args, method, _)| {
-                    name == &c.name.name && class_args == args && method == &m.name.name
-                })
-                .map(|(_, _, _, method_args)| method_args.clone())
-                .collect()
-        };
+        let method_monos = generic_method_monos(c, m, args, checked);
         for method_args in method_monos {
             let signature = if m.type_params.is_empty() {
                 c_method_signature_mono(c, m, checked, &params, args, &mono)
@@ -759,18 +779,7 @@ pub(crate) fn emit_class_defs(
     emit_ctor_mono(out, c, checked, &params, args, &mono);
     out.push('\n');
     for m in &c.methods {
-        let method_monos: Vec<Vec<Ty>> = if m.type_params.is_empty() {
-            vec![Vec::new()]
-        } else {
-            checked
-                .mono_methods
-                .iter()
-                .filter(|(name, class_args, method, _)| {
-                    name == &c.name.name && class_args == args && method == &m.name.name
-                })
-                .map(|(_, _, _, method_args)| method_args.clone())
-                .collect()
-        };
+        let method_monos = generic_method_monos(c, m, args, checked);
         for method_args in method_monos {
             if class_decl_package(c, checked) == "std.http"
                 && c.name.name == "RequestBody"

@@ -86,6 +86,25 @@ static void test_valid_post_duplicate_equal_content_length(void)
   aura_http_request_destroy(&parsed);
 }
 
+static void test_common_web_methods(void)
+{
+  const char *methods[] = {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"};
+  char request[128];
+  size_t i;
+
+  for (i = 0; i < sizeof(methods) / sizeof(methods[0]); i++)
+  {
+    AuraHttpRequest parsed = {0};
+    int written = snprintf(request, sizeof(request), "%s /verbs HTTP/1.1\r\n\r\n",
+                           methods[i]);
+    assert(written > 0 && (size_t)written < sizeof(request));
+    assert(aura_http_request_parse(request, (size_t)written, &parsed, NULL) ==
+           AURA_HTTP_PARSE_OK);
+    assert(strcmp(parsed.method, methods[i]) == 0);
+    aura_http_request_destroy(&parsed);
+  }
+}
+
 static void test_incomplete_body_and_trailing_request_boundary(void)
 {
   const char partial[] =
@@ -311,7 +330,7 @@ static void test_malformed_and_rejected_framing(void)
   }
 
   {
-    const char unsupported[] = "OPTIONS / HTTP/1.1\r\n\r\n";
+    const char unsupported[] = "TRACE / HTTP/1.1\r\n\r\n";
     AuraHttpRequest parsed = {0};
     size_t consumed = 123;
     assert(aura_http_request_parse(unsupported, sizeof(unsupported) - 1, &parsed,
@@ -407,6 +426,7 @@ int main(void)
 {
   test_valid_get_and_case_insensitive_headers();
   test_valid_post_duplicate_equal_content_length();
+  test_common_web_methods();
   test_incomplete_body_and_trailing_request_boundary();
   test_header_first_content_length_request();
   test_header_first_chunked_metadata();

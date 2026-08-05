@@ -1,0 +1,9 @@
+package aura.web
+
+// Middleware runs once before route dispatch. The intentionally small hook
+// shape keeps ordering explicit while exercising async function fields.
+pub class Middleware(pub val handler: (Context) -> Task<Unit>) {}
+
+pub async fun invokeMiddleware(middleware: Middleware, context: Context): Unit {
+    await middleware.handler(context)
+}

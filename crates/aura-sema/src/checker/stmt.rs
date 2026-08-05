@@ -417,6 +417,28 @@ impl Checker {
                     self.check_block(else_b, expected_ret)?;
                     self.locals.pop();
                 }
+
+                // If the null branch cannot fall through, every path after
+                // the if has already established that the value is non-null.
+                if let Some((ref name, not_null_when_true)) = fact {
+                    let then_falls = super::block_control_flow(&i.then_block).falls_through;
+                    let else_falls = i
+                        .else_block
+                        .as_ref()
+                        .map(|block| super::block_control_flow(block).falls_through);
+                    let null_branch_terminates = if not_null_when_true {
+                        else_falls == Some(false)
+                    } else {
+                        !then_falls
+                    };
+                    let has_non_null_fallthrough = match else_falls {
+                        Some(else_falls) => then_falls || else_falls,
+                        None => true,
+                    };
+                    if null_branch_terminates && has_non_null_fallthrough {
+                        self.apply_not_null(name);
+                    }
+                }
                 Ok(())
             }
             Stmt::While(w) => {

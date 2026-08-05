@@ -7,9 +7,9 @@ use crate::array_emit::is_array_type_key;
 use crate::class_emit::{class_tag, method_owner, virtual_overrides};
 use crate::ctx::EmitCtx;
 use crate::expr::{
-    array_field_move_out_lvalue, coerce_expr, emit_expr, full_type_mono, infer_type_name,
-    mono_base_name, mono_split, resolve_class_of_expr, resolve_type_name,
-    string_expr_is_owned_temp, type_ref_to_ty,
+    array_field_move_out_lvalue, coerce_expr, emit_channel_receive, emit_channel_send, emit_expr,
+    full_type_mono, infer_type_name, mono_base_name, mono_split, resolve_class_of_expr,
+    resolve_type_name, string_expr_is_owned_temp, type_ref_to_ty,
 };
 use crate::names::*;
 
@@ -158,6 +158,16 @@ fn wrap_owner_arg_moves(
 pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
     // Method call: obj.method(args)
     if let Expr::Field(fe) = c.callee.as_ref() {
+        // C10d: class fields can contain first-class function values too. They
+        // use the same fat-pointer ABI as local function values.
+        if resolve_type_name(&c.callee, ctx).is_some_and(|k| is_fun_type_key(&k)) {
+            let f = emit_expr(&c.callee, ctx);
+            let mut parts = vec![format!("({f}).env")];
+            for arg in &c.args {
+                parts.push(emit_expr(arg, ctx));
+            }
+            return format!("({f}).fn({})", parts.join(", "));
+        }
         // C3n: package alias qualified free function `Math.square(...)`.
         if let Expr::Ident(id) = fe.object.as_ref() {
             if let Some(inst) = ctx
@@ -354,6 +364,56 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 Some(t)
             }
         });
+
+        let obj_ty = obj_ty.or_else(|| {
+            let ty = ctx
+                .checked
+                .expr_tys
+                .get(&(fe.object.span().start, fe.object.span().end))?;
+            match ty {
+                Ty::Channel(_) => Some(ty.mono_suffix()),
+                _ => None,
+            }
+        });
+
+        // Channel operations are represented as ordinary calls until semantic
+        // typing confirms the receiver is Channel<T>. Emit the same intrinsic
+        // operations used by the legacy parser lowering in that case.
+        if obj_ty
+            .as_deref()
+            .is_some_and(|key| key.starts_with("Channel_"))
+        {
+            match fe.field.name.as_str() {
+                "send" if c.args.len() == 1 => {
+                    return emit_channel_send(
+                        &ChannelSendExpr {
+                            channel: fe.object.clone(),
+                            value: Box::new(c.args[0].clone()),
+                            span: c.span,
+                        },
+                        ctx,
+                    );
+                }
+                "receive" if c.args.is_empty() => {
+                    return emit_channel_receive(
+                        &ChannelReceiveExpr {
+                            channel: fe.object.clone(),
+                            span: c.span,
+                        },
+                        ctx,
+                    );
+                }
+                "close" if c.args.is_empty() => {
+                    let channel = emit_expr(&fe.object, ctx);
+                    return format!(
+                        "({{ aura_race_set_source_id(UINT32_C({})); (void)aura_task_channel_close({channel}); aura_race_set_source_id(0); (void)0; }})",
+                        c.span.start
+                    );
+                }
+                _ => {}
+            }
+        }
+
         // Array fields are mutable receivers; keep the direct lvalue so the
         // generated `&receiver` is valid instead of taking the address of a
         // race-instrumented rvalue expression.
@@ -926,17 +986,21 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     args.push(coerce_owner_arg_expr(a, &expected, ctx));
                 }
                 let ret_c = c_type_from_opt(&m.return_type, ctx.checked, &params, &targs);
+                let method_args = ctx
+                    .checked
+                    .call_instantiations
+                    .get(&c.span.start)
+                    .map(|inst| {
+                        let subst = aura_sema::type_subst_map(&ctx.type_params, &ctx.type_args);
+                        inst.method_type_args
+                            .iter()
+                            .map(|ty| aura_sema::subst_ty(ty, &subst))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
                 let call = format!(
                     "{}({})",
-                    c_generic_method_name(
-                        &owner_mono,
-                        &fe.field.name,
-                        &ctx.checked
-                            .call_instantiations
-                            .get(&c.span.start)
-                            .map(|i| i.method_type_args.clone())
-                            .unwrap_or_default()
-                    ),
+                    c_generic_method_name(&owner_mono, &fe.field.name, &method_args),
                     args.join(", ")
                 );
                 let call = if let Some(static_class) = current_class {
@@ -1325,9 +1389,11 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             }
             // Free function
             let targs: Vec<Ty> = if !c.type_args.is_empty() {
+                let subst = aura_sema::type_subst_map(&ctx.type_params, &ctx.type_args);
                 c.type_args
                     .iter()
                     .filter_map(|t| type_ref_to_ty(t, ctx))
+                    .map(|ty| aura_sema::subst_ty(&ty, &subst))
                     .collect()
             } else if let Some(inst) = inst {
                 let subst = aura_sema::type_subst_map(&ctx.type_params, &ctx.type_args);
@@ -1339,6 +1405,15 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 Vec::new()
             };
             let pkg = inst.map(|i| i.package.as_str()).unwrap_or("");
+            // Open generic bodies are emitted with erased type parameters and
+            // are not runtime call targets. Typed JSON encoding is closed at
+            // each concrete monomorph; keep the open fallback compilable.
+            if pkg == "std.json"
+                && matches!(id.name.as_str(), "encode" | "stringify")
+                && targs.iter().any(Ty::is_open)
+            {
+                return "NULL".into();
+            }
             if pkg == "std.task" && id.name == "isCancelled" && c.args.is_empty() {
                 return ctx
                     .async_frame

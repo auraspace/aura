@@ -254,6 +254,20 @@ pub(crate) fn emit_enum_forwards(
         );
     }
     let cty = c_enum_type(&mono);
+    if pkg == "std.io" && e.name.name == "TaskError" {
+        let _ = writeln!(
+            out,
+            "{cty} {}(const char *error);",
+            c_variant_ctor_name(&mono, "FailedOwned")
+        );
+    }
+    if task_result_string_ok(e, &pkg, args, "Ok") {
+        let _ = writeln!(
+            out,
+            "{cty} {}(const char *value);",
+            c_variant_ctor_name(&mono, "OkOwned")
+        );
+    }
     let _ = writeln!(out, "{cty} {cty}_clone(const {cty} *source);");
     let _ = writeln!(out, "void {cty}_drop({cty} *value);");
     let _ = writeln!(out, "void {cty}_mark(const {cty} *value);");

@@ -365,6 +365,9 @@ Bounded HTTP/1.1 values and loopback client/server helpers built on
 `std.net`. Server handlers receive scoped `Request` and `Response` objects;
 raw foreign handles remain package-private.
 
+The bounded server accepts origin-form `GET`, `HEAD`, `POST`, `PUT`, `PATCH`,
+`DELETE`, and `OPTIONS` requests. Other methods receive a bounded 405 response.
+
 | API                                                             | Contract                                                                                           |
 | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `Handler`                                                       | `(Request, Response) -> Task<Unit>` handler type                                                   |
