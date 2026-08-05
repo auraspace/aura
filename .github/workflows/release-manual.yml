@@ -1,0 +1,367 @@
+# Build toolchain tarballs and optionally publish a GitHub Release.
+# This workflow is intentionally manual: run it once with dry_run enabled,
+# then rerun the same version with dry_run disabled to publish.
+name: Manual Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version without the leading v (for example 0.1.0-alpha)'
+        required: true
+        type: string
+      dry_run:
+        description: 'Build and validate the release without signing or publishing'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux amd64/arm64 and darwin-arm64 are native builds. darwin-amd64 is
+          # cross-compiled on macos-14 because macos-13 Intel runners retired.
+          - os: ubuntu-latest
+            name: linux-amd64
+          - os: ubuntu-24.04-arm
+            name: linux-arm64
+          - os: macos-14
+            name: darwin-arm64
+          # macos-13 (Intel) retired Dec 2025; cross-compile amd64 on Apple Silicon.
+          - os: macos-14
+            name: darwin-amd64
+            rust_target: x86_64-apple-darwin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate release version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_VERSION" != v* ]] || {
+            echo "error: version must not include the leading v" >&2
+            exit 1
+          }
+          [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]] || {
+            echo "error: invalid release version: $RELEASE_VERSION" >&2
+            exit 1
+          }
+
+      - name: Validate release target and signing policy
+        run: bash scripts/validate-release-policy.sh
+
+      - name: Validate cross-target packaging contract (host-only)
+        run: bash scripts/validate-cross-target-packaging.sh
+
+      - name: Install C toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.rust_target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.name }}
+
+      - name: Package release tarball
+        env:
+          TAG_VERSION: ${{ inputs.version }}
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: bash scripts/package-release.sh
+
+      - name: Release acceptance gate
+        run: bash scripts/release-acceptance.sh
+
+      # Native artifacts only: a cross-built x86_64 binary cannot run on arm64 runners.
+      - name: Smoke the packaged binary
+        if: ${{ !matrix.rust_target }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          tarballs=(dist/aura-*.tar.gz)
+          if [[ ${#tarballs[@]} -ne 1 ]]; then
+            echo "error: expected exactly one dist/aura-*.tar.gz, found ${#tarballs[@]}" >&2
+            ls -la dist || true
+            exit 1
+          fi
+          tar="${tarballs[0]}"
+          # Drain the full listing so GNU tar does not hit SIGPIPE under pipefail
+          # (tar | head -1 fails on Linux with "tar: stdout: write error").
+          stage="$(
+            tar -tzf "$tar" | {
+              IFS= read -r first
+              printf '%s\n' "${first%%/*}"
+              cat >/dev/null
+            }
+          )"
+          if [[ -z "$stage" ]]; then
+            echo "error: could not determine stage directory from $tar" >&2
+            exit 1
+          fi
+          tar -xzf "$tar" -C dist
+          export PATH="$PWD/dist/$stage/bin:$PATH"
+          aura version
+          TMP="$(mktemp -d)"
+          aura new "$TMP/hello"
+          aura run "$TMP/hello"
+
+      - name: Verify cross-built binary (file type)
+        if: ${{ matrix.rust_target }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          tarballs=(dist/aura-*.tar.gz)
+          if [[ ${#tarballs[@]} -ne 1 ]]; then
+            echo "error: expected exactly one dist/aura-*.tar.gz, found ${#tarballs[@]}" >&2
+            exit 1
+          fi
+          tar="${tarballs[0]}"
+          stage="$(
+            tar -tzf "$tar" | {
+              IFS= read -r first
+              printf '%s\n' "${first%%/*}"
+              cat >/dev/null
+            }
+          )"
+          tar -xzf "$tar" -C dist
+          bin="dist/$stage/bin/aura"
+          file "$bin"
+          # Expect Mach-O x86_64 (not arm64)
+          file "$bin" | grep -qiE 'x86_64|Intel 64'
+          lipo -info "$bin" 2>/dev/null || true
+
+      - name: Record native cross-host acceptance
+        if: ${{ !matrix.rust_target }}
+        run: |
+          set -euo pipefail
+          stage="$(tar -tzf dist/aura-*.tar.gz | { IFS= read -r first; printf '%s\n' "${first%%/*}"; cat >/dev/null; })"
+          bash scripts/cross-host-acceptance.sh \
+            --artifact "dist/$stage/bin/aura" \
+            --target "${{ matrix.name }}" \
+            --mode native \
+            --report "dist/${{ matrix.name }}-acceptance.json"
+
+      - name: Record cross-file acceptance
+        if: ${{ matrix.rust_target }}
+        run: |
+          set -euo pipefail
+          stage="$(tar -tzf dist/aura-*.tar.gz | { IFS= read -r first; printf '%s\n' "${first%%/*}"; cat >/dev/null; })"
+          bash scripts/cross-host-acceptance.sh \
+            --artifact "dist/$stage/bin/aura" \
+            --target "${{ matrix.name }}" \
+            --mode cross-file \
+            --report "dist/${{ matrix.name }}-acceptance.json"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: aura-${{ matrix.name }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+            dist/*-acceptance.json
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all tarballs
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Collect assets
+        id: assets
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets release-acceptance
+          # Artifacts may be nested per-job or flat depending on merge-multiple
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.sha256' \) -exec cp -v {} release-assets/ \;
+          find artifacts -type f -name '*-acceptance.json' -exec cp -v {} release-acceptance/ \;
+          ls -la release-assets
+          ls -la release-acceptance
+          version="${{ inputs.version }}"
+          for target in linux-amd64 linux-arm64 darwin-arm64 darwin-amd64; do
+            archive="aura-${version}-${target}.tar.gz"
+            checksum="${archive}.sha256"
+            test -f "release-assets/$archive" || { echo "error: missing $archive" >&2; exit 1; }
+            test -f "release-assets/$checksum" || { echo "error: missing $checksum" >&2; exit 1; }
+            (cd release-assets && sha256sum --check "$checksum")
+          done
+          count="$(find release-assets -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.sha256' \) | wc -l | tr -d ' ')"
+          test "$count" -eq 8 || { echo "error: expected exactly 8 target assets, found $count" >&2; exit 1; }
+
+      - name: Generate release manifest
+        run: |
+          set -euo pipefail
+          bash scripts/generate-release-manifest.sh \
+            --dir release-assets \
+            --acceptance-dir release-acceptance \
+            --version "${{ inputs.version }}" \
+            --output release-assets/release-manifest.json
+
+      - name: Generate aggregate SHA256 manifest
+        run: |
+          set -euo pipefail
+          manifest="release-assets/SHA256SUMS"
+          : >"$manifest"
+          # SHA256SUMS and its detached signature are metadata about the
+          # payload; excluding them avoids a self-referential manifest. The
+          # published minisign.pub is trust configuration, not a payload.
+          (
+            cd release-assets
+            find . -maxdepth 1 -type f \
+              ! -name 'SHA256SUMS' \
+              ! -name 'SHA256SUMS.minisig' \
+              ! -name 'minisign.pub' \
+              -print \
+              | sed 's#^\./##' \
+              | LC_ALL=C sort \
+              | while IFS= read -r asset; do
+                  sha256sum "$asset"
+                done
+          ) >"$manifest"
+          [[ -s "$manifest" ]] || { echo "error: aggregate manifest is empty" >&2; exit 1; }
+          echo "generated $manifest covering $(wc -l <"$manifest" | tr -d ' ') assets"
+
+      - name: Sign aggregate manifest (mandatory, minisign)
+        if: ${{ !inputs.dry_run }}
+        env:
+          AURA_MINISIGN_SECRET_KEY: ${{ secrets.AURA_MINISIGN_SECRET_KEY }}
+          AURA_MINISIGN_PUBLIC_KEY: ${{ vars.AURA_MINISIGN_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          # The private key is supplied only through GitHub Actions Secrets and
+          # is never checked into or written to the repository checkout.
+          [[ -n "${AURA_MINISIGN_SECRET_KEY:-}" ]] || {
+            echo "error: production releases require AURA_MINISIGN_SECRET_KEY" >&2
+            exit 1
+          }
+          [[ -n "${AURA_MINISIGN_PUBLIC_KEY:-}" ]] || {
+            echo "error: AURA_MINISIGN_PUBLIC_KEY repository variable is required when signing is enabled" >&2
+            exit 1
+          }
+          command -v minisign >/dev/null 2>&1 || {
+            sudo apt-get update
+            sudo apt-get install -y minisign
+          }
+          key_file="$(mktemp)"
+          pub_file="$(mktemp)"
+          trap 'rm -f "$key_file" "$pub_file"' EXIT
+          umask 077
+          printf '%s\n' "$AURA_MINISIGN_SECRET_KEY" >"$key_file"
+          printf '%s\n' "$AURA_MINISIGN_PUBLIC_KEY" >"$pub_file"
+          minisign -Sm release-assets/SHA256SUMS -s "$key_file"
+          minisign -Vm release-assets/SHA256SUMS -p "$pub_file" >/dev/null
+          cp "$pub_file" release-assets/minisign.pub
+          echo "signed release-assets/SHA256SUMS"
+
+      - name: Validate release bundle (dry-run)
+        if: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          bash scripts/validate-release-bundle.sh \
+            --dir release-assets \
+            --acceptance-dir release-acceptance \
+            --version "${{ inputs.version }}"
+
+      - name: Verify complete signed release bundle
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          bash scripts/validate-release-bundle.sh \
+            --dir release-assets \
+            --acceptance-dir release-acceptance \
+            --version "${{ inputs.version }}" \
+            --require-signature
+
+      - name: Release notes body
+        id: notes
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="v${RELEASE_VERSION}"
+          VER="${TAG#v}"
+          BODY_FILE=release-body.md
+          {
+            echo "## Aura ${TAG}"
+            echo
+            if [[ -f "docs/releases/${VER}.md" ]]; then
+              echo "Release notes: see \`docs/releases/${VER}.md\` in the tag."
+              echo
+            fi
+            if [[ -f CHANGELOG.md ]]; then
+              echo "### Changelog"
+              echo
+              # First section after the title (best-effort)
+              awk 'BEGIN{p=0} /^## /{if(p){exit} p=1; next} p{print}' CHANGELOG.md | head -80
+              echo
+            fi
+            echo "### Install (tarball)"
+            echo
+            echo '```bash'
+            echo "tar xzf aura-*-<os>-<arch>.tar.gz"
+            echo 'export PATH="$PWD/aura-*/bin:$PATH"'
+            echo "aura version"
+            echo "aura new hello && aura run hello"
+            echo '```'
+            echo
+            echo "### Install (from source at this tag)"
+            echo
+            echo '```bash'
+            echo "git clone --branch ${TAG} https://github.com/${GITHUB_REPOSITORY}.git aura"
+            echo "cd aura && cargo install --path crates/aura-cli"
+            echo '```'
+            echo
+            echo "Requires a system C compiler (\`cc\`) to build Aura programs."
+            echo "Docs: https://aura.fadosoft.com"
+          } >"$BODY_FILE"
+          echo "path=$BODY_FILE" >>"$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="v${{ inputs.version }}"
+          PRE=()
+          if [[ "$TAG" == *alpha* || "$TAG" == *beta* || "$TAG" == *rc* ]]; then
+            PRE+=(--prerelease)
+          fi
+          # Idempotent-ish: if release exists, upload assets; else create
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/* --clobber
+            gh release edit "$TAG" --notes-file "${{ steps.notes.outputs.path }}" "${PRE[@]+"${PRE[@]}"}"
+          else
+            gh release create "$TAG" \
+              --title "Aura ${TAG}" \
+              --notes-file "${{ steps.notes.outputs.path }}" \
+              "${PRE[@]+"${PRE[@]}"}" \
+              release-assets/*
+          fi
