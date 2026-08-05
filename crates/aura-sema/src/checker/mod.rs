@@ -704,63 +704,6 @@ impl Checker {
             .is_ok()
     }
 
-    /// Resolve free function by simple name (C3o: prefer same package, then unique visible).
-    pub(crate) fn resolve_fun(&self, name: &str, span: Span) -> Result<FunSig, SemaError> {
-        let list = self.functions.get(name).ok_or_else(|| SemaError {
-            message: format!("undefined function `{name}`"),
-            span,
-        })?;
-        let visible: Vec<&FunSig> = list
-            .iter()
-            .filter(|s| self.is_visible(name, s.is_pub, &s.package))
-            .collect();
-        if visible.is_empty() {
-            if let Some(s) = list.first() {
-                self.check_visible(name, s.is_pub, &s.package, span)?;
-            }
-            return Err(SemaError {
-                message: format!("undefined function `{name}`"),
-                span,
-            });
-        }
-        let same_pkg: Vec<&FunSig> = visible
-            .iter()
-            .copied()
-            .filter(|s| s.package == self.current_package)
-            .collect();
-        if same_pkg.len() == 1 {
-            return Ok(same_pkg[0].clone());
-        }
-        if visible.len() == 1 {
-            return Ok(visible[0].clone());
-        }
-        // C4g: prefer std.* over builtins (empty package) when both are visible.
-        let non_builtin: Vec<&FunSig> = visible
-            .iter()
-            .copied()
-            .filter(|s| !s.package.is_empty())
-            .collect();
-        if non_builtin.len() == 1 {
-            return Ok(non_builtin[0].clone());
-        }
-        let std_pref: Vec<&FunSig> = non_builtin
-            .iter()
-            .copied()
-            .filter(|s| s.package.starts_with("std."))
-            .collect();
-        if std_pref.len() == 1 {
-            return Ok(std_pref[0].clone());
-        }
-        let pkgs: Vec<&str> = visible.iter().map(|s| s.package.as_str()).collect();
-        Err(SemaError {
-            message: format!(
-                "ambiguous function `{name}` from packages {}; use `import … as Alias` and `Alias.{name}`",
-                pkgs.join(", ")
-            ),
-            span,
-        })
-    }
-
     /// Return all visible overloads in the selected package scope. A same-
     /// package declaration set wins over imported packages, matching the
     /// legacy single-function resolver while preserving overload candidates.
@@ -822,28 +765,6 @@ impl Checker {
             ),
             span,
         })
-    }
-
-    pub(crate) fn resolve_fun_in_package(
-        &self,
-        name: &str,
-        pkg: &str,
-        span: Span,
-    ) -> Result<FunSig, SemaError> {
-        let list = self.functions.get(name).ok_or_else(|| SemaError {
-            message: format!("undefined function `{name}` in package `{pkg}`"),
-            span,
-        })?;
-        let sig = list
-            .iter()
-            .find(|s| s.package == pkg)
-            .cloned()
-            .ok_or_else(|| SemaError {
-                message: format!("`{name}` is not a member of package `{pkg}`"),
-                span,
-            })?;
-        self.check_visible(name, sig.is_pub, &sig.package, span)?;
-        Ok(sig)
     }
 
     pub(crate) fn resolve_fun_candidates_in_package(

@@ -228,25 +228,25 @@ fn expand_interface_defaults(file: &mut File) -> Vec<SemaError> {
                 &mut seen,
                 &mut interface_defaults,
             );
-            for (name, method) in interface_defaults {
-                if let Some((_, existing_interface)) = defaults.get(&name) {
+            for (key, method) in interface_defaults {
+                if let Some((existing_method, existing_interface)) = defaults.get(&key) {
                     errors.push(SemaError {
                         message: format!(
                             "conflicting default method `{}` from interfaces `{}` and `{}`; override it in the class",
-                            name, existing_interface, method.1
+                            existing_method.name.name, existing_interface, method.1
                         ),
                         span: method.0.name.span,
                     });
                 } else {
-                    defaults.insert(name, method);
+                    defaults.insert(key, method);
                 }
             }
         }
-        for (name, (method, _interface)) in defaults {
+        for (_key, (method, _interface)) in defaults {
             if class
                 .methods
                 .iter()
-                .any(|existing| existing.name.name == name)
+                .any(|existing| fun_default_method_key(existing) == default_method_key(&method))
             {
                 continue;
             }
@@ -300,14 +300,35 @@ fn collect_interface_defaults(
         if method.body.is_none() {
             continue;
         }
-        defaults.insert(
-            method.name.name.clone(),
-            (
-                substitute_method_sig(method, &substitutions),
-                name.to_string(),
-            ),
-        );
+        let method = substitute_method_sig(method, &substitutions);
+        defaults.insert(default_method_key(&method), (method, name.to_string()));
     }
+}
+
+fn default_method_key(method: &MethodSig) -> String {
+    format!(
+        "{}:{}",
+        method.name.name,
+        method
+            .params
+            .iter()
+            .map(|param| format!("{:?}", param.ty))
+            .collect::<Vec<_>>()
+            .join(",")
+    )
+}
+
+fn fun_default_method_key(method: &FunDecl) -> String {
+    format!(
+        "{}:{}",
+        method.name.name,
+        method
+            .params
+            .iter()
+            .map(|param| format!("{:?}", param.ty))
+            .collect::<Vec<_>>()
+            .join(",")
+    )
 }
 
 fn substitute_method_sig(

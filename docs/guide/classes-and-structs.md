@@ -53,6 +53,27 @@ class User(var name: String) {
 Constructor calls select the primary or secondary overload by argument count
 and type. Structs only support their primary constructor.
 
+### Defaults, varargs, and overloads
+
+Defaults are evaluated at the call site and must be trailing. Primary and
+secondary constructors, class methods, interface methods, and top-level
+functions may use them:
+
+```aura
+class User(val id: Int, val label: String = "user") {}
+fun greet(prefix: String = "hello"): String { return prefix }
+```
+
+Use `vararg xs: T` for a final variadic parameter. Inside the declaration,
+`xs` has type `Array<T>`; each call creates the array from the extra arguments:
+
+```aura
+fun count(vararg values: Int): Int { return values.len }
+```
+
+Overloads are selected by argument types, defaults, and generic bounds. An
+ambiguous call is rejected with the candidate declaration spans.
+
 ## Inheritance and overriding
 
 Aura supports **single class inheritance**. Classes are final by default; mark a

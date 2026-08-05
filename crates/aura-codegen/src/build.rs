@@ -3280,6 +3280,45 @@ fun main() { println(User(1).label) }
     }
 
     #[test]
+    fn builds_and_runs_interface_default_method_overloads() {
+        let file = parse_file(
+            r#"package demo.interface_default_overloads
+interface Picker {
+  fun pick(value: Int): Int { return 1 }
+  fun pick(value: String): Int { return 2 }
+}
+class Impl() : Picker {}
+fun main() {
+  val picker: Picker = Impl()
+  println(picker.pick(1).toString())
+  println(picker.pick("x").toString())
+}
+"#,
+        )
+        .expect("parse interface default overload fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-interface-default-overloads-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile interface default overload fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run interface default overload fixture");
+        assert!(
+            output.status.success(),
+            "interface default overload fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "1\n2\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_super_method_call_without_virtual_reentry() {
         let file = parse_file(
             r#"package demo.super_call
