@@ -6219,7 +6219,7 @@ mod tests {
     }
 
     #[test]
-    fn channel_operations_lower_to_neutral_async_ops() {
+    fn channel_creation_lowers_to_async_op_and_methods_remain_calls() {
         let file = aura_parser::parse_file(
             "package demo\nfun run(): Unit { val channel: Channel<Int> = Channel<Int>(1) channel.send(7) channel.receive() channel.close() return }\n",
         )
@@ -6233,20 +6233,43 @@ mod tests {
             .find(|function| function.name == "run")
             .and_then(|function| function.body.as_ref())
             .expect("run MIR");
-        assert_eq!(
-            body.blocks
-                .iter()
-                .flat_map(|block| block.statements.iter())
-                .filter(|statement| matches!(
+        let async_op_count = body
+            .blocks
+            .iter()
+            .flat_map(|block| block.statements.iter())
+            .filter(|statement| {
+                matches!(
                     statement,
                     mir::Statement::Assign {
                         value: mir::Rvalue::AsyncOp(_),
                         ..
                     } | mir::Statement::Evaluate(mir::Rvalue::AsyncOp(_))
-                ))
-                .count(),
-            4
-        );
+                )
+            })
+            .count();
+        assert_eq!(async_op_count, 1);
+
+        let method_calls = body
+            .blocks
+            .iter()
+            .flat_map(|block| block.statements.iter())
+            .filter_map(|statement| match statement {
+                mir::Statement::Assign {
+                    value: mir::Rvalue::Call { target, .. },
+                    ..
+                }
+                | mir::Statement::Evaluate(mir::Rvalue::Call { target, .. }) => {
+                    Some(target.name.as_str())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        for method in ["send", "receive", "close"] {
+            assert!(
+                method_calls.contains(&method),
+                "expected channel method call `{method}`, got {method_calls:?}"
+            );
+        }
     }
 
     #[test]

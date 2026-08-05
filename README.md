@@ -38,6 +38,8 @@ pnpm site:build
 
 ```bash
 cargo test --workspace
+# Repeated native codegen tests can use sccache/ccache for C object caching.
+AURA_CC_WRAPPER=sccache cargo test -p aura-codegen
 cargo install --path crates/aura-cli                    # install aura (embedded runtime)
 aura version
 cargo run -p aura-cli -- new hello                      # or in-tree without install

@@ -34,6 +34,11 @@ Read [RFC-000](/rfc/000) for principles. Use the [RFC catalog](/rfc) and [depend
 
 ```bash
 cargo test --workspace
+# During iteration, test only the crate or test group being changed.
+cargo test -p aura-sema
+cargo test -p aura-codegen emit::tests
+# Optional: cache generated C objects between repeated runs.
+AURA_CC_WRAPPER=sccache cargo test -p aura-codegen
 cargo run -p aura-cli -- check corpus/hello/main.aura
 pnpm install          # once, from repo root (site workspace package)
 pnpm site:test

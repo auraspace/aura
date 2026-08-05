@@ -17,6 +17,16 @@ use crate::options::{
 };
 use crate::validation::{compiler_command, validate_build};
 
+fn compiler_process(compiler: &str) -> Command {
+    if let Some(wrapper) = std::env::var_os("AURA_CC_WRAPPER") {
+        let mut command = Command::new(wrapper);
+        command.arg(compiler);
+        command
+    } else {
+        Command::new(compiler)
+    }
+}
+
 /// Stable identity of the backend build that produced an artifact.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildIdentity {
@@ -474,27 +484,66 @@ impl Backend for CBackend {
         ));
         fs::write(&c_path, &c_src).map_err(|e| CodegenError::Io(e.to_string()))?;
 
-        let mut command = Command::new(&compiler);
-        command
-            .arg(format!("-{}", options.profile_settings.optimization.flag()))
-            .arg("-std=c11");
+        let mut compile_flags = vec![
+            format!("-{}", options.profile_settings.optimization.flag()),
+            "-std=c11".to_owned(),
+        ];
         if options.profile_settings.debug {
-            command.arg("-g");
+            compile_flags.push("-g".into());
         }
         if options.profile_settings.lto != Lto::Off {
-            command.arg("-flto");
+            compile_flags.push("-flto".into());
         }
         if options.profile_settings.detector {
-            command.arg("-fsanitize=address,undefined");
+            compile_flags.push("-fsanitize=address,undefined".into());
         }
         if c_src.contains("AURA_TLS_REQUIRED") {
-            command.arg("-DAURA_TLS_ENABLE=1");
+            compile_flags.push("-DAURA_TLS_ENABLE=1".into());
             for include in ["/opt/homebrew/include", "/usr/local/include"] {
                 if Path::new(include).join("openssl/ssl.h").is_file() {
-                    command.arg("-I").arg(include);
+                    compile_flags.push("-I".into());
+                    compile_flags.push(include.into());
                     break;
                 }
             }
+        }
+
+        let c_object = parent.join(format!(
+            "{}.aura.o",
+            out_bin
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("out")
+        ));
+        let runtime_object = parent.join(format!(
+            "{}.runtime.o",
+            out_bin
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("out")
+        ));
+        for (source, object) in [
+            (c_path.as_path(), c_object.as_path()),
+            (runtime_c, runtime_object.as_path()),
+        ] {
+            let status = compiler_process(&compiler)
+                .args(&compile_flags)
+                .arg("-c")
+                .arg(source)
+                .arg("-o")
+                .arg(object)
+                .status()
+                .map_err(|e| CodegenError::Compile(format!("failed to spawn {compiler}: {e}")))?;
+            if !status.success() {
+                return Err(CodegenError::Compile(format!(
+                    "{compiler} failed compiling source {} with status {status}",
+                    source.display()
+                )));
+            }
+        }
+
+        let mut command = compiler_process(&compiler);
+        if c_src.contains("AURA_TLS_REQUIRED") {
             for library in ["/opt/homebrew/lib", "/usr/local/lib"] {
                 if Path::new(library).join("libssl.dylib").is_file()
                     || Path::new(library).join("libssl.so").is_file()
@@ -504,6 +553,7 @@ impl Backend for CBackend {
                 }
             }
         }
+        command.args(&compile_flags);
         if let Some(linker) = &options.profile_settings.linker {
             command.arg(format!("-fuse-ld={linker}"));
         }
@@ -536,8 +586,8 @@ impl Backend for CBackend {
             }
         }
         command
-            .arg(&c_path)
-            .arg(runtime_c)
+            .arg(&c_object)
+            .arg(&runtime_object)
             .args(&foreign_link_args)
             .arg("-lz");
         if c_src.contains("AURA_TLS_REQUIRED") {
