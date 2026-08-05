@@ -117,6 +117,22 @@ impl Checker {
     ) -> Result<Ty, SemaError> {
         match expr {
             Expr::Ident(id) => {
+                if id.name == "super" {
+                    let class = self.current_class.as_ref().ok_or_else(|| SemaError {
+                        message: "`super` is only valid inside subclass methods".into(),
+                        span: id.span,
+                    })?;
+                    let sig = self
+                        .class_in_package(class, &self.current_package)
+                        .ok_or_else(|| SemaError {
+                            message: format!("unknown current class `{class}`"),
+                            span: id.span,
+                        })?;
+                    return sig.superclass.clone().ok_or_else(|| SemaError {
+                        message: "`super` is only valid inside a subclass".into(),
+                        span: id.span,
+                    });
+                }
                 if let Some((frame, local)) = self.lookup_local_frame(&id.name) {
                     let ty = local.ty.clone();
                     let mutable = local.mutable;

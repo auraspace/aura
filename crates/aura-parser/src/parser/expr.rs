@@ -179,6 +179,13 @@ impl Parser {
                 let span = self.bump().span;
                 Ok(Expr::This(span))
             }
+            TokenKind::Super => {
+                let span = self.bump().span;
+                Ok(Expr::Ident(Ident {
+                    name: "super".into(),
+                    span,
+                }))
+            }
             TokenKind::Int(v) => {
                 let span = self.peek().span;
                 let value = *v;

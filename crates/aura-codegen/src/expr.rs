@@ -410,6 +410,23 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
             "String".into()
         }
         Expr::Ident(i) => {
+            if i.name == "super" {
+                return ctx
+                    .method_class
+                    .and_then(|class| {
+                        let base = mono_base_name(class, ctx.checked).unwrap_or(class);
+                        crate::class_emit::direct_superclass(
+                            ctx.checked,
+                            ctx.checked
+                                .ast
+                                .classes
+                                .iter()
+                                .find(|c| c.name.name == base)?,
+                        )
+                    })
+                    .map(|parent| parent.name.name.clone())
+                    .unwrap_or_else(|| "Int".into());
+            }
             if let Some(t) = ctx.lookup_local(&i.name) {
                 return t.to_string();
             }
@@ -1380,6 +1397,9 @@ pub(crate) fn owned_string_copy_expr(code: String, span: Span) -> String {
 pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
     match expr {
         Expr::Ident(i) => {
+            if i.name == "super" {
+                return "this".into();
+            }
             // Inside method: bare field names → this->field
             if let Some(class) = ctx.method_class {
                 let base = mono_base_name(class, ctx.checked).unwrap_or(class);
@@ -3198,6 +3218,14 @@ pub(crate) fn coerce_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>)
 
 pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String> {
     match expr {
+        Expr::Ident(id) if id.name == "super" => ctx
+            .method_class
+            .and_then(|class| {
+                let base = mono_base_name(class, ctx.checked).unwrap_or(class);
+                ctx.checked.ast.classes.iter().find(|c| c.name.name == base)
+            })
+            .and_then(|class| crate::class_emit::direct_superclass(ctx.checked, class))
+            .map(|parent| parent.name.name.clone()),
         Expr::Ident(id) => ctx.lookup_local(&id.name).map(|s| s.to_string()),
         Expr::This(_) => ctx.method_class.map(|s| s.to_string()),
         Expr::ForceUnwrap(f) => {
@@ -3458,6 +3486,9 @@ pub(crate) fn array_field_move_out_lvalue(e: &Expr, ctx: &mut EmitCtx<'_>) -> Op
             Some(field_access_c(&obj, f, ctx))
         }
         Expr::Ident(i) => {
+            if i.name == "super" {
+                return Some("this".into());
+            }
             // Owning local/param: normal Array move path (C5b/C6d), not field.
             if ctx.is_array_owner(&i.name) {
                 return None;

@@ -1262,6 +1262,18 @@ fun main() { val shape: Shape = Square(4) }
 }
 
 #[test]
+fn super_method_call_typechecks() {
+    let src = r#"
+package t
+open class Base() { open fun label(): String { return "base" } }
+class Child() : Base() { override fun label(): String { return super.label() } }
+fun main() { val child = Child() child.label() }
+"#;
+    let file = parse_file(src).expect("parse super method call");
+    check_file(&file).expect("super method call");
+}
+
+#[test]
 fn private_members_are_only_visible_inside_the_declaring_class() {
     let src = r#"
 package t

@@ -260,6 +260,23 @@ abstract class Shape() {
 }
 
 #[test]
+fn parses_super_method_call() {
+    let src = r#"
+package main
+open class Base() { open fun label(): String { return "base" } }
+class Child() : Base() { override fun label(): String { return super.label() } }
+    "#;
+    let file = parse_file(src).expect("parse super method call");
+    assert!(matches!(
+        &file.classes[1].methods[0].body.stmts[0],
+        Stmt::Return(ReturnStmt {
+            value: Some(Expr::Call(_)),
+            ..
+        })
+    ));
+}
+
+#[test]
 fn parses_member_visibility() {
     let src = r#"
 package main

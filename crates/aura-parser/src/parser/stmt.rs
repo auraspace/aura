@@ -304,6 +304,7 @@ impl Parser {
             | TokenKind::False
             | TokenKind::Null
             | TokenKind::This
+            | TokenKind::Super
             | TokenKind::LParen
             | TokenKind::Minus
             | TokenKind::Bang

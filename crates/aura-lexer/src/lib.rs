@@ -65,6 +65,8 @@ pub enum TokenKind {
     /// The `object` half of `companion object`.
     Object,
     This,
+    /// Parent receiver used by `super.method()`.
+    Super,
     /// Generic constraint clause: `where T : Named`.
     Where,
     /// C9i: `x is Type` type test.
@@ -180,6 +182,7 @@ impl TokenKind {
                 | TokenKind::Companion
                 | TokenKind::Object
                 | TokenKind::This
+                | TokenKind::Super
                 | TokenKind::Where
                 | TokenKind::Is
                 | TokenKind::Async
@@ -521,6 +524,7 @@ impl<'a> Lexer<'a> {
             "companion" => TokenKind::Companion,
             "object" => TokenKind::Object,
             "this" => TokenKind::This,
+            "super" => TokenKind::Super,
             "where" => TokenKind::Where,
             "is" => TokenKind::Is,
             "async" => TokenKind::Async,

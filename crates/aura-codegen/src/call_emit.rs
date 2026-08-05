@@ -952,7 +952,8 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
 
         // C3y: heap classes are already pointers; structs/Array need &.
         // Inherited methods receive a pointer to the child prefix layout.
-        let this_arg = if owner.is_some_and(|class| class.name.name != base) {
+        let is_super = matches!(fe.object.as_ref(), Expr::Ident(id) if id.name == "super");
+        let this_arg = if is_super || owner.is_some_and(|class| class.name.name != base) {
             format!("(({} *)({obj}))", c_class_type(&owner_mono))
         } else if is_heap_class_mono(&mono, ctx.checked) {
             if matches!(fe.object.as_ref(), Expr::This(_)) {
@@ -1004,7 +1005,8 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     args.join(", ")
                 );
                 let call = if let Some(static_class) = current_class {
-                    let is_virtual = m.modifiers.contains(&aura_ast::Modifier::Open)
+                    let is_virtual = !is_super
+                        && m.modifiers.contains(&aura_ast::Modifier::Open)
                         && is_heap_class_decl(static_class);
                     let children = if is_virtual {
                         virtual_overrides(ctx.checked, static_class, &fe.field.name)
