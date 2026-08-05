@@ -18,6 +18,28 @@ pub(crate) fn c_iface_method_name(iface_mono: &str, method: &str) -> String {
     format!("aura_iface_{iface_mono}_{method}")
 }
 
+pub(crate) fn c_iface_method_name_with_params(
+    iface_mono: &str,
+    method: &str,
+    param_keys: &[String],
+    overloaded: bool,
+) -> String {
+    let base = c_iface_method_name(iface_mono, method);
+    if !overloaded {
+        return base;
+    }
+    let suffix = param_keys
+        .iter()
+        .map(|key| {
+            key.chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("_");
+    format!("{base}__ovl_{suffix}")
+}
+
 /// Package for an interface decl (C4d).
 pub(crate) fn iface_decl_package(i: &InterfaceDecl, checked: &CheckedFile) -> String {
     if i.origin_package.is_empty() {

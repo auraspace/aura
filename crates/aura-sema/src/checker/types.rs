@@ -380,6 +380,64 @@ impl Checker {
         methods
     }
 
+    pub(crate) fn interface_method_overloads(
+        &self,
+        iface_ty: &Ty,
+    ) -> HashMap<String, Vec<crate::sigs::IfaceMethodSig>> {
+        let mut methods = HashMap::new();
+        let mut seen = std::collections::HashSet::new();
+        self.collect_interface_method_overloads(iface_ty, &mut methods, &mut seen);
+        methods
+    }
+
+    fn collect_interface_method_overloads(
+        &self,
+        iface_ty: &Ty,
+        methods: &mut HashMap<String, Vec<crate::sigs::IfaceMethodSig>>,
+        seen: &mut std::collections::HashSet<Ty>,
+    ) {
+        if !seen.insert(iface_ty.clone()) {
+            return;
+        }
+        let Some(key) = iface_ty.iface_key() else {
+            return;
+        };
+        let Some(iface) = self.iface_by_nominal_key(key) else {
+            return;
+        };
+        let subst = crate::util::type_subst_map(&iface.type_params, iface_ty.iface_args());
+        for parent in &iface.parents {
+            self.collect_interface_method_overloads(
+                &crate::util::subst_ty(parent, &subst),
+                methods,
+                seen,
+            );
+        }
+        let declared = iface
+            .method_overloads
+            .iter()
+            .map(|(name, overloads)| (name.clone(), overloads.clone()))
+            .collect::<HashMap<_, _>>();
+        for (name, overloads) in declared {
+            let entry = methods.entry(name).or_default();
+            for method in overloads {
+                let mut resolved = method;
+                resolved.params = resolved
+                    .params
+                    .iter()
+                    .map(|param| crate::util::subst_ty(param, &subst))
+                    .collect();
+                resolved.ret = crate::util::subst_ty(&resolved.ret, &subst);
+                if !entry
+                    .iter()
+                    .any(|existing| existing.params == resolved.params)
+                {
+                    entry.push(resolved);
+                }
+            }
+        }
+    }
+
     fn collect_interface_methods(
         &self,
         iface_ty: &Ty,

@@ -3207,6 +3207,79 @@ fun main() { println(Picker.pick(1).toString()) println(Picker.pick("x").toStrin
     }
 
     #[test]
+    fn builds_and_runs_interface_method_overloads() {
+        let file = parse_file(
+            r#"package demo.interface_overloads
+interface Picker {
+  fun pick(value: Int): Int
+  fun pick(value: String): Int
+}
+class Impl() : Picker {
+  fun pick(value: Int): Int { return 1 }
+  fun pick(value: String): Int { return 2 }
+}
+fun main() {
+  val picker: Picker = Impl()
+  println(picker.pick(1).toString())
+  println(picker.pick("x").toString())
+}
+"#,
+        )
+        .expect("parse interface overload fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-interface-overloads-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile interface overload fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run interface overload fixture");
+        assert!(
+            output.status.success(),
+            "interface overload fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "1\n2\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_primary_constructor_default() {
+        let file = parse_file(
+            r#"package demo.primary_default
+class User(val id: Int, val label: String = "user") {}
+fun main() { println(User(1).label) }
+"#,
+        )
+        .expect("parse primary constructor default fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-primary-default-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile primary constructor default fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run primary constructor default fixture");
+        assert!(
+            output.status.success(),
+            "primary constructor default failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "user\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_super_method_call_without_virtual_reentry() {
         let file = parse_file(
             r#"package demo.super_call

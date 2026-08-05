@@ -84,6 +84,59 @@ impl Checker {
         }
     }
 
+    fn select_interface_method_overload(
+        &mut self,
+        candidates: &[crate::sigs::IfaceMethodSig],
+        c: &CallExpr,
+        label: &str,
+    ) -> Result<(crate::sigs::IfaceMethodSig, Vec<Ty>, Ty), SemaError> {
+        let mut applicable = Vec::new();
+        let mut last_error = None;
+        for method in candidates {
+            let method_subst = type_subst_map(&[], &[]);
+            let params = method
+                .params
+                .iter()
+                .map(|param| subst_ty(param, &method_subst))
+                .collect::<Vec<_>>();
+            if let Err(err) = self.check_args_with_shape(
+                &params,
+                method.required_params,
+                method.is_vararg,
+                &c.args,
+                label,
+                c.span,
+            ) {
+                last_error = Some(err);
+                continue;
+            }
+            applicable.push((method.clone(), params, method.ret.clone()));
+        }
+        match applicable.len() {
+            1 => {
+                let (method, params, ret) = applicable.remove(0);
+                Ok((method, params, ret))
+            }
+            0 => Err(last_error.unwrap_or_else(|| SemaError {
+                message: format!("no overload of `{label}` accepts these arguments"),
+                span: c.span,
+            })),
+            _ => Err(SemaError {
+                message: format!(
+                    "ambiguous overload of `{label}`; candidates at spans {}",
+                    applicable
+                        .iter()
+                        .map(|(method, _, _)| {
+                            format!("{}..{}", method.span.start, method.span.end)
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                span: c.span,
+            }),
+        }
+    }
+
     pub(crate) fn check_call(
         &mut self,
         c: &CallExpr,
@@ -347,26 +400,43 @@ impl Checker {
                 name: iface_name, ..
             } = &obj_ty
             {
-                let method = self
-                    .interface_methods(&obj_ty)
-                    .get(&fe.field.name)
-                    .cloned()
-                    .ok_or_else(|| SemaError {
+                let candidates = self
+                    .interface_method_overloads(&obj_ty)
+                    .remove(&fe.field.name)
+                    .unwrap_or_default();
+                if candidates.is_empty() {
+                    return Err(SemaError {
                         message: format!(
                             "unknown method `{}` on interface `{iface_name}`",
                             fe.field.name
                         ),
                         span: fe.field.span,
-                    })?;
-                self.check_args_with_shape(
-                    &method.params,
-                    method.required_params,
-                    method.is_vararg,
-                    &c.args,
-                    &format!("{}.{}", iface_name, method.name),
-                    c.span,
+                    });
+                }
+                let (method, _params, ret) = self.select_interface_method_overload(
+                    &candidates,
+                    c,
+                    &format!("{}.{}", iface_name, fe.field.name),
                 )?;
-                return Ok(method.ret);
+                self.call_instantiations.insert(
+                    c.span.start,
+                    CallInstantiation {
+                        is_constructor: false,
+                        name: method.name.clone(),
+                        package: iface_name.split('@').nth(1).unwrap_or_default().to_string(),
+                        type_args: obj_ty.iface_args().to_vec(),
+                        method_type_args: Vec::new(),
+                        is_static: false,
+                        constructor_index: None,
+                        declaration_span: Some(method.span),
+                        variant: None,
+                    },
+                );
+                return Ok(if safe_wrap {
+                    Ty::Nullable(Box::new(ret))
+                } else {
+                    ret
+                });
             }
 
             // Type param with interface bounds: call methods from any bound.
@@ -920,7 +990,7 @@ impl Checker {
 
         let subst = type_subst_map(&class.type_params, &type_args);
         let mut candidates = Vec::new();
-        if c.args.len() == class.fields.len() {
+        if c.args.len() >= class.primary_required_params && c.args.len() <= class.fields.len() {
             candidates.push((
                 0usize,
                 class
@@ -928,23 +998,45 @@ impl Checker {
                     .iter()
                     .map(|f| f.ty.clone())
                     .collect::<Vec<_>>(),
+                class.primary_required_params,
+                false,
             ));
         }
         for (index, ctor) in class.constructors.iter().enumerate() {
             if c.args.len() >= ctor.required_params
                 && (ctor.is_vararg || c.args.len() <= ctor.params.len())
             {
-                candidates.push((index + 1, ctor.params.clone()));
+                candidates.push((
+                    index + 1,
+                    ctor.params.clone(),
+                    ctor.required_params,
+                    ctor.is_vararg,
+                ));
             }
         }
-        let Some((constructor_index, params)) = candidates.into_iter().find(|(_, params)| {
-            c.args.iter().zip(params).all(|(arg, param)| {
-                let exp = subst_ty(param, &subst);
-                self.check_expr_expected(arg, Some(&exp))
-                    .map(|got| self.is_assignable(&got, &exp))
-                    .unwrap_or(false)
-            })
-        }) else {
+        let mut applicable = Vec::new();
+        let mut last_error = None;
+        for (index, params, required, is_vararg) in candidates {
+            let params = params
+                .iter()
+                .map(|param| subst_ty(param, &subst))
+                .collect::<Vec<_>>();
+            match self.check_args_with_shape(
+                &params,
+                required,
+                is_vararg,
+                &c.args,
+                &format!("constructor `{name}`"),
+                c.span,
+            ) {
+                Ok(()) => applicable.push((index, params, required, is_vararg)),
+                Err(err) => last_error = Some(err),
+            }
+        }
+        if applicable.is_empty() {
+            if let Some(err) = last_error {
+                return Err(err);
+            }
             return Err(SemaError {
                 message: format!(
                     "no constructor of `{}` accepts {} argument(s)",
@@ -953,26 +1045,31 @@ impl Checker {
                 ),
                 span: c.span,
             });
-        };
-        for (index, arg) in c.args.iter().enumerate() {
-            let param = params
-                .get(index)
-                .or_else(|| params.last())
-                .expect("applicable constructor has a parameter");
-            let exp = subst_ty(param, &subst);
-            let got = self.check_expr_expected(arg, Some(&exp))?;
-            if !self.is_assignable(&got, &exp) {
-                return Err(SemaError {
-                    message: format!(
-                        "constructor argument for `{}`: expected {}, got {}",
-                        name,
-                        exp.display(),
-                        got.display()
-                    ),
-                    span: arg.span(),
-                });
-            }
         }
+        if applicable.len() > 1 {
+            return Err(SemaError {
+                message: format!(
+                    "ambiguous constructor overload of `{name}`; candidates at spans {}",
+                    applicable
+                        .iter()
+                        .map(|(index, _, _, _)| {
+                            if *index == 0 {
+                                class.span.start.to_string()
+                            } else {
+                                class
+                                    .constructors
+                                    .get(index - 1)
+                                    .map(|ctor| ctor.span.start.to_string())
+                                    .unwrap_or_else(|| "?".into())
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                span: c.span,
+            });
+        }
+        let (constructor_index, _params, _, _) = applicable.remove(0);
 
         let key = nominal_key(&class.package, &name);
         // Always record so Alias.Type(...) codegen can emit a constructor (C3u/C3v).

@@ -276,6 +276,7 @@ pub struct ConstructorDecl {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldDecl {
     pub attributes: Vec<Attribute>,
+    pub default: Option<Expr>,
     pub visibility: MemberVisibility,
     pub mutable: bool,
     pub name: Ident,

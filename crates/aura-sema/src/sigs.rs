@@ -86,6 +86,7 @@ pub struct ClassSig {
     /// Implemented interfaces as `Ty::Interface` or `Ty::InterfaceApp` (C8c).
     pub implements: Vec<Ty>,
     pub fields: Vec<FieldSig>,
+    pub primary_required_params: usize,
     /// Secondary constructors; index 0 is the implicit primary constructor.
     pub constructors: Vec<ConstructorSig>,
     /// All declarations for each method name; `methods` retains the first
@@ -103,6 +104,7 @@ pub struct InterfaceSig {
     /// C7i/C8c: declared type params; implements may monomorphize.
     pub type_params: Vec<String>,
     pub parents: Vec<Ty>,
+    pub method_overloads: HashMap<String, Vec<IfaceMethodSig>>,
     pub methods: HashMap<String, IfaceMethodSig>,
     pub span: Span,
 }

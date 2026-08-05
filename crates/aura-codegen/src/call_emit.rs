@@ -415,14 +415,22 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                             .map(|p| p.name.name.clone())
                             .collect();
                         let mut field_keys = Vec::new();
-                        let args = c
-                            .args
+                        let args = class
+                            .fields
                             .iter()
-                            .zip(class.fields.iter())
-                            .map(|(a, f)| {
+                            .enumerate()
+                            .map(|(index, f)| {
                                 let expected = type_ref_local_key(&f.ty, &tparams, &targs);
                                 field_keys.push(expected.clone());
-                                coerce_owner_arg_expr(a, &expected, ctx)
+                                c.args
+                                    .get(index)
+                                    .map(|a| coerce_owner_arg_expr(a, &expected, ctx))
+                                    .or_else(|| {
+                                        f.default.as_ref().map(|default| {
+                                            coerce_default_arg_expr(default, &expected, ctx)
+                                        })
+                                    })
+                                    .unwrap_or_default()
                             })
                             .collect::<Vec<_>>()
                             .join(", ");
@@ -574,16 +582,34 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             let imono = resolve_iface_mono_key(iface_key, ctx.checked);
             let mut args = Vec::new();
             let (iface_decl, iargs) = resolve_iface_decl_and_args(iface_key, ctx.checked);
+            let selected_span = ctx
+                .checked
+                .call_instantiations
+                .get(&c.span.start)
+                .and_then(|inst| inst.declaration_span);
+            let mut selected_method = None;
             if let Some(i) = iface_decl {
                 let tparams: Vec<String> =
                     i.type_params.iter().map(|p| p.name.name.clone()).collect();
-                if let Some(m) = i.methods.iter().find(|m| m.name.name == fe.field.name) {
+                if let Some(m) = i.methods.iter().find(|m| {
+                    m.name.name == fe.field.name && selected_span.is_none_or(|span| m.span == span)
+                }) {
+                    selected_method = Some(m);
                     for (index, p) in m.params.iter().enumerate() {
+                        if p.is_vararg {
+                            let expected = param_local_key(p, &tparams, &iargs);
+                            let element = expected
+                                .strip_prefix("Array_")
+                                .unwrap_or(expected.as_str())
+                                .to_string();
+                            args.push(emit_vararg_array(&c.args[index..], &element, ctx));
+                            break;
+                        }
                         if let Some(a) = c.args.get(index) {
-                            let expected = type_ref_local_key(&p.ty, &tparams, &iargs);
+                            let expected = param_local_key(p, &tparams, &iargs);
                             args.push(coerce_owner_arg_expr(a, &expected, ctx));
                         } else if let Some(default) = &p.default {
-                            let expected = type_ref_local_key(&p.ty, &tparams, &iargs);
+                            let expected = param_local_key(p, &tparams, &iargs);
                             args.push(coerce_default_arg_expr(default, &expected, ctx));
                         }
                     }
@@ -606,7 +632,27 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             };
             return format!(
                 "({{ {cty} {receiver} = ({obj}); {}({call_args}); }})",
-                c_iface_method_name(&imono, &fe.field.name),
+                c_iface_method_name_with_params(
+                    &imono,
+                    &fe.field.name,
+                    &selected_method
+                        .map(|method| {
+                            method
+                                .params
+                                .iter()
+                                .map(|param| param_local_key(param, &[], &[]))
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default(),
+                    iface_decl.is_some_and(|iface| {
+                        iface
+                            .methods
+                            .iter()
+                            .filter(|method| method.name.name == fe.field.name)
+                            .count()
+                            > 1
+                    }),
+                ),
             );
         }
 
@@ -1398,13 +1444,20 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 // C6i: Array primary-ctor fields own the buffer — move from owner idents.
                 let mut field_keys = Vec::new();
                 let mut owned_string_temps = Vec::new();
-                let args = c
-                    .args
+                let args = class
+                    .fields
                     .iter()
-                    .zip(class.fields.iter())
-                    .map(|(a, f)| {
+                    .enumerate()
+                    .map(|(index, f)| {
                         let expected = type_ref_local_key(&f.ty, &params, &targs);
                         field_keys.push(expected.clone());
+                        let Some(a) = c.args.get(index) else {
+                            return f
+                                .default
+                                .as_ref()
+                                .map(|default| coerce_default_arg_expr(default, &expected, ctx))
+                                .unwrap_or_default();
+                        };
                         if expected == "String" && string_expr_is_owned_temp(a, ctx) {
                             let temp = format!("__aura_ctor_string_{}", a.span().start);
                             owned_string_temps.push((temp.clone(), emit_expr(a, ctx)));

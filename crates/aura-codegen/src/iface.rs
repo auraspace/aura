@@ -206,7 +206,7 @@ pub(crate) fn interface_method_decls_with_parents<'a>(
     {
         for method in &current.methods {
             methods.retain(|(existing, _, _): &(&MethodSig, &InterfaceDecl, Vec<Ty>)| {
-                existing.name.name != method.name.name
+                existing.name.name != method.name.name || existing.params != method.params
             });
             methods.push((method, current, current_args.clone()));
         }
@@ -542,18 +542,48 @@ pub(crate) fn emit_iface_dispatch_with_method_args(
         } else {
             format!("{this_e}, {}", margs.join(", "))
         };
+        let param_keys = m
+            .params
+            .iter()
+            .map(|p| param_local_key(p, method_tparams, method_args))
+            .collect::<Vec<_>>();
+        let overloaded = iface
+            .methods
+            .iter()
+            .filter(|candidate| candidate.name.name == m.name.name)
+            .count()
+            > 1;
+        let impl_method = imp.class.methods.iter().find(|candidate| {
+            candidate.name.name == m.name.name
+                && candidate
+                    .params
+                    .iter()
+                    .map(|p| param_local_key(p, &[], &[]))
+                    .collect::<Vec<_>>()
+                    == param_keys
+        });
+        let impl_name = impl_method
+            .map(|candidate| {
+                let keys = candidate
+                    .params
+                    .iter()
+                    .map(|p| param_local_key(p, &[], &[]))
+                    .collect::<Vec<_>>();
+                c_method_name_with_params(&mono, &candidate.name.name, &keys, overloaded)
+            })
+            .unwrap_or_else(|| {
+                c_method_name_with_params(&mono, &m.name.name, &param_keys, overloaded)
+            });
         if ret == "void" {
             let _ = writeln!(
                 out,
-                "  case AURA_TAG_{mono}: {}({}); return;",
-                c_method_name(&mono, &m.name.name),
+                "  case AURA_TAG_{mono}: {impl_name}({}); return;",
                 call_args
             );
         } else {
             let _ = writeln!(
                 out,
-                "  case AURA_TAG_{mono}: return {}({});",
-                c_method_name(&mono, &m.name.name),
+                "  case AURA_TAG_{mono}: return {impl_name}({});",
                 call_args
             );
         }
@@ -591,15 +621,39 @@ pub(crate) fn c_iface_method_signature_args(
     let ret = c_type_from_opt_subst(&m.return_type, checked, params, args);
     let mut cparams = vec![format!("{} *self", c_iface_type(iface_mono))];
     for p in &m.params {
-        cparams.push(format!(
-            "{} {}",
-            c_type_ref_subst(&p.ty, checked, params, args),
-            mangle_ident(&p.name.name)
-        ));
+        let cty = if p.is_vararg {
+            crate::stmt::local_key_to_c(&param_local_key(p, params, args), checked)
+        } else {
+            c_type_ref_subst(&p.ty, checked, params, args)
+        };
+        cparams.push(format!("{} {}", cty, mangle_ident(&p.name.name)));
     }
+    let param_keys = m
+        .params
+        .iter()
+        .map(|p| param_local_key(p, params, args))
+        .collect::<Vec<_>>();
+    let overloaded = checked
+        .ast
+        .interfaces
+        .iter()
+        .filter(|iface| {
+            iface
+                .methods
+                .iter()
+                .any(|candidate| candidate.span == m.span)
+        })
+        .any(|iface| {
+            iface
+                .methods
+                .iter()
+                .filter(|candidate| candidate.name.name == m.name.name)
+                .count()
+                > 1
+        });
     format!(
         "{ret} {}({})",
-        c_iface_method_name(iface_mono, &m.name.name),
+        c_iface_method_name_with_params(iface_mono, &m.name.name, &param_keys, overloaded),
         cparams.join(", ")
     )
 }

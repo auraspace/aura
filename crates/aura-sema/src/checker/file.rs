@@ -431,6 +431,11 @@ impl Checker {
                     superclass: None,
                     implements: Vec::new(),
                     fields: Vec::new(),
+                    primary_required_params: c
+                        .fields
+                        .iter()
+                        .take_while(|f| f.default.is_none())
+                        .count(),
                     constructors: Vec::new(),
                     method_overloads: HashMap::new(),
                     methods: HashMap::new(),
@@ -493,16 +498,9 @@ impl Checker {
                 continue;
             }
             let mut methods = HashMap::new();
+            let mut method_overloads: HashMap<String, Vec<IfaceMethodSig>> = HashMap::new();
             let mut method_ok = true;
             for m in &i.methods {
-                if methods.contains_key(&m.name.name) {
-                    self.errors.push(SemaError {
-                        message: format!("duplicate interface method `{}`", m.name.name),
-                        span: m.name.span,
-                    });
-                    method_ok = false;
-                    continue;
-                }
                 let params = match m
                     .params
                     .iter()
@@ -535,22 +533,34 @@ impl Checker {
                     },
                     None => Ty::Unit,
                 };
-                methods.insert(
-                    m.name.name.clone(),
-                    IfaceMethodSig {
-                        name: m.name.name.clone(),
-                        params,
-                        ret,
-                        has_default: m.body.is_some(),
-                        required_params: m
-                            .params
-                            .iter()
-                            .take_while(|p| p.default.is_none())
-                            .count(),
-                        is_vararg: m.params.last().is_some_and(|p| p.is_vararg),
-                        span: m.span,
-                    },
-                );
+                let method = IfaceMethodSig {
+                    name: m.name.name.clone(),
+                    params,
+                    ret,
+                    has_default: m.body.is_some(),
+                    required_params: m.params.iter().take_while(|p| p.default.is_none()).count(),
+                    is_vararg: m.params.last().is_some_and(|p| p.is_vararg),
+                    span: m.span,
+                };
+                let overloads = method_overloads.entry(m.name.name.clone()).or_default();
+                if overloads
+                    .iter()
+                    .any(|existing| existing.params == method.params)
+                {
+                    self.errors.push(SemaError {
+                        message: format!(
+                            "duplicate interface method overload `{}` with the same parameter types",
+                            m.name.name
+                        ),
+                        span: m.name.span,
+                    });
+                    method_ok = false;
+                    continue;
+                }
+                if !methods.contains_key(&m.name.name) {
+                    methods.insert(m.name.name.clone(), method.clone());
+                }
+                overloads.push(method);
             }
 
             self.type_params.clear();
@@ -566,6 +576,7 @@ impl Checker {
                     package: pkg,
                     type_params: i.type_params.iter().map(|p| p.name.name.clone()).collect(),
                     parents: Vec::new(),
+                    method_overloads,
                     methods,
                     span: i.span,
                 });
@@ -1118,6 +1129,21 @@ impl Checker {
                         continue;
                     }
                 };
+                if let Some(default) = &f.default {
+                    match self.check_expr_expected(default, Some(&ty)) {
+                        Ok(got) if self.is_assignable(&got, &ty) => {}
+                        Ok(got) => self.errors.push(SemaError {
+                            message: format!(
+                                "default value for field `{}`: expected {}, got {}",
+                                f.name.name,
+                                ty.display(),
+                                got.display()
+                            ),
+                            span: default.span(),
+                        }),
+                        Err(err) => self.errors.push(err),
+                    }
+                }
                 seen.insert(f.name.name.clone(), ());
                 fields.push(FieldSig {
                     name: f.name.name.clone(),
@@ -1305,6 +1331,11 @@ impl Checker {
                     entry.implements = implements;
                     entry.superclass = superclass;
                     entry.fields = fields;
+                    entry.primary_required_params = c
+                        .fields
+                        .iter()
+                        .take_while(|field| field.default.is_none())
+                        .count();
                     entry.constructors = constructors;
                     entry.method_overloads = method_overloads;
                     entry.methods = methods;

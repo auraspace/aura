@@ -1368,6 +1368,39 @@ fun main() { count(1, 2, 3) }
 }
 
 #[test]
+fn resolves_interface_method_overloads_by_argument_type() {
+    let src = r#"
+package t
+interface Picker {
+  fun pick(value: Int): Int
+  fun pick(value: String): Int
+}
+class Impl() : Picker {
+  fun pick(value: Int): Int { return 1 }
+  fun pick(value: String): Int { return 2 }
+}
+fun main() {
+  val picker: Picker = Impl()
+  picker.pick(1)
+  picker.pick("x")
+}
+"#;
+    let file = parse_file(src).expect("parse interface overloads");
+    check_file(&file).expect("interface method overloads typecheck");
+}
+
+#[test]
+fn class_primary_constructor_defaults_typecheck() {
+    let src = r#"
+package t
+class User(val id: Int, val label: String = "user") {}
+fun main() { User(1) }
+"#;
+    let file = parse_file(src).expect("parse primary constructor default");
+    check_file(&file).expect("primary constructor default typechecks");
+}
+
+#[test]
 fn interface_default_method_satisfies_implementation() {
     let src = r#"
 package t

@@ -219,6 +219,9 @@ fn shift_enum(e: &mut EnumDecl, delta: BytePos) {
 
 fn shift_field(f: &mut FieldDecl, delta: BytePos) {
     shift_attributes(&mut f.attributes, delta);
+    if let Some(default) = &mut f.default {
+        shift_expr(default, delta);
+    }
     shift_ident(&mut f.name, delta);
     shift_type_ref(&mut f.ty, delta);
     f.span = f.span.shift(delta);

@@ -674,9 +674,16 @@ impl Parser {
         let name = self.expect_ident()?;
         self.expect(TokenKind::Colon, "`:`")?;
         let ty = self.parse_type()?;
-        let end = ty.span.end;
+        let default = if matches!(self.peek().kind, TokenKind::Eq) {
+            self.bump();
+            Some(self.parse_expr(0)?)
+        } else {
+            None
+        };
+        let end = default.as_ref().map_or(ty.span.end, |expr| expr.span().end);
         Ok(FieldDecl {
             attributes: Vec::new(),
+            default,
             visibility,
             mutable,
             name,
