@@ -410,6 +410,7 @@ impl Checker {
                         .map(|p| crate::util::subst_ty(p, &subst))
                         .collect(),
                     ret: crate::util::subst_ty(&method.ret, &subst),
+                    has_default: method.has_default,
                     span: method.span,
                 },
             );

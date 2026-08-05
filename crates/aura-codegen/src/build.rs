@@ -2985,6 +2985,38 @@ fun main() { println(Child().label()) }
     }
 
     #[test]
+    fn builds_and_runs_interface_default_method() {
+        let file = parse_file(
+            r#"package demo.iface_default
+interface Named { fun name(): String { return "default" } }
+class User() : Named {}
+fun main() { val named: Named = User() println(named.name()) }
+"#,
+        )
+        .expect("parse interface default fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-interface-default-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile interface default fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run interface default fixture");
+        assert!(
+            output.status.success(),
+            "interface default fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "default\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_std_json_validation_and_escape() {
         let file = aura_parser::parse_file(
             r#"package std.json

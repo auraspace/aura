@@ -42,6 +42,7 @@ pub struct IfaceMethodSig {
     pub name: String,
     pub params: Vec<Ty>,
     pub ret: Ty,
+    pub has_default: bool,
     pub span: Span,
 }
 

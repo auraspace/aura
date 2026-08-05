@@ -539,6 +539,7 @@ impl Checker {
                         name: m.name.name.clone(),
                         params,
                         ret,
+                        has_default: m.body.is_some(),
                         span: m.span,
                     },
                 );
@@ -1217,6 +1218,9 @@ impl Checker {
             for imp in &implements {
                 // Parent interface methods are part of this implementation contract.
                 for (mname, im) in self.interface_methods(imp) {
+                    if im.has_default {
+                        continue;
+                    }
                     let Some(cm) = methods.get(&mname) else {
                         self.errors.push(SemaError {
                             message: format!(

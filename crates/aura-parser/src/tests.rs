@@ -277,6 +277,16 @@ class Child() : Base() { override fun label(): String { return super.label() } }
 }
 
 #[test]
+fn parses_interface_default_method_body() {
+    let src = r#"
+package main
+interface Named { fun name(): String { return "default" } }
+"#;
+    let file = parse_file(src).expect("parse interface default");
+    assert!(file.interfaces[0].methods[0].body.is_some());
+}
+
+#[test]
 fn parses_member_visibility() {
     let src = r#"
 package main

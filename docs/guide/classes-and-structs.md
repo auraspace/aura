@@ -135,7 +135,7 @@ implement one or more interfaces:
 
 ```aura
 interface Named {
-  fun name(): String
+  fun name(): String { return "default" }
 }
 
 class User(var id: Int) : Named {
@@ -145,9 +145,10 @@ class User(var id: Int) : Named {
 }
 ```
 
-Interface methods must be implemented with matching signatures. Interface
-dispatch is closed-world in the current C backend. Structs cannot implement
-interfaces, and interfaces cannot be used as superclasses.
+Interface methods must be implemented with matching signatures unless they have
+a default body. Interface dispatch is closed-world in the current C backend.
+Structs cannot implement interfaces, and interfaces cannot be used as
+superclasses.
 
 ### Generic interfaces (C8c / C9a)
 

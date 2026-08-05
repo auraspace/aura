@@ -175,6 +175,9 @@ fn shift_method_sig(m: &mut MethodSig, delta: BytePos) {
     if let Some(rt) = &mut m.return_type {
         shift_type_ref(rt, delta);
     }
+    if let Some(body) = &mut m.body {
+        shift_block(body, delta);
+    }
     m.span = m.span.shift(delta);
 }
 

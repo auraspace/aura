@@ -23,8 +23,9 @@ pub use sigs::*;
 pub use ty::{nominal_key, nominal_mono_base, split_nominal, Ty};
 pub use util::{subst_ty, type_subst_map};
 
-use aura_ast::File;
+use aura_ast::{File, FunDecl, MemberVisibility, MethodSig};
 use checker::Checker;
+use std::collections::{HashMap, HashSet};
 
 /// Expand one out-of-process macro response into the checked file.
 ///
@@ -168,6 +169,7 @@ pub fn check_file_with_macros(
     c.errors.extend(derive::expand_hash(&mut expanded));
     c.errors.extend(derive::expand_debug(&mut expanded));
     c.errors.extend(expand_user_derives(&mut expanded, derives));
+    c.errors.extend(expand_interface_defaults(&mut expanded));
     c.errors.extend(
         attributes::validate_file(&expanded)
             .into_iter()
@@ -200,6 +202,95 @@ pub fn check_file_with_macros(
             errors.insert(0, e);
             Err(SemaErrors::new(errors))
         }
+    }
+}
+
+/// Materialize interface default bodies as ordinary methods on each concrete
+/// implementor. The existing class/vtable backend can then dispatch them using
+/// the same ownership and generic lowering path as explicit overrides.
+fn expand_interface_defaults(file: &mut File) -> Vec<SemaError> {
+    let mut errors = Vec::new();
+    for class_index in 0..file.classes.len() {
+        if class_index >= file.classes.len()
+            || file.classes[class_index].kind == aura_ast::NominalKind::Struct
+        {
+            continue;
+        }
+        let class = file.classes[class_index].clone();
+        let mut defaults: HashMap<String, (MethodSig, String)> = HashMap::new();
+        for implemented in &class.implements {
+            let mut interface_defaults = HashMap::new();
+            let mut seen = HashSet::new();
+            collect_interface_defaults(
+                file,
+                &implemented.name.name,
+                &mut seen,
+                &mut interface_defaults,
+            );
+            for (name, method) in interface_defaults {
+                if let Some((_, existing_interface)) = defaults.get(&name) {
+                    errors.push(SemaError {
+                        message: format!(
+                            "conflicting default method `{}` from interfaces `{}` and `{}`; override it in the class",
+                            name, existing_interface, method.1
+                        ),
+                        span: method.0.name.span,
+                    });
+                } else {
+                    defaults.insert(name, method);
+                }
+            }
+        }
+        for (name, (method, _interface)) in defaults {
+            if class
+                .methods
+                .iter()
+                .any(|existing| existing.name.name == name)
+            {
+                continue;
+            }
+            let Some(body) = method.body else {
+                continue;
+            };
+            file.classes[class_index].methods.push(FunDecl {
+                is_pub: false,
+                origin_package: class.origin_package.clone(),
+                attributes: method.attributes,
+                modifiers: Vec::new(),
+                visibility: MemberVisibility::Public,
+                is_test: false,
+                name: method.name,
+                type_params: Vec::new(),
+                params: method.params,
+                return_type: method.return_type,
+                body,
+                span: method.span,
+            });
+        }
+    }
+    errors
+}
+
+fn collect_interface_defaults(
+    file: &File,
+    name: &str,
+    seen: &mut HashSet<String>,
+    defaults: &mut HashMap<String, (MethodSig, String)>,
+) {
+    if !seen.insert(name.to_string()) {
+        return;
+    }
+    let Some(interface) = file.interfaces.iter().find(|item| item.name.name == name) else {
+        return;
+    };
+    for parent in &interface.parents {
+        collect_interface_defaults(file, &parent.name.name, seen, defaults);
+    }
+    for method in &interface.methods {
+        if method.body.is_none() {
+            continue;
+        }
+        defaults.insert(method.name.name.clone(), (method.clone(), name.to_string()));
     }
 }
 

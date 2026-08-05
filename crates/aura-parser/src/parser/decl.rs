@@ -205,15 +205,22 @@ impl Parser {
         } else {
             None
         };
-        let end = return_type
+        let body = if matches!(self.peek().kind, TokenKind::LBrace) {
+            Some(self.parse_block()?)
+        } else {
+            None
+        };
+        let end = body
             .as_ref()
-            .map(|t| t.span.end)
+            .map(|b| b.span.end)
+            .or_else(|| return_type.as_ref().map(|t| t.span.end))
             .unwrap_or(name.span.end);
         Ok(MethodSig {
             attributes: Vec::new(),
             name,
             params,
             return_type,
+            body,
             span: Span::new(start, end),
         })
     }

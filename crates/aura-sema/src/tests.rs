@@ -1274,6 +1274,25 @@ fun main() { val child = Child() child.label() }
 }
 
 #[test]
+fn interface_default_method_satisfies_implementation() {
+    let src = r#"
+package t
+interface Named { fun name(): String { return "default" } }
+class User() : Named {}
+fun main() { val user: Named = User() }
+"#;
+    let file = parse_file(src).expect("parse interface default");
+    let checked = check_file(&file).expect("interface default method");
+    let user = checked
+        .ast
+        .classes
+        .iter()
+        .find(|class| class.name.name == "User")
+        .expect("user class");
+    assert!(user.methods.iter().any(|method| method.name.name == "name"));
+}
+
+#[test]
 fn private_members_are_only_visible_inside_the_declaring_class() {
     let src = r#"
 package t

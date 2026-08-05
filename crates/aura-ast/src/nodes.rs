@@ -184,13 +184,14 @@ pub struct InterfaceDecl {
     pub span: Span,
 }
 
-/// Method signature without body (interfaces).
+/// Interface method signature, optionally carrying a default implementation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MethodSig {
     pub attributes: Vec<Attribute>,
     pub name: Ident,
     pub params: Vec<Param>,
     pub return_type: Option<TypeRef>,
+    pub body: Option<Block>,
     pub span: Span,
 }
 
