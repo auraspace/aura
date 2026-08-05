@@ -1,0 +1,10 @@
+[package]
+name = "examples.dotenv"
+
+[[bin]]
+name = "dotenv"
+path = "src"
+
+[dependencies]
+std.io = { path = "../../std/io" }
+std.os = { path = "../../std/os" }

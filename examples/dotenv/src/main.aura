@@ -1,0 +1,135 @@
+// Load a small .env file into the current process environment.
+package examples.dotenv
+
+import std.io as Io
+import std.os as Os
+
+fun unquote(value: String): String {
+    if (value.len >= 2) {
+        if ((value.startsWith("\"") && value.endsWith("\""))
+            || (value.startsWith("'") && value.endsWith("'"))) {
+            return value.substring(1, value.len - 1)
+        }
+    }
+    return value
+}
+
+fun loadLine(line: String): Bool {
+    var value = line.trim()
+    if (value.isEmpty() || value.startsWith("#")) {
+        return true
+    }
+
+    if (value.startsWith("export ")) {
+        value = value.substring(7, value.len).trim()
+    }
+
+    val separator = value.indexOf("=")
+    if (separator <= 0) {
+        return false
+    }
+
+    val name = value.substring(0, separator).trim()
+    if (name.isEmpty()) {
+        return false
+    }
+
+    val raw = value.substring(separator + 1, value.len).trim()
+    return Os.setEnv(name, unquote(raw))
+}
+
+fun loadFile(path: String): Int {
+    val content = Io.tryReadFile(path)
+    if (content == null) {
+        return -1
+    }
+
+    var loaded = 0
+    val lines = content!!.split("\n")
+    for (i in 0..lines.len) {
+        val line = lines.get(i)
+        if (!loadLine(line)) {
+            return 0 - (i + 1)
+        }
+        val trimmed = line.trim()
+        if (!trimmed.isEmpty() && !trimmed.startsWith("#")) {
+            loaded = loaded + 1
+        }
+    }
+    return loaded
+}
+
+fun printValue(name: String) {
+    val value = Os.getEnv(name)
+    if (value == null) {
+        println(name + "=<unset>")
+    } else {
+        println(name + "=" + value!!)
+    }
+}
+
+fun usage() {
+    Io.eprintln("usage: dotenv [path] [--get KEY]")
+    Io.eprintln("  path       .env file path (default: .env)")
+    Io.eprintln("  --get KEY  print one loaded environment value")
+}
+
+fun main() {
+    val argv = Io.args()
+    var path = ".env"
+    var key = ""
+    var i = 1
+    while (i < argv.len) {
+        val arg = argv.get(i) + ""
+        if (arg == "-h" || arg == "--help") {
+            usage()
+            Io.exit(0)
+        } else if (arg == "--get") {
+            i = i + 1
+            if (i >= argv.len) {
+                usage()
+                Io.exit(1)
+            }
+            key = argv.get(i) + ""
+        } else if (path == ".env") {
+            path = arg
+        } else {
+            usage()
+            Io.exit(1)
+        }
+        i = i + 1
+    }
+
+    val loaded = loadFile(path)
+    if (loaded == -1) {
+        Io.eprintln("dotenv: cannot read " + path)
+        Io.exit(1)
+    }
+    if (loaded < 0) {
+        Io.eprintln("dotenv: invalid entry at line " + (0 - loaded).toString())
+        Io.exit(1)
+    }
+
+    println("loaded " + loaded.toString() + " entries from " + path)
+    if (!key.isEmpty()) {
+        printValue(key)
+    } else {
+        printValue("APP_NAME")
+        printValue("APP_ENV")
+        printValue("PORT")
+    }
+}
+
+@test
+fun parses_comments_exports_and_quotes() {
+    assert_eq(loadLine("# ignored"), true)
+    assert_eq(loadLine("export DOTENV_TEST = \"hello world\""), true)
+    val doubleQuoted = Os.getEnv("DOTENV_TEST")
+    assert_eq(doubleQuoted != null, true)
+    assert_eq(doubleQuoted!!, "hello world")
+    assert_eq(loadLine("DOTENV_TEST_SINGLE='single value'"), true)
+    val singleQuoted = Os.getEnv("DOTENV_TEST_SINGLE")
+    assert_eq(singleQuoted != null, true)
+    assert_eq(singleQuoted!!, "single value")
+    assert_eq(loadLine("invalid"), false)
+}
