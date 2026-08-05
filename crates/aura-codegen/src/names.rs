@@ -391,21 +391,6 @@ pub(crate) fn c_method_name_with_params(
     format!("{base}__ovl_{suffix}")
 }
 
-pub(crate) fn c_generic_method_name(mono: &str, method: &str, args: &[Ty]) -> String {
-    if args.is_empty() {
-        c_method_name(mono, method)
-    } else {
-        format!(
-            "{}_{}",
-            c_method_name(mono, method),
-            args.iter()
-                .map(Ty::mono_suffix)
-                .collect::<Vec<_>>()
-                .join("_")
-        )
-    }
-}
-
 pub(crate) fn c_generic_method_name_with_params(
     mono: &str,
     method: &str,
@@ -1117,15 +1102,6 @@ pub(crate) fn type_ref_local_key(ty: &TypeRef, params: &[String], args: &[Ty]) -
         }
     }
     base
-}
-
-pub(crate) fn param_local_key(param: &Param, params: &[String], args: &[Ty]) -> String {
-    let key = type_ref_local_key(&param.ty, params, args);
-    if param.is_vararg {
-        format!("Array_{key}")
-    } else {
-        key
-    }
 }
 
 /// C9f: expand type aliases in a TypeRef to the underlying local key when possible.

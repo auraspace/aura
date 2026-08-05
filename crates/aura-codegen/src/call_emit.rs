@@ -8,8 +8,9 @@ use crate::class_emit::{class_tag, method_owner, virtual_overrides};
 use crate::ctx::EmitCtx;
 use crate::expr::{
     array_field_move_out_lvalue, coerce_expr, emit_channel_receive, emit_channel_send, emit_expr,
-    full_type_mono, infer_type_name, mono_base_name, mono_split, owned_string_copy_expr,
-    resolve_class_of_expr, resolve_type_name, string_expr_is_owned_temp, type_ref_to_ty,
+    full_type_mono, infer_type_name, is_value_struct_mono, mono_base_name, mono_split,
+    owned_string_copy_expr, resolve_class_of_expr, resolve_type_name, string_expr_is_owned_temp,
+    type_ref_to_ty,
 };
 use crate::names::*;
 
@@ -283,7 +284,12 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                             .expect("resolved static method declaration")
                             .params
                             .iter()
-                            .map(|param| param_local_key(param, &class_params, &class_args))
+                            .map(|param| param_local_key_expand(
+                                param,
+                                &class_params,
+                                &class_args,
+                                ctx.checked
+                            ))
                             .collect::<Vec<_>>(),
                         selected_class.is_some_and(|class| {
                             class
@@ -349,7 +355,8 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     let mut emitted = Vec::new();
                     for (index, arg) in c.args.iter().enumerate() {
                         if let Some(param) = function.params.get(index) {
-                            let expected = type_ref_local_key(&param.ty, &params, &targs);
+                            let expected =
+                                type_ref_local_key_expand(&param.ty, &params, &targs, ctx.checked);
                             emitted.push(coerce_owner_arg_expr(arg, &expected, ctx));
                         } else {
                             emitted.push(emit_expr(arg, ctx));
@@ -424,7 +431,8 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                             .iter()
                             .enumerate()
                             .map(|(index, f)| {
-                                let expected = type_ref_local_key(&f.ty, &tparams, &targs);
+                                let expected =
+                                    type_ref_local_key_expand(&f.ty, &tparams, &targs, ctx.checked);
                                 field_keys.push(expected.clone());
                                 c.args
                                     .get(index)
@@ -490,10 +498,9 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                                             && fun_decl_package(function, ctx.checked) == package
                                     })
                                     .and_then(|function| {
-                                        function
-                                            .return_type
-                                            .as_ref()
-                                            .map(|ty| type_ref_local_key(ty, &[], &[]))
+                                        function.return_type.as_ref().map(|ty| {
+                                            type_ref_local_key_expand(ty, &[], &[], ctx.checked)
+                                        })
                                     })
                             } else {
                                 None
@@ -564,19 +571,30 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
         // Array fields are mutable receivers; keep the direct lvalue so the
         // generated `&receiver` is valid instead of taking the address of a
         // race-instrumented rvalue expression.
-        let obj =
-            if let (Expr::Ident(id), Some(array_key)) = (fe.object.as_ref(), obj_ty.as_deref()) {
-                if ctx.is_box_local(&id.name) && is_array_type_key(array_key) {
-                    let cty = crate::stmt::local_key_to_c(array_key, ctx.checked);
-                    format!("(*({cty} *)aura_box_ptr_get({}))", mangle_ident(&id.name))
-                } else {
-                    array_field_move_out_lvalue(&fe.object, ctx)
-                        .unwrap_or_else(|| emit_expr(&fe.object, ctx))
-                }
+        let obj = if let (Expr::Ident(id), Some(struct_key)) =
+            (fe.object.as_ref(), obj_ty.as_deref())
+        {
+            if is_value_struct_mono(struct_key, ctx.checked) {
+                mangle_ident(&id.name)
+            } else if ctx.is_box_local(&id.name) && is_array_type_key(struct_key) {
+                let cty = crate::stmt::local_key_to_c(struct_key, ctx.checked);
+                format!("(*({cty} *)aura_box_ptr_get({}))", mangle_ident(&id.name))
             } else {
                 array_field_move_out_lvalue(&fe.object, ctx)
                     .unwrap_or_else(|| emit_expr(&fe.object, ctx))
-            };
+            }
+        } else if let (Expr::Ident(id), Some(array_key)) = (fe.object.as_ref(), obj_ty.as_deref()) {
+            if ctx.is_box_local(&id.name) && is_array_type_key(array_key) {
+                let cty = crate::stmt::local_key_to_c(array_key, ctx.checked);
+                format!("(*({cty} *)aura_box_ptr_get({}))", mangle_ident(&id.name))
+            } else {
+                array_field_move_out_lvalue(&fe.object, ctx)
+                    .unwrap_or_else(|| emit_expr(&fe.object, ctx))
+            }
+        } else {
+            array_field_move_out_lvalue(&fe.object, ctx)
+                .unwrap_or_else(|| emit_expr(&fe.object, ctx))
+        };
 
         // Interface method (C4d package mono; C8c mono args e.g. Boxable_Int)
         if let Some(iface_key) = obj_ty
@@ -592,16 +610,36 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 .get(&c.span.start)
                 .and_then(|inst| inst.declaration_span);
             let mut selected_method = None;
+            let mut selected_param_keys = Vec::new();
+            let mut interface_overloaded = false;
             if let Some(i) = iface_decl {
-                let tparams: Vec<String> =
-                    i.type_params.iter().map(|p| p.name.name.clone()).collect();
-                if let Some(m) = i.methods.iter().find(|m| {
+                let inherited =
+                    crate::iface::interface_method_decls_with_parents(ctx.checked, i, &iargs);
+                interface_overloaded = inherited
+                    .iter()
+                    .filter(|(method, _, _)| method.name.name == fe.field.name)
+                    .count()
+                    > 1;
+                if let Some((m, owner, owner_args)) = inherited.into_iter().find(|(m, _, _)| {
                     m.name.name == fe.field.name && selected_span.is_none_or(|span| m.span == span)
                 }) {
                     selected_method = Some(m);
+                    let tparams = owner
+                        .type_params
+                        .iter()
+                        .map(|p| p.name.name.clone())
+                        .collect::<Vec<_>>();
+                    selected_param_keys = m
+                        .params
+                        .iter()
+                        .map(|param| {
+                            param_local_key_expand(param, &tparams, &owner_args, ctx.checked)
+                        })
+                        .collect();
                     for (index, p) in m.params.iter().enumerate() {
                         if p.is_vararg {
-                            let expected = param_local_key(p, &tparams, &iargs);
+                            let expected =
+                                param_local_key_expand(p, &tparams, &owner_args, ctx.checked);
                             let element = expected
                                 .strip_prefix("Array_")
                                 .unwrap_or(expected.as_str())
@@ -610,10 +648,11 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                             break;
                         }
                         if let Some(a) = c.args.get(index) {
-                            let expected = param_local_key(p, &tparams, &iargs);
+                            let expected =
+                                param_local_key_expand(p, &tparams, &owner_args, ctx.checked);
                             args.push(coerce_owner_arg_expr(a, &expected, ctx));
                         } else if let Some(default) = &p.default {
-                            let expected = param_local_key(p, &tparams, &iargs);
+                            let expected = param_local_key_expand(p, &tparams, &iargs, ctx.checked);
                             args.push(coerce_default_arg_expr(default, &expected, ctx));
                         }
                     }
@@ -640,22 +679,9 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     &imono,
                     &fe.field.name,
                     &selected_method
-                        .map(|method| {
-                            method
-                                .params
-                                .iter()
-                                .map(|param| param_local_key(param, &[], &[]))
-                                .collect::<Vec<_>>()
-                        })
+                        .map(|_| selected_param_keys)
                         .unwrap_or_default(),
-                    iface_decl.is_some_and(|iface| {
-                        iface
-                            .methods
-                            .iter()
-                            .filter(|method| method.name.name == fe.field.name)
-                            .count()
-                            > 1
-                    }),
+                    interface_overloaded,
                 ),
             );
         }
@@ -1180,7 +1206,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 let mut param_keys = Vec::new();
                 for (index, p) in m.params.iter().enumerate() {
                     if p.is_vararg {
-                        let expected = param_local_key(p, &params, &targs);
+                        let expected = param_local_key_expand(p, &params, &targs, ctx.checked);
                         let element = expected
                             .strip_prefix("Array_")
                             .unwrap_or(expected.as_str())
@@ -1190,11 +1216,13 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                         break;
                     }
                     if let Some(a) = c.args.get(index) {
-                        let expected = type_ref_local_key(&p.ty, &params, &targs);
+                        let expected =
+                            type_ref_local_key_expand(&p.ty, &params, &targs, ctx.checked);
                         param_keys.push(expected.clone());
                         args.push(coerce_owner_arg_expr(a, &expected, ctx));
                     } else if let Some(default) = &p.default {
-                        let expected = type_ref_local_key(&p.ty, &params, &targs);
+                        let expected =
+                            type_ref_local_key_expand(&p.ty, &params, &targs, ctx.checked);
                         args.push(coerce_default_arg_expr(default, &expected, ctx));
                     }
                 }
@@ -1219,7 +1247,12 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                         &method_args,
                         &m.params
                             .iter()
-                            .map(|param| type_ref_local_key(&param.ty, &params, &targs))
+                            .map(|param| param_local_key_expand(
+                                param,
+                                &params,
+                                &targs,
+                                ctx.checked
+                            ))
                             .collect::<Vec<_>>(),
                         class
                             .methods
@@ -1308,16 +1341,98 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 args.push(emit_expr(a, ctx));
             }
         }
+        let selected_span = ctx
+            .checked
+            .call_instantiations
+            .get(&c.span.start)
+            .and_then(|inst| inst.declaration_span);
+        let method_matches = |method: &FunDecl| {
+            method.name.name == fe.field.name
+                && (selected_span.is_some_and(|span| method.span == span)
+                    || method.params.iter().any(|param| param.is_vararg)
+                    || c.args.len() <= method.params.len())
+        };
+        let mono_base = mono_base_name(&mono, ctx.checked).unwrap_or(mono.as_str());
+        let fallback_class = current_class
+            .or_else(|| {
+                ctx.checked.ast.classes.iter().find(|class| {
+                    class.name.name == mono_base && class.methods.iter().any(method_matches)
+                })
+            })
+            .or_else(|| {
+                ctx.checked
+                    .ast
+                    .classes
+                    .iter()
+                    .find(|class| class.methods.iter().any(method_matches))
+            });
+        let fallback_method = fallback_class
+            .and_then(|class| class.methods.iter().find(|method| method_matches(method)));
+        if let (Some(class), Some(method)) = (fallback_class, fallback_method) {
+            let params = class
+                .type_params
+                .iter()
+                .map(|param| param.name.name.clone())
+                .collect::<Vec<_>>();
+            let targs = mono_split(&mono, ctx.checked)
+                .map(|(_, args)| args.to_vec())
+                .unwrap_or_default();
+            args.truncate(1);
+            for (index, param) in method.params.iter().enumerate() {
+                if param.is_vararg {
+                    let expected = param_local_key_expand(param, &params, &targs, ctx.checked);
+                    let element = expected
+                        .strip_prefix("Array_")
+                        .unwrap_or(expected.as_str())
+                        .to_string();
+                    args.push(emit_vararg_array(&c.args[index..], &element, ctx));
+                    break;
+                }
+                if let Some(arg) = c.args.get(index) {
+                    let expected =
+                        type_ref_local_key_expand(&param.ty, &params, &targs, ctx.checked);
+                    args.push(coerce_owner_arg_expr(arg, &expected, ctx));
+                }
+            }
+        }
+        let fallback_params = fallback_method
+            .map(|method| {
+                let params = fallback_class
+                    .map(|class| {
+                        class
+                            .type_params
+                            .iter()
+                            .map(|param| param.name.name.clone())
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                method
+                    .params
+                    .iter()
+                    .map(|param| param_local_key_expand(param, &params, &[], ctx.checked))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let fallback_overloaded = fallback_class.is_some_and(|class| {
+            class
+                .methods
+                .iter()
+                .filter(|candidate| candidate.name.name == fe.field.name)
+                .count()
+                > 1
+        });
         let call = format!(
             "{}({})",
-            c_generic_method_name(
+            c_generic_method_name_with_params(
                 &mono,
                 &fe.field.name,
                 &ctx.checked
                     .call_instantiations
                     .get(&c.span.start)
                     .map(|i| i.method_type_args.clone())
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                &fallback_params,
+                fallback_overloaded,
             ),
             args.join(", ")
         );
@@ -1489,7 +1604,8 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     .iter()
                     .enumerate()
                     .map(|(index, f)| {
-                        let expected = type_ref_local_key(&f.ty, &params, &targs);
+                        let expected =
+                            type_ref_local_key_expand(&f.ty, &params, &targs, ctx.checked);
                         field_keys.push(expected.clone());
                         let Some(a) = c.args.get(index) else {
                             return f
@@ -1556,8 +1672,12 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                                 .iter()
                                 .zip(v.fields.iter())
                                 .map(|(a, f)| {
-                                    let expected =
-                                        type_ref_local_key(&f.ty, &params, &resolved_type_args);
+                                    let expected = type_ref_local_key_expand(
+                                        &f.ty,
+                                        &params,
+                                        &resolved_type_args,
+                                        ctx.checked,
+                                    );
                                     coerce_owner_arg_expr(a, &expected, ctx)
                                 })
                                 .collect::<Vec<_>>()
@@ -1744,7 +1864,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 let mut emitted_args = Vec::new();
                 for (index, param) in f.params.iter().enumerate() {
                     if param.is_vararg {
-                        let expected = param_local_key(param, &params, &targs);
+                        let expected = param_local_key_expand(param, &params, &targs, ctx.checked);
                         let element = expected
                             .strip_prefix("Array_")
                             .unwrap_or(expected.as_str())
@@ -1754,7 +1874,8 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                         break;
                     }
                     if let Some(arg) = c.args.get(index) {
-                        let expected = type_ref_local_key(&param.ty, &params, &targs);
+                        let expected =
+                            type_ref_local_key_expand(&param.ty, &params, &targs, ctx.checked);
                         param_keys.push(expected.clone());
                         let value = coerce_owner_arg_expr(arg, &expected, ctx);
                         if expected == "String" && string_expr_is_owned_temp(arg, ctx) {
@@ -1765,7 +1886,8 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                             emitted_args.push(value);
                         }
                     } else if let Some(default) = &param.default {
-                        let expected = type_ref_local_key(&param.ty, &params, &targs);
+                        let expected =
+                            type_ref_local_key_expand(&param.ty, &params, &targs, ctx.checked);
                         emitted_args.push(coerce_default_arg_expr(default, &expected, ctx));
                     }
                 }
@@ -1778,7 +1900,9 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     let overload_keys = f
                         .params
                         .iter()
-                        .map(|param| type_ref_local_key(&param.ty, &params, &[]))
+                        .map(|param| {
+                            type_ref_local_key_expand(&param.ty, &params, &[], ctx.checked)
+                        })
                         .collect::<Vec<_>>();
                     let overloaded = ctx
                         .checked
@@ -1829,19 +1953,20 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 let mut cleanup = String::new();
                 for (index, p) in f.params.iter().enumerate() {
                     if p.is_vararg {
-                        let expected = param_local_key(p, &params, &targs);
+                        let expected = param_local_key_expand(p, &params, &targs, ctx.checked);
                         let element = expected.strip_prefix("Array_").unwrap_or(expected.as_str());
                         args.push(emit_vararg_array(&c.args[index..], element, ctx));
                         break;
                     }
                     let Some(a) = c.args.get(index) else {
                         if let Some(default) = &p.default {
-                            let expected = type_ref_local_key(&p.ty, &params, &targs);
+                            let expected =
+                                type_ref_local_key_expand(&p.ty, &params, &targs, ctx.checked);
                             args.push(coerce_default_arg_expr(default, &expected, ctx));
                         }
                         continue;
                     };
-                    let expected = type_ref_local_key(&p.ty, &params, &targs);
+                    let expected = type_ref_local_key_expand(&p.ty, &params, &targs, ctx.checked);
                     let value = coerce_owner_arg_expr(a, &expected, ctx);
                     if expected == "String" && string_expr_is_owned_temp(a, ctx) {
                         let name = format!("__aura_async_string_{}_{}", c.span.start, index);
@@ -1869,7 +1994,9 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     let overload_keys = f
                         .params
                         .iter()
-                        .map(|param| type_ref_local_key(&param.ty, &params, &[]))
+                        .map(|param| {
+                            type_ref_local_key_expand(&param.ty, &params, &[], ctx.checked)
+                        })
                         .collect::<Vec<_>>();
                     let overloaded = ctx
                         .checked
@@ -1967,7 +2094,7 @@ fn emit_foreign_call(foreign: &ForeignDecl, call: &CallExpr, ctx: &mut EmitCtx<'
                 if let Some(slot) = pinned.iter().position(|p| *p == index) {
                     format!("__aura_ffi_handle_{slot}")
                 } else {
-                    let expected = type_ref_local_key(&param.ty, &[], &[]);
+                    let expected = type_ref_local_key_expand(&param.ty, &[], &[], ctx.checked);
                     coerce_expr(arg, &expected, ctx)
                 }
             })
@@ -2001,7 +2128,7 @@ fn emit_foreign_call(foreign: &ForeignDecl, call: &CallExpr, ctx: &mut EmitCtx<'
         .iter()
         .zip(foreign.params.iter())
         .map(|(arg, param)| {
-            let expected = type_ref_local_key(&param.ty, &[], &[]);
+            let expected = type_ref_local_key_expand(&param.ty, &[], &[], ctx.checked);
             coerce_expr(arg, &expected, ctx)
         })
         .collect::<Vec<_>>()

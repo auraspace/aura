@@ -1,0 +1,77 @@
+package aura.web
+
+type WebHandler = (Context) -> Task<Unit>
+type NextHandler = (Context, Next) -> Task<Unit>
+type ErrorHandler = (String, Context) -> Task<Unit>
+
+async fun emptyHandler(context: Context): Unit {}
+async fun emptyNextHandler(context: Context, next: Next): Unit {}
+async fun emptyErrorHandler(error: String, context: Context): Unit {}
+
+pub class Next(pub var decision: Int) {
+    pub async fun next(): Unit {
+        decision = 1
+    }
+
+    pub async fun done(): Unit {
+        decision = 2
+    }
+}
+
+pub fun copyMiddlewares(source: Array<Middleware>): Array<Middleware> {
+    val result = Array<Middleware>(0)
+    for (i in 0..source.len) {
+        result.push(source.get(i))
+    }
+    return result
+}
+
+// A one-argument handler preserves the existing auto-chain behavior. A
+// two-argument handler controls continuation explicitly through Next.
+pub class Middleware(pub val mode: Int, pub val handler: WebHandler,
+                     pub val nextHandler: NextHandler) {
+    constructor(handler: WebHandler): this(
+        0, handler, (context: Context, next: Next) => emptyNextHandler(context, next)
+    ) {}
+    constructor(handler: NextHandler): this(
+        1, (context: Context) => emptyHandler(context), handler
+    ) {}
+}
+
+pub async fun invokeMiddleware(middleware: Middleware, context: Context): Unit {
+    val middlewares = Array<Middleware>(0)
+    middlewares.push(middleware)
+    await invokeMiddlewareAt(middlewares, 0, context)
+}
+
+pub async fun invokeMiddlewareAt(middlewares: Array<Middleware>, index: Int,
+                                 context: Context): Unit {
+    if (index >= middlewares.len) {
+        return
+    }
+    val middleware = middlewares.get(index)
+    if (middleware.mode == 0) {
+        await middleware.handler(context)
+        await invokeMiddlewareAt(middlewares, index + 1, context)
+        return
+    }
+    val continuation = Next(0)
+    await middleware.nextHandler(context, continuation)
+    if (continuation.decision == 1) {
+        await invokeMiddlewareAt(middlewares, index + 1, context)
+    }
+}
+
+pub async fun invokeNextAt(middlewares: Array<Middleware>, index: Int,
+                            context: Context): Int {
+    if (index >= middlewares.len) {
+        return 1
+    }
+    val middleware = middlewares.get(index)
+    val continuation = Next(0)
+    await middleware.nextHandler(context, continuation)
+    if (continuation.decision == 1) {
+        return await invokeNextAt(middlewares, index + 1, context)
+    }
+    return continuation.decision
+}

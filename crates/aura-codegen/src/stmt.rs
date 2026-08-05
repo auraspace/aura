@@ -1543,6 +1543,16 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                                 None
                             };
                         let val = coerce_expr(e, &expected, ctx);
+                        let val = if expected == "String"
+                            && !matches!(e, Expr::Ident(_))
+                            && !string_expr_is_owned_temp(e, ctx)
+                        {
+                            // String returns are owned at the ABI boundary; copy borrowed
+                            // literals/expressions before the caller releases the result.
+                            owned_string_copy_expr(val, e.span())
+                        } else {
+                            val
+                        };
                         let _ = writeln!(out, "{p}{c_ty} {tmp} = {val};");
                         if is_shared_outcome_error_owner_key(&expected) {
                             // Returning an Outcome transfers its payload ownership to the result.
@@ -1825,6 +1835,10 @@ pub(crate) fn emit_match(out: &mut String, m: &MatchStmt, indent: usize, ctx: &m
     let scrut_key = infer_type_name(&m.scrutinee, ctx);
     let scrut_c = local_key_to_c(&scrut_key, ctx.checked);
     let tmp = format!("__match_{}", m.span.start);
+    let scrut_ty = ctx
+        .checked
+        .expr_tys
+        .get(&(m.scrutinee.span().start, m.scrutinee.span().end));
     let _ = writeln!(
         out,
         "{p}{{ {scrut_c} {tmp} = {};",
@@ -1833,6 +1847,12 @@ pub(crate) fn emit_match(out: &mut String, m: &MatchStmt, indent: usize, ctx: &m
     let _ = writeln!(out, "{p}  switch ({tmp}.tag) {{");
 
     let ename = mono_base_name(&scrut_key, ctx.checked)
+        .or_else(|| match scrut_ty {
+            Some(Ty::Enum(name) | Ty::EnumApp { name, .. }) => {
+                Some(aura_sema::split_nominal(name).0)
+            }
+            _ => None,
+        })
         .or_else(|| {
             if is_enum_name(ctx.checked, &scrut_key) {
                 Some(scrut_key.as_str())
@@ -1861,16 +1881,19 @@ pub(crate) fn emit_match(out: &mut String, m: &MatchStmt, indent: usize, ctx: &m
                     e.type_params.iter().map(|p| p.name.name.clone()).collect();
                 // Resolve package-prefixed mono (`demo_result_Result_Int_String`) via mono_split
                 // so type params (T/E) substitute correctly in arm bindings.
-                let targs: Vec<Ty> = mono_split(&scrut_key, ctx.checked)
-                    .map(|(_, a)| a.to_vec())
-                    .or_else(|| {
-                        ctx.checked
-                            .mono_enums
-                            .iter()
-                            .find(|(n, a)| mono_key(n, a) == scrut_key)
-                            .map(|(_, a)| a.clone())
-                    })
-                    .unwrap_or_default();
+                let targs: Vec<Ty> = match scrut_ty {
+                    Some(Ty::EnumApp { args, .. }) => args.clone(),
+                    _ => mono_split(&scrut_key, ctx.checked)
+                        .map(|(_, a)| a.to_vec())
+                        .or_else(|| {
+                            ctx.checked
+                                .mono_enums
+                                .iter()
+                                .find(|(n, a)| mono_key(n, a) == scrut_key)
+                                .map(|(_, a)| a.clone())
+                        })
+                        .unwrap_or_default(),
+                };
                 for (bind, field) in bindings.iter().zip(v.fields.iter()) {
                     let fty = type_ref_local_key(&field.ty, &params, &targs);
                     if fty == "Unit" {

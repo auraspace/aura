@@ -1,0 +1,20 @@
+package todo_app
+
+import aura.web
+
+fun main() {
+    val repository = InMemoryTodoRepository(1, Array<Todo>(0))
+    val service = TodoService(repository)
+    val app = buildApp(service)
+
+    var port = 8080
+    val values = args()
+    if (values.len > 1) {
+        val parsedPort = values.get(1).toInt()
+        if (parsedPort != null) {
+            port = parsedPort!!
+        }
+    }
+    println("todo api listening on http://127.0.0.1:" + port.toString())
+    app.listen(port)
+}

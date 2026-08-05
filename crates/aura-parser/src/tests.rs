@@ -103,6 +103,22 @@ fun main() {
 }
 
 #[test]
+fn parses_explicit_this_field_assignment() {
+    let src = r#"
+package demo
+class Counter(var value: Int) {
+  fun increment(): Unit { this.value = this.value + 1 }
+}
+"#;
+    let file = parse_file(src).expect("parse explicit field assignment");
+    let class = &file.classes[0];
+    let Stmt::Expr(Expr::Assign(assign)) = &class.methods[0].body.stmts[0] else {
+        panic!("expected assignment expression");
+    };
+    assert_eq!(assign.name.name, "value");
+}
+
+#[test]
 fn parses_class_and_method_call() {
     let src = r#"
 package main

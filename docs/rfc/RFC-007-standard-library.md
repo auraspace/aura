@@ -354,7 +354,12 @@ nested classes/structs, recursively nested arrays, string-key maps, and
 payload-carrying enums. A field may use `@json(name = "...")` to choose its
 wire key, while fields without the attribute retain their Aura name. Generic
 type bodies remain erased until a concrete monomorph is emitted, and pretty
-printing is intentionally outside this compact encoder contract.
+printing is intentionally outside this compact encoder contract. Nullable
+primitive, reference, array, enum, and inline-struct fields map missing/`null`
+JSON members to `T?`; present values are decoded and encoded recursively. The
+native backend uses tagged scalar optionals, an array null sentinel, an enum
+null tag, and an inline-struct presence bit, so `null` is never silently
+coerced to an empty or zero aggregate.
 
 ### 6.7 Crypto baseline
 

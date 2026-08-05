@@ -1,9 +1,0 @@
-[package]
-name = "http_engine_aura"
-
-[[bin]]
-name = "http-engine-aura"
-path = "src"
-
-[dependencies]
-aura.web = { path = "lib" }

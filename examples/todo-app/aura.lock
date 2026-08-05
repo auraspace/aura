@@ -2,4 +2,4 @@
 # Direct deps match aura.toml; extra path entries are transitive.
 # Registry pins: name = { version = "…", checksum = "…", source = "registry" }
 # Macro pins: macro_plugin.Name = { path = "…", checksum = "…", source = "plugin" }
-aura.web = "lib"
+aura.web = "../aura-web"

@@ -326,6 +326,14 @@ impl Checker {
     pub(crate) fn check_file(&mut self, file: &File) -> Result<CheckedFile, SemaError> {
         let file_pkg = file.package.display();
         self.current_package = file_pkg.clone();
+        self.type_alias_refs.clear();
+        for alias in &file.type_aliases {
+            let pkg = decl_package(&alias.origin_package, &file_pkg).to_string();
+            self.type_alias_refs
+                .entry(alias.name.name.clone())
+                .or_default()
+                .push((pkg, alias.ty.clone()));
+        }
         self.package_imports.clear();
         self.import_aliases.clear();
         self.package_imports.entry(file_pkg.clone()).or_default();

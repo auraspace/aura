@@ -1022,6 +1022,191 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_generic_enum_match_bindings() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+enum Result<T, E> { case Ok(value: T) case Err(error: E) }
+fun show(result: Result<Int, String>) {
+  match (result) {
+    case Ok(value) => { println(value.toString()) }
+    case Err(error) => { println(error) }
+  }
+}
+fun main() {
+  show(Ok(7))
+  show(Err("failed"))
+}
+"#,
+        )
+        .expect("parse generic enum match binding fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-generic-enum-match-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile generic enum match binding fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run generic enum match binding fixture");
+        assert!(
+            output.status.success(),
+            "generic enum match binding failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "7\nfailed\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_inherited_interface_method_return_type() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+class Item(val id: Int) {}
+interface Reader { fun find(id: Int): Item? }
+interface Repository : Reader { fun add(value: Item): Unit }
+class Store(val item: Item) : Repository {
+  fun find(id: Int): Item? { if (id == this.item.id) { return this.item } return null }
+  fun add(value: Item): Unit {}
+}
+fun read(repository: Repository): Unit {
+  val item = repository.find(7)
+  if (item != null) { println(item!!.id.toString()) }
+}
+fun main() { read(Store(Item(7))) }
+"#,
+        )
+        .expect("parse inherited interface method fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-inherited-interface-return-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile inherited interface method fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run inherited interface method fixture");
+        assert!(
+            output.status.success(),
+            "inherited interface method failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "7\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_struct_method_on_local_receiver() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+struct Filter(val enabled: Bool) {
+  fun matches(value: Bool): Bool { return this.enabled == value }
+}
+fun main() {
+  val filter = Filter(true)
+  if (filter.matches(true)) { println("ok") }
+}
+"#,
+        )
+        .expect("parse struct method receiver fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-struct-method-receiver-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile struct method receiver fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run struct method receiver fixture");
+        assert!(
+            output.status.success(),
+            "struct method receiver failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "ok\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_owned_string_literal_return() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+fun code(): String { return "owned" }
+fun main() { val value = code() println(value) }
+"#,
+        )
+        .expect("parse owned string return fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-owned-string-return-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile owned string return fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run owned string return fixture");
+        assert!(
+            output.status.success(),
+            "owned string return failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "owned\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_and_runs_explicit_this_field_assignment() {
+        let file = aura_parser::parse_file(
+            r#"package demo
+class Counter(var value: Int) {
+  fun increment(): Unit { this.value = this.value + 1 }
+}
+fun main() {
+  val counter = Counter(1)
+  counter.increment()
+  println(counter.value.toString())
+}
+"#,
+        )
+        .expect("parse explicit this field assignment fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-explicit-this-field-assignment-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile explicit this field assignment fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run explicit this field assignment fixture");
+        assert!(
+            output.status.success(),
+            "explicit this field assignment failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "2\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_join_with_optional_primitive_payload() {
         let file = aura_parser::parse_file(
             r#"package std.io
@@ -3815,10 +4000,15 @@ fun main() {
             r#"package std.json
 class Value(val text: String) {}
 pub fun decode<T>(value: Value): T? { throw "std.json decode intrinsic" }
+pub fun encode<T>(value: T): String? { throw "std.json encode intrinsic" }
 class Leaf<T>(val value: T) {}
 class Middle<T>(val leaf: Leaf<T>) {}
 class Root<T>(val middle: Middle<T>) {}
 class OptionalRoot<T>(val child: Leaf<T>?) {}
+class OptionalFields(val title: String?, val count: Int?, val enabled: Bool?) {}
+enum Phase { case Ready case Done }
+struct Point(val x: Int, val y: Int) {}
+class OptionalAggregates(val values: Array<String>?, val phase: Phase?, val point: Point?) {}
 class Batch<T>(val values: Array<T>) {}
 class ClassBatch<T>(val values: Array<Leaf<T>>) {}
 fun main() {
@@ -3826,6 +4016,21 @@ fun main() {
   if (root == null || root!!.middle.leaf.value != "ok") { throw "recursive generic decode failed" }
   val optional = decode<OptionalRoot<String>>(Value("{\"child\":null}"))
   if (optional == null || optional!!.child != null) { throw "nullable generic decode failed" }
+  val empty = decode<OptionalFields>(Value("{}"))
+  if (empty == null || empty!!.title != null || empty!!.count != null || empty!!.enabled != null) { throw "nullable scalar decode failed" }
+  val emptyEncoded = encode<OptionalFields>(empty!!)
+  if (emptyEncoded == null || emptyEncoded!!.indexOf("\"title\":null") < 0 || emptyEncoded!!.indexOf("\"count\":null") < 0 || emptyEncoded!!.indexOf("\"enabled\":null") < 0) { throw "nullable scalar null encode failed" }
+  val populated = decode<OptionalFields>(Value("{\"title\":\"x\",\"count\":3,\"enabled\":true}"))
+  if (populated == null || populated!!.title != "x" || populated!!.count != 3 || !populated!!.enabled!!) { throw "nullable scalar value decode failed" }
+  val encoded = encode<OptionalFields>(populated!!)
+  if (encoded == null || encoded!!.indexOf("\"title\":\"x\"") < 0 || encoded!!.indexOf("\"count\":3") < 0 || encoded!!.indexOf("\"enabled\":true") < 0) { throw "nullable scalar encode failed" }
+  val aggregateEmpty = decode<OptionalAggregates>(Value("{}"))
+  if (aggregateEmpty == null) { throw "nullable aggregate decode returned null" }
+  val aggregateEmptyEncoded = encode<OptionalAggregates>(aggregateEmpty!!)
+  if (aggregateEmptyEncoded == null || aggregateEmptyEncoded!!.indexOf("\"values\":null") < 0 || aggregateEmptyEncoded!!.indexOf("\"phase\":null") < 0 || aggregateEmptyEncoded!!.indexOf("\"point\":null") < 0) { throw "nullable aggregate null encode failed" }
+  val aggregatePresent = decode<OptionalAggregates>(Value("{\"values\":[\"a\",\"b\"],\"phase\":\"Done\",\"point\":{\"x\":4,\"y\":5}}"))
+  val aggregatePresentEncoded = encode<OptionalAggregates>(aggregatePresent!!)
+  if (aggregatePresentEncoded == null || aggregatePresentEncoded!!.indexOf("\"values\":[\"a\",\"b\"]") < 0 || aggregatePresentEncoded!!.indexOf("\"phase\":\"Done\"") < 0 || aggregatePresentEncoded!!.indexOf("\"point\":{\"x\":4,\"y\":5}") < 0) { throw "nullable aggregate value encode failed" }
   val batch = decode<Batch<String>>(Value("{\"values\":[\"a\",\"b\"]}"))
   if (batch == null || batch!!.values.len != 2 || batch!!.values.get(1) != "b") { throw "generic array decode failed" }
   val classBatch = decode<ClassBatch<String>>(Value("{\"values\":[{\"value\":\"x\"}]}"))

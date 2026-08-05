@@ -132,27 +132,49 @@ impl Checker {
                     _ => Ty::ForeignHandle(inner),
                 }
             }
-            // C9f: type alias expansion (non-generic).
-            other if self.type_aliases.contains_key(other) && qualified_pkg.is_none() => {
+            // C9f: type alias expansion (non-generic). Staged references make
+            // aliases available to earlier class/interface member signatures.
+            other
+                if (self.type_aliases.contains_key(other)
+                    || self.type_alias_refs.contains_key(other))
+                    && qualified_pkg.is_none() =>
+            {
                 if !type_args.is_empty() {
                     return Err(SemaError {
                         message: format!("type alias `{other}` cannot take type arguments"),
                         span: t.span,
                     });
                 }
-                let entries = self.type_aliases.get(other).unwrap();
-                let ty = if entries.len() == 1 {
-                    entries[0].1.clone()
+                let ty = if let Some(entries) = self.type_aliases.get(other) {
+                    if entries.len() == 1 {
+                        entries[0].1.clone()
+                    } else {
+                        entries
+                            .iter()
+                            .find(|(p, _)| p == &self.current_package)
+                            .map(|(_, t)| t.clone())
+                            .or_else(|| entries.first().map(|(_, t)| t.clone()))
+                            .ok_or_else(|| SemaError {
+                                message: format!("unknown type `{other}`"),
+                                span: t.span,
+                            })?
+                    }
                 } else {
-                    entries
-                        .iter()
-                        .find(|(p, _)| p == &self.current_package)
-                        .map(|(_, t)| t.clone())
-                        .or_else(|| entries.first().map(|(_, t)| t.clone()))
-                        .ok_or_else(|| SemaError {
-                            message: format!("unknown type `{other}`"),
-                            span: t.span,
-                        })?
+                    let entries = self.type_alias_refs.get(other).unwrap();
+                    let alias_ref = if entries.len() == 1 {
+                        entries[0].1.clone()
+                    } else {
+                        entries
+                            .iter()
+                            .find(|(p, _)| p == &self.current_package)
+                            .map(|(_, t)| t.clone())
+                            .or_else(|| entries.first().map(|(_, t)| t.clone()))
+                            .ok_or_else(|| SemaError {
+                                message: format!("unknown type `{other}`"),
+                                span: t.span,
+                            })?
+                    };
+                    self.type_from_ref(&alias_ref)?
                 };
                 // Skip further base construction — apply nullability below.
                 if t.nullable {

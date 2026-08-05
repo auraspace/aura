@@ -13,7 +13,7 @@ use crate::error::SemaError;
 use crate::sigs::*;
 use crate::ty::Ty;
 use crate::util::{subst_ty, type_subst_map};
-use aura_ast::{Block, ClassDecl, Expr, FunDecl, MemberVisibility, Param, Span, Stmt};
+use aura_ast::{Block, ClassDecl, Expr, FunDecl, MemberVisibility, Param, Span, Stmt, TypeRef};
 
 /// Builtin `Array<T>` primitives (C3j). Heap class elements allowed in C4c via Checker.
 pub(crate) fn is_array_primitive_elem(ty: &Ty) -> bool {
@@ -251,6 +251,8 @@ pub(crate) struct Checker {
     interfaces: HashMap<String, Vec<InterfaceSig>>,
     /// C9f: `type Name = T` expansions (simple name → package, target ty).
     type_aliases: HashMap<String, Vec<(String, Ty)>>,
+    /// Staged alias references are available while member signatures are resolved.
+    type_alias_refs: HashMap<String, Vec<(String, TypeRef)>>,
     /// C9g: top-level constants (simple name → package, ty).
     consts: HashMap<String, Vec<(String, Ty)>>,
     locals: Vec<HashMap<String, Local>>,
@@ -637,6 +639,7 @@ impl Checker {
             variant_to_enum: HashMap::new(),
             interfaces: HashMap::new(), // Vec per simple name (C4d)
             type_aliases: HashMap::new(),
+            type_alias_refs: HashMap::new(),
             consts: HashMap::new(),
             locals: Vec::new(),
             type_params: HashMap::new(),

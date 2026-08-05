@@ -315,6 +315,7 @@ typedef enum AuraFileMode
 
 /* Forward decls for throw (defined below) */
 void aura_throw_string(const char *s);
+void aura_throw_string_owned(char *s);
 void aura_throw_int(int64_t v);
 void aura_throw_bool(bool v);
 

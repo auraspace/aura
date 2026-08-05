@@ -1,0 +1,10 @@
+[package]
+name = "aura.web"
+
+[[bin]]
+name = "aura-web-example"
+path = "src"
+
+[dependencies]
+std.http = { path = "../../std/http" }
+std.net = { path = "../../std/net" }

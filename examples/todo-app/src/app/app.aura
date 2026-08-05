@@ -1,0 +1,31 @@
+package todo_app
+
+import aura.web
+
+pub fun buildApp(service: TodoService): App {
+    val app = webApp(64)
+    app.use((ctx: Context) => trace(ctx))
+    app.useNext((ctx: Context, next: Next) => requestGate(ctx, next))
+    app.onError((error: String, ctx: Context) => handleError(error, ctx))
+
+    app.get("/health", (ctx: Context) => health(ctx))
+    app.use(TodoApiPlugin(service))
+    app.use("/blocked", (ctx: Context) => trace(ctx))
+    return app
+}
+
+pub class TodoApiPlugin(private val service: TodoService) : Plugin {
+    pub fun install(app: App): Unit {
+        registerTodoRoutes(app, this.service)
+    }
+}
+
+fun registerTodoRoutes(app: App, service: TodoService): Unit {
+    app.get("/api/todos", (ctx: Context) => listTodos(ctx, service))
+    app.post("/api/todos", (ctx: Context) => createTodo(ctx, service))
+    app.patch("/api/todos/:id", (ctx: Context) => updateTodo(ctx, service))
+    app.delete("/api/todos/:id", (ctx: Context) => deleteTodo(ctx, service))
+    app.get("/api/stats", (ctx: Context) => stats(ctx, service))
+    app.group("/v1", (ctx: Context) => apiMarker(ctx))
+        .get("/todos", (ctx: Context) => listTodos(ctx, service))
+}

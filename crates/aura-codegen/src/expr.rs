@@ -337,17 +337,32 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                                 return type_ref_local_key(rt, &ps, &as_);
                             }
                         }
-                        // Interface method return type
-                        if let Some(m) = ctx
+                        // Interface method return type, including methods inherited from parents.
+                        if let Some(i) = ctx
                             .checked
                             .ast
                             .interfaces
                             .iter()
                             .find(|i| i.name.name == base || iface_mono(i, ctx.checked) == mono)
-                            .and_then(|i| i.methods.iter().find(|m| m.name.name == fe.field.name))
                         {
-                            if let Some(rt) = &m.return_type {
-                                return type_ref_local_key(rt, &[], &[]);
+                            let (_, iargs) = resolve_iface_decl_and_args(&mono, ctx.checked);
+                            if let Some((m, owner, owner_args)) =
+                                crate::iface::interface_method_decls_with_parents(
+                                    ctx.checked,
+                                    i,
+                                    &iargs,
+                                )
+                                .into_iter()
+                                .find(|(m, _, _)| m.name.name == fe.field.name)
+                            {
+                                if let Some(rt) = &m.return_type {
+                                    let owner_params = owner
+                                        .type_params
+                                        .iter()
+                                        .map(|p| p.name.name.clone())
+                                        .collect::<Vec<_>>();
+                                    return type_ref_local_key(rt, &owner_params, &owner_args);
+                                }
                             }
                         }
                     }
@@ -404,7 +419,7 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                     } else {
                         (vec![], vec![])
                     };
-                    return type_ref_local_key(&field.ty, &ps, &as_);
+                    return type_ref_local_key_expand(&field.ty, &ps, &as_, ctx.checked);
                 }
             }
             "String".into()
@@ -2487,15 +2502,32 @@ fn emit_await(a: &AwaitExpr, ctx: &mut EmitCtx<'_>) -> String {
     out.push_str("(void)aura_task_executor_wake(__aura_task_executor, __await); ");
     out.push_str("if (aura_task_executor_run_one(__aura_task_executor) == 0) break; ");
     out.push_str("__await_state = aura_task_frame_state(__await); } } ");
-    out.push_str("if (__await_state == AURA_TASK_CANCELLED) { aura_throw_string(\"task cancelled\"); } if (__await_state == AURA_TASK_FAILED) { AuraTaskResult __await_error = aura_task_frame_error(__await); aura_throw_string(__await_error.data == NULL ? \"awaited task failed\" : (const char *)__await_error.data); } ");
+    out.push_str("if (__await_state == AURA_TASK_CANCELLED) { if (__aura_task_executor != NULL) (void)aura_task_executor_release_terminal(__aura_task_executor, &__await); aura_throw_string(\"task cancelled\"); } if (__await_state == AURA_TASK_FAILED) { AuraTaskResult __await_error = aura_task_frame_error(__await); const char *__await_source = __await_error.data == NULL ? \"awaited task failed\" : (const char *)__await_error.data; size_t __await_length = strlen(__await_source); char *__await_copy = (char *)malloc(__await_length + 1); if (__await_copy != NULL) memcpy(__await_copy, __await_source, __await_length + 1); if (__aura_task_executor != NULL) (void)aura_task_executor_release_terminal(__aura_task_executor, &__await); if (__await_copy != NULL) aura_throw_string_owned(__await_copy); aura_throw_string(\"awaited task failed\"); } ");
     out.push_str("aura_race_set_source_id(0); ");
     if inner == "Unit" {
-        out.push_str("(void)0; ");
+        out.push_str("(void)0; if (__aura_task_executor != NULL) (void)aura_task_executor_release_terminal(__aura_task_executor, &__await); ");
     } else {
-        out.push_str(&format!("{cty} __await_value = ({cty}){{0}}; "));
-        out.push_str(&format!(
-            "AuraTaskResult __await_result = aura_task_frame_result(__await); if (__await_result.data != NULL) __await_value = *(({cty} *)__await_result.data); __await_value; "
-        ));
+        out.push_str(&format!("AuraTaskResult __await_result = aura_task_frame_result(__await); {cty} __await_value = ({cty}){{0}}; "));
+        if inner == "String" {
+            out.push_str("if (__await_result.data != NULL) { const char *__src = *((const char **)__await_result.data); size_t __len = __src == NULL ? 0 : strlen(__src); char *__copy = (char *)malloc(__len + 1); if (__copy == NULL) abort(); if (__src != NULL) memcpy(__copy, __src, __len + 1); else __copy[0] = '\\0'; __await_value = __copy; } ");
+        } else if cty == "AuraTaskFrame *" {
+            out.push_str(&format!(
+                "if (__await_result.data != NULL) __await_value = *(({cty} *)__await_result.data); "
+            ));
+        } else if is_heap_class_mono(&inner, ctx.checked) {
+            // Heap objects are transferred from the task result to the caller;
+            // the receiving declaration roots the pointer immediately after
+            // this expression is evaluated.
+            out.push_str(&format!(
+                "if (__await_result.data != NULL) __await_value = *(({cty} *)__await_result.data); "
+            ));
+        } else if matches!(inner.as_str(), "Int" | "Bool" | "Opt_Int" | "Opt_Bool") {
+            out.push_str(&format!("if (__await_result.data != NULL) __await_value = *(({cty} *)__await_result.data); "));
+        } else {
+            let clone = c_method_name(&inner, "clone");
+            out.push_str(&format!("if (__await_result.data != NULL) __await_value = {clone}(({cty} *)__await_result.data); "));
+        }
+        out.push_str("if (__aura_task_executor != NULL) (void)aura_task_executor_release_terminal(__aura_task_executor, &__await); __await_value; ");
     }
     out.push_str("})");
     out
@@ -3396,22 +3428,30 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
                             }
                         }
                     }
-                    if let Some(m) = ctx
-                        .checked
-                        .ast
-                        .interfaces
-                        .iter()
-                        .find(|i| {
-                            i.name.name == recv
-                                || iface_mono(i, ctx.checked) == recv
-                                || i.name.name == base
-                        })
-                        .and_then(|i| i.methods.iter().find(|m| m.name.name == fe.field.name))
-                    {
-                        return m
-                            .return_type
-                            .as_ref()
-                            .map(|t| type_ref_local_key(t, &[], &[]));
+                    if let Some(i) = ctx.checked.ast.interfaces.iter().find(|i| {
+                        i.name.name == recv
+                            || iface_mono(i, ctx.checked) == recv
+                            || i.name.name == base
+                    }) {
+                        let (_, iargs) = resolve_iface_decl_and_args(&recv, ctx.checked);
+                        if let Some((m, owner, owner_args)) =
+                            crate::iface::interface_method_decls_with_parents(
+                                ctx.checked,
+                                i,
+                                &iargs,
+                            )
+                            .into_iter()
+                            .find(|(m, _, _)| m.name.name == fe.field.name)
+                        {
+                            return m.return_type.as_ref().map(|t| {
+                                let owner_params = owner
+                                    .type_params
+                                    .iter()
+                                    .map(|p| p.name.name.clone())
+                                    .collect::<Vec<_>>();
+                                type_ref_local_key(t, &owner_params, &owner_args)
+                            });
+                        }
                     }
                 }
             }
@@ -3462,7 +3502,7 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
             } else {
                 (params, args.to_vec())
             };
-            Some(type_ref_local_key(&field.ty, &ps, &as_))
+            Some(type_ref_local_key_expand(&field.ty, &ps, &as_, ctx.checked))
         }
         Expr::Group(inner, _) => resolve_type_name(inner, ctx),
         Expr::String(_) => Some("String".into()),

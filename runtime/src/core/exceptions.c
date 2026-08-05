@@ -76,6 +76,7 @@ static AuraExCause *aura_ex_cleared_causes_head = NULL;
 static AuraExCause *aura_ex_cleared_causes_tail = NULL;
 static uint32_t aura_ex_cleared_span_start = 0;
 static uint32_t aura_ex_cleared_span_end = 0;
+static char *aura_ex_cleared_string = NULL;
 
 static char *aura_ex_copy_string(const char *text)
 {
@@ -308,6 +309,25 @@ void aura_throw_string(const char *s)
   f->type_name = "String";
   f->owns_obj = 0;
   f->payload.as_string = s;
+  aura_ex_pending = 1;
+  longjmp(*f->buf, 1);
+}
+
+/* Transfer ownership of a heap-allocated message to the exception frame. */
+void aura_throw_string_owned(char *s)
+{
+  if (aura_ex_sp == 0)
+  {
+    fprintf(stderr, "uncaught exception: %s\n", s ? s : "null");
+    free(s);
+    abort();
+  }
+  AuraExFrame *f = &aura_ex_stack[aura_ex_sp - 1];
+  aura_ex_replace_payload(f);
+  f->type_name = "String";
+  f->owns_obj = 1;
+  f->destroy_obj = free;
+  f->payload.as_obj = s;
   aura_ex_pending = 1;
   longjmp(*f->buf, 1);
 }
@@ -580,7 +600,16 @@ void aura_ex_clear(void)
     aura_ex_cleared_causes_tail = f->cause_tail;
     f->cause_head = NULL;
     f->cause_tail = NULL;
-    if (f->owns_obj && f->payload.as_obj != NULL)
+    if (f->owns_obj && f->payload.as_obj != NULL &&
+        f->type_name != NULL && strcmp(f->type_name, "String") == 0)
+    {
+      /* A String catch binding is borrowed after clear. Keep the transferred
+       * message alive until the next exception boundary replaces it. */
+      free(aura_ex_cleared_string);
+      aura_ex_cleared_string = (char *)f->payload.as_obj;
+      f->payload.as_obj = NULL;
+    }
+    else if (f->owns_obj && f->payload.as_obj != NULL)
     {
       if (f->destroy_obj != NULL)
       {
@@ -631,4 +660,3 @@ void aura_ex_rethrow(void)
   cur.cause_tail = NULL;
   longjmp(*outer->buf, 1);
 }
-

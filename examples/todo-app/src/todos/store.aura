@@ -1,0 +1,56 @@
+package todo_app
+
+pub class InMemoryTodoRepository(private var nextId: Int, private val items: Array<Todo>) : TodoRepository {
+    pub fun all(filter: TodoFilter): Array<Todo> {
+        val result = Array<Todo>(0)
+        for (i in 0..this.items.len) {
+            val item = this.items.get(i)
+            if (filter.matches(item)) {
+                result.push(item)
+            }
+        }
+        return result
+    }
+
+    pub fun create(title: String): Todo {
+        val item = Todo(this.nextId, title, false)
+        this.nextId = this.nextId + 1
+        this.items.push(item)
+        return item
+    }
+
+    pub fun find(id: Int): Todo? {
+        for (i in 0..this.items.len) {
+            val item = this.items.get(i)
+            if (item.id == id) {
+                return item
+            }
+        }
+        return null
+    }
+
+    pub fun remove(id: Int): Bool {
+        for (i in 0..this.items.len) {
+            if (this.items.get(i).id == id) {
+                val last = this.items.len - 1
+                if (i != last) {
+                    this.items.set(i, this.items.get(last))
+                }
+                this.items.pop()
+                return true
+            }
+        }
+        return false
+    }
+
+    pub fun stats(): TodoStats {
+        var completed = 0
+        for (i in 0..this.items.len) {
+            match (this.items.get(i).status) {
+                case Completed => { completed = completed + 1 }
+                case Active => {}
+            }
+        }
+        return TodoStats(this.items.len, this.items.len - completed, completed)
+    }
+}

@@ -1,0 +1,9 @@
+[package]
+name = "todo_app"
+
+[[bin]]
+name = "todo-app"
+path = "src"
+
+[dependencies]
+aura.web = { path = "../aura-web" }

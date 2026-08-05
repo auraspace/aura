@@ -156,7 +156,11 @@ fn build_json_decode_node(
         // semantic field metadata, while JSON construction uses the same C
         // payload layout as the non-nullable class/array.
         let payload_key = crate::expr::task_payload_repr_key(&local_key);
-        let field_key = if crate::array_emit::is_array_type_key(&payload_key) {
+        let field_key = if payload_key == "Opt_Int" {
+            "Int".to_string()
+        } else if payload_key == "Opt_Bool" {
+            "Bool".to_string()
+        } else if crate::array_emit::is_array_type_key(&payload_key) {
             crate::expr::full_type_mono(&payload_key, checked)
         } else {
             payload_key
@@ -178,15 +182,13 @@ fn build_json_decode_node(
         } else {
             None
         };
-        let enum_mono = if !field.ty.nullable
-            && !matches!(field_key.as_str(), "Int" | "Bool" | "String")
-            && array_nested.is_none()
-        {
-            let full = crate::expr::full_type_mono(&field_key, checked);
-            json_decode_unit_enum_for_mono(&full, checked).map(|_| full)
-        } else {
-            None
-        };
+        let enum_mono =
+            if !matches!(field_key.as_str(), "Int" | "Bool" | "String") && array_nested.is_none() {
+                let full = crate::expr::full_type_mono(&field_key, checked);
+                json_decode_unit_enum_for_mono(&full, checked).map(|_| full)
+            } else {
+                None
+            };
         let nested = if matches!(field_key.as_str(), "Int" | "Bool" | "String")
             || array_element.is_some()
             || array_enum_mono.is_some()
@@ -264,6 +266,9 @@ fn emit_json_decode_declarations(out: &mut String, node: &JsonDecodeNode, path: 
                 let _ = writeln!(out, "  const char *{decoded} = NULL;");
                 let matched = json_decode_var(&field_path, "enum_matched");
                 let _ = writeln!(out, "  bool {matched} = false;");
+                if field.nullable {
+                    let _ = writeln!(out, "  {enum_value}.tag = -1;");
+                }
             }
             _ if field.array_element.is_some()
                 || field.array_enum_mono.is_some()
@@ -271,6 +276,9 @@ fn emit_json_decode_declarations(out: &mut String, node: &JsonDecodeNode, path: 
             {
                 let array = json_decode_var(&field_path, "array");
                 let _ = writeln!(out, "  {} {array} = {{ 0 }};", c_class_type(&field.key));
+                if field.nullable {
+                    let _ = writeln!(out, "  {array}.len = -1; {array}.cap = -1;");
+                }
                 let rooted = json_decode_var(&field_path, "array_rooted");
                 let _ = writeln!(out, "  bool {rooted} = false;");
                 if let Some(nested) = &field.array_nested {
@@ -315,7 +323,11 @@ fn emit_json_decode_parse(
             out,
             "  {raw} = aura_json_object_get({source}, \"{escaped}\");"
         );
-        let _ = writeln!(out, "  if ({raw} == NULL) goto __json_decode_fail;");
+        if field.nullable {
+            let _ = writeln!(out, "  if ({raw} != NULL && !aura_json_is_null({raw})) {{");
+        } else {
+            let _ = writeln!(out, "  if ({raw} == NULL) goto __json_decode_fail;");
+        }
         match field.key.as_str() {
             "Int" => {
                 let _ = writeln!(
@@ -467,43 +479,46 @@ fn emit_json_decode_parse(
                     emit_json_decode_parse(out, nested, &field_path, &raw, checked);
                     let args = emit_json_decode_ctor_args(nested, &field_path);
                     let _ = writeln!(out, "  {class} = {}({args});", c_ctor_name(&nested.mono));
-                    continue;
-                }
-                if field.nullable {
+                } else {
+                    if field.nullable {
+                        let _ = writeln!(
+                            out,
+                            "  if (aura_json_is_null({raw})) {{ {class} = NULL; }} else {{"
+                        );
+                    } else {
+                        let _ = writeln!(out, "  {{");
+                    }
+                    emit_json_decode_parse(out, nested, &field_path, &raw, checked);
+                    let args = nested
+                        .fields
+                        .iter()
+                        .enumerate()
+                        .map(|(nested_index, nested_field)| {
+                            let nested_path = format!("{field_path}_{nested_index}");
+                            match nested_field.key.as_str() {
+                                "Int" => json_decode_var(&nested_path, "int"),
+                                "Bool" => json_decode_var(&nested_path, "bool"),
+                                "String" => json_decode_var(&nested_path, "string"),
+                                _ if nested_field.enum_mono.is_some() => {
+                                    json_decode_var(&nested_path, "enum")
+                                }
+                                _ => json_decode_var(&nested_path, "class"),
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
                     let _ = writeln!(
                         out,
-                        "  if (aura_json_is_null({raw})) {{ {class} = NULL; }} else {{"
+                        "    {class} = {}({args}); if ({class} == NULL) goto __json_decode_fail;",
+                        c_ctor_name(&nested.mono)
                     );
-                } else {
-                    let _ = writeln!(out, "  {{");
+                    emit_json_decode_transfer_arrays(out, nested, &field_path);
+                    out.push_str("  }\n");
                 }
-                emit_json_decode_parse(out, nested, &field_path, &raw, checked);
-                let args = nested
-                    .fields
-                    .iter()
-                    .enumerate()
-                    .map(|(nested_index, nested_field)| {
-                        let nested_path = format!("{field_path}_{nested_index}");
-                        match nested_field.key.as_str() {
-                            "Int" => json_decode_var(&nested_path, "int"),
-                            "Bool" => json_decode_var(&nested_path, "bool"),
-                            "String" => json_decode_var(&nested_path, "string"),
-                            _ if nested_field.enum_mono.is_some() => {
-                                json_decode_var(&nested_path, "enum")
-                            }
-                            _ => json_decode_var(&nested_path, "class"),
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let _ = writeln!(
-                    out,
-                    "    {class} = {}({args}); if ({class} == NULL) goto __json_decode_fail;",
-                    c_ctor_name(&nested.mono)
-                );
-                emit_json_decode_transfer_arrays(out, nested, &field_path);
-                out.push_str("  }\n");
             }
+        }
+        if field.nullable {
+            out.push_str("  }\n");
         }
     }
 }
@@ -618,6 +633,18 @@ fn emit_json_decode_ctor_args(node: &JsonDecodeNode, path: &str) -> String {
         .map(|(index, field)| {
             let field_path = format!("{path}_{index}");
             match field.key.as_str() {
+                "Int" if field.nullable => format!(
+                    "(aura_opt_i64){{ .has = {} != NULL && !aura_json_is_null({}), .value = {} }}",
+                    json_decode_var(&field_path, "raw"),
+                    json_decode_var(&field_path, "raw"),
+                    json_decode_var(&field_path, "int")
+                ),
+                "Bool" if field.nullable => format!(
+                    "(aura_opt_bool){{ .has = {} != NULL && !aura_json_is_null({}), .value = {} }}",
+                    json_decode_var(&field_path, "raw"),
+                    json_decode_var(&field_path, "raw"),
+                    json_decode_var(&field_path, "bool")
+                ),
                 "Int" => json_decode_var(&field_path, "int"),
                 "Bool" => json_decode_var(&field_path, "bool"),
                 "String" => json_decode_var(&field_path, "string"),
@@ -1201,6 +1228,7 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str("uint32_t aura_ex_cause_span_end(size_t index);\n");
     out.push_str("const char *aura_ex_cause_type_copy(size_t index);\n");
     out.push_str("void aura_throw_string(const char *s);\n");
+    out.push_str("void aura_throw_string_owned(char *s);\n");
     out.push_str("void aura_throw_int(int64_t v);\n");
     out.push_str("void aura_throw_bool(_Bool v);\n");
     out.push_str("void aura_throw_obj(const char *type_name, void *obj);\n");
@@ -1889,6 +1917,10 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
         &generic_async_functions,
     );
     emit_lazy_helpers(&mut out, checked);
+
+    // Lambda callbacks can be used by class methods emitted below, so their
+    // prototypes must precede class definitions as well as top-level calls.
+    emit_lambda_prototypes(&mut out, checked);
 
     // Definitions
     for c in &checked.ast.classes {
@@ -12290,6 +12322,10 @@ fn await_operand_is_temporary(expr: &Expr, checked: &CheckedFile) -> bool {
                 .async_functions
                 .iter()
                 .any(|f| f.name.name == id.name),
+            // Invoking an async method or function-valued field creates a
+            // fresh task handle which the await must release after observing
+            // its terminal result.
+            Expr::Field(_) => true,
             _ => false,
         },
         _ => false,
@@ -14418,7 +14454,11 @@ fn emit_bounded_spawn_pollers(
                     .as_ref()
                     .map(|ty| type_ref_local_key_expand(ty, &[], &[], checked))
                     .unwrap_or_else(|| "Int".into());
-                if is_array_type_key(&await_key) {
+                if await_key == "String" {
+                    out.push_str(
+                        "  if (data != NULL && data->await_value != NULL) free((void *)data->await_value);\n",
+                    );
+                } else if is_array_type_key(&await_key) {
                     let cty = crate::stmt::local_key_to_c(&await_key, checked);
                     let _ = writeln!(out, "  if (data != NULL) {cty}_drop(&data->await_value);");
                 } else if crate::expr::is_value_struct_mono(&await_key, checked) {
@@ -15393,7 +15433,11 @@ fn emit_bounded_spawn_await_poller(
             "      /* typed suspended {key} result is copied into spawn-owned storage */"
         );
     }
-    if is_array_type_key(&await_key) {
+    if await_key == "String" {
+        out.push_str(
+            "      if (child_result.data != NULL) { const char *__child = *((const char **)child_result.data); if (data->await_value != NULL) free((void *)data->await_value); data->await_value = NULL; if (__child != NULL) { size_t __len = strlen(__child); data->await_value = (const char *)malloc(__len + 1); if (data->await_value == NULL) return AURA_TASK_FAILED; memcpy((void *)data->await_value, __child, __len + 1); } }\n",
+        );
+    } else if is_array_type_key(&await_key) {
         let clone = crate::names::c_method_name(&await_key, "clone");
         let mut free_old = String::new();
         crate::array_emit::emit_array_contents_free(
@@ -15986,6 +16030,12 @@ fn collect_lambdas(file: &File) -> Vec<&LambdaExpr> {
         walk_block_lambdas(&f.body, &mut out);
     }
     for c in &file.classes {
+        for ctor in &c.constructors {
+            walk_block_lambdas(&ctor.body, &mut out);
+            for arg in &ctor.delegation_args {
+                walk_expr_lambdas(arg, &mut out);
+            }
+        }
         for m in &c.methods {
             walk_block_lambdas(&m.body, &mut out);
         }
@@ -16323,7 +16373,7 @@ fn emit_lazy_helpers(out: &mut String, checked: &CheckedFile) {
     }
 }
 
-fn emit_lambda_fns(out: &mut String, checked: &CheckedFile, detector: bool) {
+fn emit_lambda_prototypes(out: &mut String, checked: &CheckedFile) {
     if checked.lambda_tys.is_empty() {
         return;
     }
@@ -16353,6 +16403,15 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile, detector: bool) {
         );
     }
     out.push('\n');
+}
+
+fn emit_lambda_fns(out: &mut String, checked: &CheckedFile, detector: bool) {
+    if checked.lambda_tys.is_empty() {
+        return;
+    }
+    let ids = build_lambda_ids(checked);
+    let mut lambdas = collect_lambdas(&checked.ast);
+    lambdas.sort_by_key(|l| l.span.start);
     // C10h/C12k/C12l/C12m/C13e: env structs for capturing lambdas (stable field order from sema).
     // Header: `__drop` + `__refs` (refcount for shared nested Fun envs / multi-owner free).
     // Immutable Array captures store an owned snapshot; mutable captures use
@@ -16617,7 +16676,8 @@ fn emit_json_encode_class(
         .collect::<Vec<_>>();
     let mut field_keys = Vec::with_capacity(class.fields.len());
     for field in &class.fields {
-        let key = type_ref_local_key_expand(&field.ty, &params, &class_args, checked);
+        let raw_key = type_ref_local_key_expand(&field.ty, &params, &class_args, checked);
+        let key = crate::expr::task_payload_repr_key(&raw_key);
         if !json_encode_key_supported(&key, checked, 0) {
             return false;
         }
@@ -16635,14 +16695,31 @@ fn emit_json_encode_class(
         } else {
             format!("({value}).{}", mangle_ident(&field.name.name))
         };
-        emit_json_encode_value(
-            out,
-            &format!("__json_values[{index}]"),
-            &access,
-            &key,
-            checked,
-            &format!("field_{index}"),
-        );
+        if field.ty.nullable && !matches!(key.as_str(), "Opt_Int" | "Opt_Bool") {
+            let condition = json_nullable_null_condition(&access, key, checked);
+            let _ = writeln!(
+                out,
+                "  if ({condition}) __json_values[{index}] = aura_json_encode_null(); else {{"
+            );
+            emit_json_encode_value(
+                out,
+                &format!("__json_values[{index}]"),
+                &access,
+                &key,
+                checked,
+                &format!("field_{index}"),
+            );
+            out.push_str("  }\n");
+        } else {
+            emit_json_encode_value(
+                out,
+                &format!("__json_values[{index}]"),
+                &access,
+                &key,
+                checked,
+                &format!("field_{index}"),
+            );
+        }
         let _ = writeln!(out, "  if (__json_values[{index}] == NULL) goto __json_encode_fail; __json_encoded_count++;" );
     }
     out.push_str("  const char *__json_encoded = aura_json_encode_object((const char *[]) {");
@@ -16669,7 +16746,7 @@ fn json_encode_key_supported(key: &str, checked: &CheckedFile, depth: usize) -> 
     if depth > 32 {
         return false;
     }
-    if matches!(key, "Int" | "Bool" | "String") {
+    if matches!(key, "Int" | "Bool" | "String" | "Opt_Int" | "Opt_Bool") {
         return true;
     }
     if let Some(element) = crate::expr::array_elem_local_key(key, checked) {
@@ -16747,6 +16824,20 @@ fn json_encode_key_supported(key: &str, checked: &CheckedFile, depth: usize) -> 
     })
 }
 
+fn json_nullable_null_condition(access: &str, key: &str, checked: &CheckedFile) -> String {
+    if crate::array_emit::is_array_type_key(key) {
+        return format!("({access}).len < 0");
+    }
+    let full = crate::expr::full_type_mono(key, checked);
+    if crate::expr::is_enum_mono(&full, checked) {
+        return format!("({access}).tag < 0");
+    }
+    if crate::expr::is_value_struct_mono(&full, checked) {
+        return format!("({access}).__aura_present == 0");
+    }
+    format!("{access} == NULL")
+}
+
 fn emit_json_encode_value(
     out: &mut String,
     destination: &str,
@@ -16756,6 +16847,18 @@ fn emit_json_encode_value(
     path: &str,
 ) {
     match key {
+        "Opt_Int" => {
+            let _ = writeln!(
+                out,
+                "  {destination} = ({value}).has ? aura_json_encode_int(({value}).value) : aura_json_encode_null();"
+            );
+        }
+        "Opt_Bool" => {
+            let _ = writeln!(
+                out,
+                "  {destination} = ({value}).has ? aura_json_encode_bool(({value}).value) : aura_json_encode_null();"
+            );
+        }
         "Int" => {
             let _ = writeln!(out, "  {destination} = aura_json_encode_int({value});");
         }
@@ -16916,9 +17019,15 @@ fn emit_json_encode_value(
                 } else {
                     format!("({value}).{}", mangle_ident(&field.name.name))
                 };
-                let field_key = type_ref_local_key_expand(&field.ty, &params, class_args, checked);
-                if field.ty.nullable {
-                    let _ = writeln!(out, "  if ({access} == NULL) {values}[{index}] = aura_json_encode_null(); else {{");
+                let raw_field_key =
+                    type_ref_local_key_expand(&field.ty, &params, class_args, checked);
+                let field_key = crate::expr::task_payload_repr_key(&raw_field_key);
+                if field.ty.nullable && !matches!(field_key.as_str(), "Opt_Int" | "Opt_Bool") {
+                    let condition = json_nullable_null_condition(&access, &field_key, checked);
+                    let _ = writeln!(
+                        out,
+                        "  if ({condition}) {values}[{index}] = aura_json_encode_null(); else {{"
+                    );
                     emit_json_encode_value(
                         out,
                         &format!("{values}[{index}]"),

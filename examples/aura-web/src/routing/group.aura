@@ -1,0 +1,41 @@
+package aura.web
+
+// Group is a small plugin-like facade for mounting a set of routes under a
+// shared prefix, similar to Express.Router or Fastify.register.
+pub class Group(private val app: App, private val prefix: String,
+                private val middlewares: Array<Middleware>) {
+    pub fun get(path: String, handler: WebHandler): Group {
+        this.add("GET", path, handler)
+        return this
+    }
+
+    pub fun post(path: String, handler: WebHandler): Group {
+        this.add("POST", path, handler)
+        return this
+    }
+
+    pub fun put(path: String, handler: WebHandler): Group {
+        this.add("PUT", path, handler)
+        return this
+    }
+
+    pub fun delete(path: String, handler: WebHandler): Group {
+        this.add("DELETE", path, handler)
+        return this
+    }
+
+    fun add(method: String, path: String, handler: WebHandler): Unit {
+        val routeMiddlewares = this.middlewares.clone()
+        this.app.addRoute(method, joinPath(this.prefix, path), routeMiddlewares, handler)
+    }
+}
+
+fun joinPath(prefix: String, path: String): String {
+    if (prefix.endsWith("/") && path.startsWith("/")) {
+        return prefix.substring(0, prefix.len - 1) + path
+    }
+    if (!prefix.endsWith("/") && !path.startsWith("/")) {
+        return prefix + "/" + path
+    }
+    return prefix + path
+}

@@ -278,6 +278,10 @@ pub(crate) fn emit_class_typedef(
     let _ = writeln!(out, "struct {} {{", c_class_type(&mono));
     if is_heap_class_decl(c) {
         out.push_str("  uint32_t __aura_class_tag;\n");
+    } else {
+        // Inline structs need one bit to distinguish null from a zero value
+        // when they are used through a nullable JSON field.
+        out.push_str("  uint8_t __aura_present;\n");
     }
     emit_layout_fields(out, checked, c, &params, args);
     if c.fields.is_empty() && direct_superclass(checked, c).is_none() {
@@ -1466,7 +1470,7 @@ pub(crate) fn c_method_signature_mono(
     };
     for p in &m.params {
         let cty = if p.is_vararg {
-            crate::stmt::local_key_to_c(&param_local_key(p, params, args), checked)
+            crate::stmt::local_key_to_c(&param_local_key_expand(p, params, args, checked), checked)
         } else {
             c_type_ref_subst(&p.ty, checked, params, args)
         };
@@ -1475,7 +1479,7 @@ pub(crate) fn c_method_signature_mono(
     let param_keys = m
         .params
         .iter()
-        .map(|p| param_local_key(p, params, args))
+        .map(|p| param_local_key_expand(p, params, args, checked))
         .collect::<Vec<_>>();
     let overloaded = c
         .methods
@@ -1511,7 +1515,10 @@ fn c_method_signature_with_method_args(
     };
     for p in &m.params {
         let cty = if p.is_vararg {
-            crate::stmt::local_key_to_c(&param_local_key(p, &all_params, &all_args), checked)
+            crate::stmt::local_key_to_c(
+                &param_local_key_expand(p, &all_params, &all_args, checked),
+                checked,
+            )
         } else {
             c_type_ref_subst(&p.ty, checked, &all_params, &all_args)
         };
@@ -1520,7 +1527,7 @@ fn c_method_signature_with_method_args(
     let param_keys = m
         .params
         .iter()
-        .map(|p| param_local_key(p, &all_params, &all_args))
+        .map(|p| param_local_key_expand(p, &all_params, &all_args, checked))
         .collect::<Vec<_>>();
     let overloaded = c
         .methods
@@ -1545,7 +1552,10 @@ pub(crate) fn c_fun_signature(f: &FunDecl, checked: &CheckedFile, args: &[Ty]) -
             .iter()
             .map(|p| {
                 let cty = if p.is_vararg {
-                    crate::stmt::local_key_to_c(&param_local_key(p, &params, args), checked)
+                    crate::stmt::local_key_to_c(
+                        &param_local_key_expand(p, &params, args, checked),
+                        checked,
+                    )
                 } else {
                     c_type_ref_subst(&p.ty, checked, &params, args)
                 };
@@ -1558,7 +1568,7 @@ pub(crate) fn c_fun_signature(f: &FunDecl, checked: &CheckedFile, args: &[Ty]) -
     let param_keys = f
         .params
         .iter()
-        .map(|p| param_local_key(p, &params, args))
+        .map(|p| param_local_key_expand(p, &params, args, checked))
         .collect::<Vec<_>>();
     let overloaded = checked
         .ast
@@ -1635,7 +1645,13 @@ pub(crate) fn emit_ctor_mono(
         );
         for f in &c.fields {
             let n = mangle_ident(&f.name.name);
-            if type_ref_local_key(&f.ty, params, args) == "String" {
+            let field_key = type_ref_local_key_expand(&f.ty, params, args, checked);
+            if is_fun_type_key(&field_key) {
+                let _ = writeln!(
+                    out,
+                    "  self->{n} = {n}; if (self->{n}.env != NULL) aura_fun_env_retain(self->{n}.env);"
+                );
+            } else if field_key == "String" {
                 emit_string_copy_assignment(out, &format!("self->{n}"), &n);
             } else {
                 let _ = writeln!(out, "  self->{n} = {n};");
@@ -1661,6 +1677,8 @@ pub(crate) fn emit_ctor_mono(
         out.push_str("  return self;\n}\n");
     } else {
         let _ = writeln!(out, "  {cty} self;");
+        out.push_str("  memset(&self, 0, sizeof(self));\n");
+        out.push_str("  self.__aura_present = 1;\n");
         for f in &c.fields {
             let n = mangle_ident(&f.name.name);
             let key = type_ref_local_key(&f.ty, params, args);

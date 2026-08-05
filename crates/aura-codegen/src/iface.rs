@@ -545,7 +545,7 @@ pub(crate) fn emit_iface_dispatch_with_method_args(
         let param_keys = m
             .params
             .iter()
-            .map(|p| param_local_key(p, method_tparams, method_args))
+            .map(|p| param_local_key_expand(p, method_tparams, method_args, checked))
             .collect::<Vec<_>>();
         let overloaded = iface
             .methods
@@ -558,7 +558,7 @@ pub(crate) fn emit_iface_dispatch_with_method_args(
                 && candidate
                     .params
                     .iter()
-                    .map(|p| param_local_key(p, &[], &[]))
+                    .map(|p| param_local_key_expand(p, &[], &[], checked))
                     .collect::<Vec<_>>()
                     == param_keys
         });
@@ -567,7 +567,7 @@ pub(crate) fn emit_iface_dispatch_with_method_args(
                 let keys = candidate
                     .params
                     .iter()
-                    .map(|p| param_local_key(p, &[], &[]))
+                    .map(|p| param_local_key_expand(p, &[], &[], checked))
                     .collect::<Vec<_>>();
                 c_method_name_with_params(&mono, &candidate.name.name, &keys, overloaded)
             })
@@ -622,7 +622,7 @@ pub(crate) fn c_iface_method_signature_args(
     let mut cparams = vec![format!("{} *self", c_iface_type(iface_mono))];
     for p in &m.params {
         let cty = if p.is_vararg {
-            crate::stmt::local_key_to_c(&param_local_key(p, params, args), checked)
+            crate::stmt::local_key_to_c(&param_local_key_expand(p, params, args, checked), checked)
         } else {
             c_type_ref_subst(&p.ty, checked, params, args)
         };
@@ -631,7 +631,7 @@ pub(crate) fn c_iface_method_signature_args(
     let param_keys = m
         .params
         .iter()
-        .map(|p| param_local_key(p, params, args))
+        .map(|p| param_local_key_expand(p, params, args, checked))
         .collect::<Vec<_>>();
     let overloaded = checked
         .ast

@@ -1368,6 +1368,34 @@ fun main() { count(1, 2, 3) }
 }
 
 #[test]
+fn typechecks_explicit_array_of_function_values() {
+    let src = r#"
+package t
+fun use(vararg handlers: (Int) -> Unit): Unit {
+  val copied: Array<(Int) -> Unit> = handlers
+}
+fun main() { use((value: Int) => {}) }
+"#;
+    let file = parse_file(src).expect("parse function array");
+    check_file(&file).expect("Array<Fun> should typecheck");
+}
+
+#[test]
+fn resolves_function_aliases_in_member_varargs() {
+    let src = r#"
+package t
+type Handler = (Int) -> Unit
+class Registry() {
+  fun use(vararg handlers: Handler): Unit {
+    val copied: Array<Handler> = handlers
+  }
+}
+"#;
+    let file = parse_file(src).expect("parse member function alias");
+    check_file(&file).expect("function aliases should resolve in member signatures");
+}
+
+#[test]
 fn resolves_interface_method_overloads_by_argument_type() {
     let src = r#"
 package t

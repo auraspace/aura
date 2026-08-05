@@ -1,0 +1,179 @@
+package aura.web
+
+import std.http
+import std.net
+
+pub interface Plugin {
+    fun install(app: App): Unit
+}
+
+pub interface ConfiguredPlugin {
+    fun install(app: App, options: PluginOptions): Unit
+}
+
+pub class PluginOptions(pub val prefix: String = "") {}
+
+pub class App(private val routerValue: Router, private val routePrefix: String) {
+    constructor(routerValue: Router): this(routerValue, "") {}
+
+    pub fun use(vararg handlers: WebHandler): App {
+        for (i in 0..handlers.len) {
+            this.routerValue.use(handlers.get(i))
+        }
+        return this
+    }
+
+    pub fun use(path: String, vararg handlers: WebHandler): App {
+        for (i in 0..handlers.len) {
+            this.routerValue.use(path, handlers.get(i))
+        }
+        return this
+    }
+
+    pub fun useNext(vararg handlers: NextHandler): App {
+        for (i in 0..handlers.len) {
+            this.routerValue.useNext(handlers.get(i))
+        }
+        return this
+    }
+
+    pub fun use(plugin: Plugin): App {
+        plugin.install(this)
+        return this
+    }
+
+    pub fun use(plugin: ConfiguredPlugin, options: PluginOptions): App {
+        val scoped = App(this.routerValue, options.prefix)
+        plugin.install(scoped, options)
+        return this
+    }
+
+    pub fun onError(handler: ErrorHandler): App {
+        this.routerValue.onError(handler)
+        return this
+    }
+
+    pub fun onRequest(handler: WebHandler): App {
+        this.routerValue.onRequest(handler)
+        return this
+    }
+
+    pub fun preHandler(handler: WebHandler): App {
+        this.routerValue.preHandler(handler)
+        return this
+    }
+
+    pub fun onSend(handler: WebHandler): App {
+        this.routerValue.onSend(handler)
+        return this
+    }
+
+    pub fun onResponse(handler: WebHandler): App {
+        this.routerValue.onResponse(handler)
+        return this
+    }
+
+    pub fun get(path: String, vararg handlers: WebHandler): App {
+        if (handlers.len == 0) { throw "route requires a controller" }
+        val middlewares = Array<Middleware>(0)
+        for (i in 0..handlers.len - 1) { middlewares.push(Middleware(handlers.get(i))) }
+        this.addRoute("GET", path, middlewares, handlers.get(handlers.len - 1))
+        return this
+    }
+
+    pub fun post(path: String, vararg handlers: WebHandler): App {
+        if (handlers.len == 0) { throw "route requires a controller" }
+        val middlewares = Array<Middleware>(0)
+        for (i in 0..handlers.len - 1) { middlewares.push(Middleware(handlers.get(i))) }
+        this.addRoute("POST", path, middlewares, handlers.get(handlers.len - 1))
+        return this
+    }
+
+    pub fun put(path: String, vararg handlers: WebHandler): App {
+        if (handlers.len == 0) { throw "route requires a controller" }
+        val middlewares = Array<Middleware>(0)
+        for (i in 0..handlers.len - 1) { middlewares.push(Middleware(handlers.get(i))) }
+        this.addRoute("PUT", path, middlewares, handlers.get(handlers.len - 1))
+        return this
+    }
+
+    pub fun patch(path: String, vararg handlers: WebHandler): App {
+        if (handlers.len == 0) { throw "route requires a controller" }
+        val middlewares = Array<Middleware>(0)
+        for (i in 0..handlers.len - 1) { middlewares.push(Middleware(handlers.get(i))) }
+        this.addRoute("PATCH", path, middlewares, handlers.get(handlers.len - 1))
+        return this
+    }
+
+    pub fun delete(path: String, vararg handlers: WebHandler): App {
+        if (handlers.len == 0) { throw "route requires a controller" }
+        val middlewares = Array<Middleware>(0)
+        for (i in 0..handlers.len - 1) { middlewares.push(Middleware(handlers.get(i))) }
+        this.addRoute("DELETE", path, middlewares, handlers.get(handlers.len - 1))
+        return this
+    }
+
+    pub fun options(path: String, vararg handlers: WebHandler): App {
+        if (handlers.len == 0) { throw "route requires a controller" }
+        val middlewares = Array<Middleware>(0)
+        for (i in 0..handlers.len - 1) { middlewares.push(Middleware(handlers.get(i))) }
+        this.addRoute("OPTIONS", path, middlewares, handlers.get(handlers.len - 1))
+        return this
+    }
+
+    pub fun all(path: String, vararg handlers: WebHandler): App {
+        if (handlers.len == 0) { throw "route requires a controller" }
+        val middlewares = Array<Middleware>(0)
+        for (i in 0..handlers.len - 1) { middlewares.push(Middleware(handlers.get(i))) }
+        this.addRoute("*", path, middlewares, handlers.get(handlers.len - 1))
+        return this
+    }
+
+    pub fun group(prefix: String): Group {
+        return Group(this, prefix, Array<Middleware>(0))
+    }
+
+    pub fun group(prefix: String, vararg handlers: WebHandler): Group {
+        val middlewares = Array<Middleware>(0)
+        for (i in 0..handlers.len) {
+            middlewares.push(Middleware(handlers.get(i)))
+        }
+        return Group(this, prefix, middlewares)
+    }
+
+    pub fun groupWithMiddleware(prefix: String, handler: WebHandler): Group {
+        val middlewares = Array<Middleware>(0)
+        middlewares.push(Middleware(handler))
+        return Group(this, prefix, middlewares)
+    }
+
+    pub fun addRoute(method: String, path: String,
+                     middlewares: Array<Middleware>, controller: WebHandler): App {
+        this.routerValue.addRoute(method, this.routePath(path), middlewares, controller)
+        return this
+    }
+
+    fun routePath(path: String): String {
+        if (this.routePrefix == "") {
+            return path
+        }
+        return joinPath(this.routePrefix, path)
+    }
+
+    async fun dispatch(request: Request, response: Response): Unit {
+        await this.routerValue.dispatch(request, response)
+    }
+
+    pub fun listen(port: Int): Unit {
+        val listener = listen(port.toString())
+        serve(listener, makeHandler(this))
+    }
+}
+
+fun makeHandler(app: App): (Request, Response) -> Task<Unit> {
+    return (request: Request, response: Response) => app.dispatch(request, response)
+}
+
+pub fun webApp(maxBytes: Int = 1048576): App {
+    return App(router(maxBytes))
+}

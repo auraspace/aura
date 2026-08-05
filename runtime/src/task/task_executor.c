@@ -280,6 +280,29 @@ static void aura_task_scope_adopt(AuraTaskFrame *frame)
   scope->frames = frame;
 }
 
+static void aura_task_scope_detach(AuraTaskFrame *frame)
+{
+  AuraTaskScope *scope;
+  AuraTaskFrame **link;
+  if (frame == NULL || !frame->scope_owned || frame->scope == NULL)
+  {
+    return;
+  }
+  scope = frame->scope;
+  link = &scope->frames;
+  while (*link != NULL && *link != frame)
+  {
+    link = &(*link)->scope_next;
+  }
+  if (*link == frame)
+  {
+    *link = frame->scope_next;
+  }
+  frame->scope_next = NULL;
+  frame->scope = NULL;
+  frame->scope_owned = 0;
+}
+
 AuraTaskPollState aura_task_frame_poll_once(AuraTaskFrame *frame)
 {
   int64_t now;
@@ -1772,13 +1795,31 @@ int aura_task_executor_release(AuraTaskExecutor *executor, AuraTaskFrame **handl
   {
     return 0;
   }
+  if ((frame->state == AURA_TASK_COMPLETE || frame->state == AURA_TASK_FAILED ||
+       frame->state == AURA_TASK_CANCELLED) &&
+      frame->queued && !aura_task_executor_unqueue(executor, frame))
+  {
+    return 0;
+  }
   if (frame->scope_owned)
   {
+    if (frame->state == AURA_TASK_COMPLETE || frame->state == AURA_TASK_FAILED ||
+        frame->state == AURA_TASK_CANCELLED)
+    {
+      /* A terminal child has been observed by its parent. Do not leave it in
+       * a long-lived request scope after the generated await cleared its
+       * handle. */
+      aura_task_scope_detach(frame);
+      frame->join_observed = frame->state == AURA_TASK_FAILED;
+    }
+    else
+    {
     /* The lexical handle gives up only its reference; a scope or scheduler
      * payload keeps the executor-owned frame alive until its final release. */
     frame->handle_owned = 0;
     *handle = NULL;
     return 1;
+    }
   }
   if (frame->inline_parked)
   {
@@ -2047,6 +2088,8 @@ int aura_task_executor_release_terminal(AuraTaskExecutor *executor,
   {
     return 0;
   }
+  aura_task_scope_detach(frame);
+  frame->join_observed = 1;
   return aura_task_executor_release(executor, handle);
 }
 

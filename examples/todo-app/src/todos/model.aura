@@ -1,0 +1,68 @@
+package todo_app
+
+pub enum TodoStatus {
+    case Active
+    case Completed
+}
+
+pub enum TodoError {
+    case NotFound
+    case InvalidTitle
+    case EmptyUpdate
+    case InvalidFilter
+}
+
+pub enum TodoResult<T> {
+    case Ok(value: T)
+    case Err(error: TodoError)
+}
+
+pub interface TodoReader {
+    fun all(filter: TodoFilter): Array<Todo>
+    fun find(id: Int): Todo?
+}
+
+pub interface TodoRepository : TodoReader {
+    fun create(title: String): Todo
+    fun remove(id: Int): Bool
+    fun stats(): TodoStats
+}
+
+pub struct TodoFilter(pub val completed: Bool?) {
+    pub fun matches(todo: Todo): Bool {
+        if (this.completed == null) {
+            return true
+        }
+        return todo.completed == this.completed!!
+    }
+}
+
+fun statusFor(completed: Bool): TodoStatus {
+    if (completed) {
+        return Completed()
+    }
+    return Active()
+}
+
+pub class Todo(pub val id: Int, pub var title: String, pub var completed: Bool,
+               pub var status: TodoStatus) {
+    constructor(id: Int, title: String, completed: Bool): this(
+        id, title, completed, statusFor(completed)
+    ) {}
+
+    pub fun setTitle(value: String): Unit {
+        this.title = value
+    }
+
+    pub fun setCompleted(value: Bool): Unit {
+        this.completed = value
+        this.status = statusFor(value)
+    }
+}
+
+pub struct TodoStats(pub val total: Int, pub val active: Int, pub val completed: Int) {}
+
+// Request models keep JSON validation at the boundary of the application.
+pub class CreateTodoRequest(pub val title: String) {}
+
+pub class UpdateTodoRequest(pub val title: String?, pub val completed: Bool?) {}

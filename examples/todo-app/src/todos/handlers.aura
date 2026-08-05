@@ -1,0 +1,169 @@
+package todo_app
+
+import aura.web
+import std.json
+
+fun idFrom(ctx: Context): Int? {
+    return ctx.param("id").toInt()
+}
+
+fun fail(ctx: Context, status: Int, message: String): Unit {
+    ctx.status(status)
+    val body = ErrorResponse(message)
+    val encoded = encode<ErrorResponse>(body)
+    if (encoded != null) {
+        ctx.json(encoded!!)
+    }
+}
+
+class ErrorResponse(pub val error: String) {}
+
+fun sendJson<T>(ctx: Context, status: Int, body: T): Unit {
+    val encoded = encode<T>(body)
+    if (encoded == null) {
+        throw "failed to encode JSON response"
+    }
+    ctx.status(status)
+    ctx.json(encoded!!)
+}
+
+async fun health(ctx: Context): Unit {
+    sendJson<HealthResponse>(ctx, 200, HealthResponse("ok", "todo-app"))
+}
+
+class HealthResponse(pub val status: String, pub val service: String) {}
+
+fun errorStatus(error: TodoError): Int {
+    match (error) {
+        case NotFound => { return 404 }
+        case InvalidTitle => { return 422 }
+        case EmptyUpdate => { return 422 }
+        case InvalidFilter => { return 400 }
+    }
+}
+
+fun errorCode(error: TodoError): String {
+    match (error) {
+        case NotFound => { return "todo_not_found" }
+        case InvalidTitle => { return "title_required" }
+        case EmptyUpdate => { return "update_required" }
+        case InvalidFilter => { return "invalid_filter" }
+    }
+}
+
+fun todoFilter(ctx: Context): TodoResult<TodoFilter> {
+    val raw = ctx.query("completed")
+    if (raw == "") {
+        return Ok(TodoFilter(null))
+    }
+    if (raw == "true") {
+        return Ok(TodoFilter(true))
+    }
+    if (raw == "false") {
+        return Ok(TodoFilter(false))
+    }
+    return Err(InvalidFilter())
+}
+
+async fun listTodos(ctx: Context, service: TodoService): Unit {
+    match (todoFilter(ctx)) {
+        case Ok(filter) => {
+            match (service.list(filter)) {
+                case Ok(items) => { sendJson<Array<Todo>>(ctx, 200, items) }
+                case Err(error) => { fail(ctx, errorStatus(error), errorCode(error)) }
+            }
+        }
+        case Err(error) => { fail(ctx, errorStatus(error), errorCode(error)) }
+    }
+}
+
+async fun createTodo(ctx: Context, service: TodoService): Unit {
+    val value = await ctx.readJson()
+    if (ctx.isBodyLimitExceeded()) {
+        return
+    }
+    if (value == null) {
+        fail(ctx, 400, "invalid_json")
+        return
+    }
+    val payload = decode<CreateTodoRequest>(value!!)
+    if (payload == null) {
+        fail(ctx, 400, "invalid_json")
+        return
+    }
+    match (service.create(payload!!.title)) {
+        case Ok(todo) => { sendJson<Todo>(ctx, 201, todo) }
+        case Err(error) => { fail(ctx, errorStatus(error), errorCode(error)) }
+    }
+}
+
+async fun updateTodo(ctx: Context, service: TodoService): Unit {
+    val id = idFrom(ctx)
+    if (id == null) {
+        fail(ctx, 400, "invalid_id")
+        return
+    }
+    val value = await ctx.readJson()
+    if (ctx.isBodyLimitExceeded()) {
+        return
+    }
+    if (value == null) {
+        fail(ctx, 400, "invalid_json")
+        return
+    }
+    val payload = decode<UpdateTodoRequest>(value!!)
+    if (payload == null) {
+        fail(ctx, 400, "invalid_json")
+        return
+    }
+    match (service.update(id!!, payload!!.title, payload!!.completed)) {
+        case Ok(todo) => { sendJson<Todo>(ctx, 200, todo) }
+        case Err(error) => { fail(ctx, errorStatus(error), errorCode(error)) }
+    }
+}
+
+async fun deleteTodo(ctx: Context, service: TodoService): Unit {
+    val id = idFrom(ctx)
+    if (id == null) {
+        fail(ctx, 400, "invalid_id")
+        return
+    }
+    match (service.remove(id!!)) {
+        case Ok(_) => { ctx.status(204) }
+        case Err(error) => { fail(ctx, errorStatus(error), errorCode(error)) }
+    }
+}
+
+async fun stats(ctx: Context, service: TodoService): Unit {
+    match (service.stats()) {
+        case Ok(value) => { sendJson<TodoStats>(ctx, 200, value) }
+        case Err(error) => { fail(ctx, errorStatus(error), errorCode(error)) }
+    }
+}
+
+async fun apiMarker(ctx: Context): Unit {
+    ctx.header("X-Todo-API", "aura-web")
+}
+
+async fun trace(ctx: Context): Unit {
+    ctx.header("X-Aura-App", "todo")
+}
+
+async fun requestGate(ctx: Context, next: Next): Unit {
+    if (ctx.path() == "/blocked") {
+        fail(ctx, 403, "blocked")
+        await next.done()
+        return
+    }
+    await next.next()
+}
+
+async fun handleError(error: String, ctx: Context): Unit {
+    ctx.status(500)
+    val encoded = encode<ErrorDetailResponse>(ErrorDetailResponse("internal_error", error))
+    if (encoded != null) {
+        ctx.json(encoded!!)
+    }
+}
+
+class ErrorDetailResponse(pub val error: String, pub val detail: String) {}

@@ -74,8 +74,18 @@ impl Parser {
         }
 
         if min_bp == 0 && matches!(self.peek().kind, TokenKind::Eq) {
-            if let Expr::Ident(name) = &lhs {
-                let name = name.clone();
+            let assignment_name = match &lhs {
+                Expr::Ident(name) => Some(name.clone()),
+                // Normalize explicit `this.field = value` to the same field
+                // assignment representation used by bare field assignment.
+                Expr::Field(field)
+                    if !field.safe && matches!(field.object.as_ref(), Expr::This(_)) =>
+                {
+                    Some(field.field.clone())
+                }
+                _ => None,
+            };
+            if let Some(name) = assignment_name {
                 self.bump();
                 let value = self.parse_expr(0)?;
                 let span = Span::new(name.span.start, value.span().end);

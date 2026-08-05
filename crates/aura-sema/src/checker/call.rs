@@ -1519,7 +1519,7 @@ impl Checker {
         }
         if !self.is_array_element_ty(&type_args[0]) {
             let detail = format!(
-                "`Array` element type must be Int, Bool, String, class, struct, enum, interface, or Array (got {})",
+                "`Array` element type must be Int, Bool, String, function, class, struct, enum, interface, or Array (got {})",
                 type_args[0].display()
             );
             return Err(SemaError {
@@ -1530,7 +1530,8 @@ impl Checker {
         Ok(())
     }
 
-    /// C4c/C4q/C6g/C8e: primitives + heap classes + structs + enums + interfaces + nested Array.
+    /// C4c/C4q/C6g/C8e: primitives + function values + heap classes + structs
+    /// + enums + interfaces + nested Array.
     /// C8a: type params allowed in generic class/fun fields (mono becomes concrete).
     pub(crate) fn is_array_element_ty(&self, ty: &Ty) -> bool {
         if is_array_primitive_elem(ty) {
@@ -1539,6 +1540,8 @@ impl Checker {
         match ty {
             // Open mono skipped at record time (C4u); concrete mono uses substituted elem.
             Ty::TypeParam(_) => true,
+            // Function values are fat pointers and can be stored in Array.
+            Ty::Fun { .. } => true,
             // Nested Array: Array<Array<T>> (elem must itself be a valid Array mono).
             Ty::ClassApp { name, args }
                 if crate::ty::split_nominal(name).0 == "Array" && args.len() == 1 =>

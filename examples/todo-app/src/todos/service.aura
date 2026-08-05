@@ -1,0 +1,47 @@
+package todo_app
+
+pub class TodoService(private val repository: TodoRepository) {
+    pub fun list(filter: TodoFilter): TodoResult<Array<Todo>> {
+        return Ok(this.repository.all(filter))
+    }
+
+    pub fun create(title: String): TodoResult<Todo> {
+        val normalized = title.trim()
+        if (normalized.len == 0) {
+            return Err(InvalidTitle())
+        }
+        return Ok(this.repository.create(normalized))
+    }
+
+    pub fun update(id: Int, title: String?, completed: Bool?): TodoResult<Todo> {
+        val todo = this.repository.find(id)
+        if (todo == null) {
+            return Err(NotFound())
+        }
+        if (title == null && completed == null) {
+            return Err(EmptyUpdate())
+        }
+        if (title != null) {
+            val normalized = title!!.trim()
+            if (normalized.len == 0) {
+                return Err(InvalidTitle())
+            }
+            todo!!.setTitle(normalized)
+        }
+        if (completed != null) {
+            todo!!.setCompleted(completed!!)
+        }
+        return Ok(todo!!)
+    }
+
+    pub fun remove(id: Int): TodoResult<Bool> {
+        if (!this.repository.remove(id)) {
+            return Err(NotFound())
+        }
+        return Ok(true)
+    }
+
+    pub fun stats(): TodoResult<TodoStats> {
+        return Ok(this.repository.stats())
+    }
+}
