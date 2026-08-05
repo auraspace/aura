@@ -50,10 +50,11 @@ fn json_field_name(field: &FieldDecl) -> String {
         .find(|attribute| attribute.name.name == "json")
         .and_then(|attribute| {
             attribute.args.iter().find_map(|arg| match arg {
-                AttributeArg::Named { name, value, .. } if name.name == "name" => match value {
-                    AttributeValue::String { value, .. } => Some(value.clone()),
-                    _ => None,
-                },
+                AttributeArg::Named {
+                    name,
+                    value: AttributeValue::String { value, .. },
+                    ..
+                } if name.name == "name" => Some(value.clone()),
                 _ => None,
             })
         })
@@ -16705,7 +16706,7 @@ fn emit_json_encode_class(
                 out,
                 &format!("__json_values[{index}]"),
                 &access,
-                &key,
+                key,
                 checked,
                 &format!("field_{index}"),
             );
@@ -16715,7 +16716,7 @@ fn emit_json_encode_class(
                 out,
                 &format!("__json_values[{index}]"),
                 &access,
-                &key,
+                key,
                 checked,
                 &format!("field_{index}"),
             );

@@ -4,27 +4,20 @@ use aura_ast::{CallExpr, Expr, Span};
 
 use super::{is_array_primitive_elem, Checker};
 use crate::error::SemaError;
-use crate::sigs::{CallInstantiation, ClassSig, EnumSig, EnumVariantSig, FunSig};
+use crate::sigs::{CallInstantiation, ClassMethodSig, ClassSig, EnumSig, EnumVariantSig, FunSig};
 use crate::ty::{nominal_key, split_nominal, Ty};
 use crate::util::{subst_ty, type_subst_map, unify_ty};
+
+type StaticMethodOverload = (ClassMethodSig, ClassSig, Vec<Ty>, Vec<Ty>, Vec<Ty>, Ty);
+type MethodOverload = (ClassMethodSig, ClassSig, Vec<Ty>, Vec<Ty>, Ty);
 
 impl Checker {
     fn select_static_method_overload(
         &mut self,
-        candidates: &[(crate::sigs::ClassMethodSig, ClassSig)],
+        candidates: &[(ClassMethodSig, ClassSig)],
         c: &CallExpr,
         label: &str,
-    ) -> Result<
-        (
-            crate::sigs::ClassMethodSig,
-            ClassSig,
-            Vec<Ty>,
-            Vec<Ty>,
-            Vec<Ty>,
-            Ty,
-        ),
-        SemaError,
-    > {
+    ) -> Result<StaticMethodOverload, SemaError> {
         let arg_tys: Vec<Ty> = c
             .args
             .iter()
@@ -168,11 +161,11 @@ impl Checker {
 
     fn select_method_overload(
         &mut self,
-        candidates: &[(crate::sigs::ClassMethodSig, ClassSig)],
+        candidates: &[(ClassMethodSig, ClassSig)],
         c: &CallExpr,
         expected: Option<&Ty>,
         label: &str,
-    ) -> Result<(crate::sigs::ClassMethodSig, ClassSig, Vec<Ty>, Vec<Ty>, Ty), SemaError> {
+    ) -> Result<MethodOverload, SemaError> {
         let mut applicable = Vec::new();
         let mut last_error = None;
         for (method, owner) in candidates {
@@ -1532,7 +1525,7 @@ impl Checker {
 
     /// C4c/C4q/C6g/C8e: primitives + function values + heap classes + structs
     /// + enums + interfaces + nested Array.
-    /// C8a: type params allowed in generic class/fun fields (mono becomes concrete).
+    ///   C8a: type params allowed in generic class/fun fields (mono becomes concrete).
     pub(crate) fn is_array_element_ty(&self, ty: &Ty) -> bool {
         if is_array_primitive_elem(ty) {
             return true;
