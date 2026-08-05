@@ -3017,6 +3017,38 @@ fun main() { val named: Named = User() println(named.name()) }
     }
 
     #[test]
+    fn builds_and_runs_generic_interface_default_method() {
+        let file = parse_file(
+            r#"package demo.iface_default_generic
+interface Echo<T> { fun echo(value: T): T { return value } }
+class User() : Echo<String> {}
+fun main() { val echo: Echo<String> = User() println(echo.echo("ok")) }
+"#,
+        )
+        .expect("parse generic interface default fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-interface-default-generic-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile generic interface default fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run generic interface default fixture");
+        assert!(
+            output.status.success(),
+            "generic interface default fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "ok\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_std_json_validation_and_escape() {
         let file = aura_parser::parse_file(
             r#"package std.json

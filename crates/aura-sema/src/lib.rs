@@ -23,7 +23,7 @@ pub use sigs::*;
 pub use ty::{nominal_key, nominal_mono_base, split_nominal, Ty};
 pub use util::{subst_ty, type_subst_map};
 
-use aura_ast::{File, FunDecl, MemberVisibility, MethodSig};
+use aura_ast::{File, FunDecl, MemberVisibility, MethodSig, TypeRef};
 use checker::Checker;
 use std::collections::{HashMap, HashSet};
 
@@ -224,6 +224,7 @@ fn expand_interface_defaults(file: &mut File) -> Vec<SemaError> {
             collect_interface_defaults(
                 file,
                 &implemented.name.name,
+                &implemented.type_args,
                 &mut seen,
                 &mut interface_defaults,
             );
@@ -274,24 +275,78 @@ fn expand_interface_defaults(file: &mut File) -> Vec<SemaError> {
 fn collect_interface_defaults(
     file: &File,
     name: &str,
+    type_args: &[TypeRef],
     seen: &mut HashSet<String>,
     defaults: &mut HashMap<String, (MethodSig, String)>,
 ) {
-    if !seen.insert(name.to_string()) {
+    let seen_key = format!("{name}{type_args:?}");
+    if !seen.insert(seen_key) {
         return;
     }
     let Some(interface) = file.interfaces.iter().find(|item| item.name.name == name) else {
         return;
     };
+    let substitutions = interface
+        .type_params
+        .iter()
+        .map(|param| param.name.name.clone())
+        .zip(type_args.iter().cloned())
+        .collect::<HashMap<_, _>>();
     for parent in &interface.parents {
-        collect_interface_defaults(file, &parent.name.name, seen, defaults);
+        let parent = substitute_type_ref(parent, &substitutions);
+        collect_interface_defaults(file, &parent.name.name, &parent.type_args, seen, defaults);
     }
     for method in &interface.methods {
         if method.body.is_none() {
             continue;
         }
-        defaults.insert(method.name.name.clone(), (method.clone(), name.to_string()));
+        defaults.insert(
+            method.name.name.clone(),
+            (
+                substitute_method_sig(method, &substitutions),
+                name.to_string(),
+            ),
+        );
     }
+}
+
+fn substitute_method_sig(
+    method: &MethodSig,
+    substitutions: &HashMap<String, TypeRef>,
+) -> MethodSig {
+    let mut method = method.clone();
+    for param in &mut method.params {
+        param.ty = substitute_type_ref(&param.ty, substitutions);
+    }
+    if let Some(return_type) = &mut method.return_type {
+        *return_type = substitute_type_ref(return_type, substitutions);
+    }
+    method
+}
+
+fn substitute_type_ref(ty: &TypeRef, substitutions: &HashMap<String, TypeRef>) -> TypeRef {
+    if let Some(replacement) = substitutions.get(&ty.name.name) {
+        let mut replacement = replacement.clone();
+        replacement.nullable |= ty.nullable;
+        replacement.reference |= ty.reference;
+        replacement.span = ty.span;
+        return replacement;
+    }
+    let mut result = ty.clone();
+    result.type_args = ty
+        .type_args
+        .iter()
+        .map(|arg| substitute_type_ref(arg, substitutions))
+        .collect();
+    if let Some(fun) = &mut result.fun {
+        fun.params = fun
+            .params
+            .iter()
+            .map(|param| substitute_type_ref(param, substitutions))
+            .collect();
+        fun.ret = substitute_type_ref(&fun.ret, substitutions);
+    }
+    result
 }
 
 fn is_registered_derive_error(error: &SemaError, derives: &[&dyn UserDerive]) -> bool {

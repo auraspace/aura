@@ -1293,6 +1293,18 @@ fun main() { val user: Named = User() }
 }
 
 #[test]
+fn generic_interface_default_method_substitutes_implementor_args() {
+    let src = r#"
+package t
+interface Echo<T> { fun echo(value: T): T { return value } }
+class User() : Echo<String> {}
+fun main() { val echo: Echo<String> = User() }
+"#;
+    let file = parse_file(src).expect("parse generic interface default");
+    check_file(&file).expect("generic interface default method");
+}
+
+#[test]
 fn private_members_are_only_visible_inside_the_declaring_class() {
     let src = r#"
 package t
