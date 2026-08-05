@@ -9,6 +9,163 @@ use crate::ty::{nominal_key, split_nominal, Ty};
 use crate::util::{subst_ty, type_subst_map, unify_ty};
 
 impl Checker {
+    fn select_static_method_overload(
+        &mut self,
+        candidates: &[(crate::sigs::ClassMethodSig, ClassSig)],
+        c: &CallExpr,
+        label: &str,
+    ) -> Result<
+        (
+            crate::sigs::ClassMethodSig,
+            ClassSig,
+            Vec<Ty>,
+            Vec<Ty>,
+            Vec<Ty>,
+            Ty,
+        ),
+        SemaError,
+    > {
+        let arg_tys: Vec<Ty> = c
+            .args
+            .iter()
+            .map(|arg| self.check_expr(arg))
+            .collect::<Result<_, _>>()?;
+        let mut applicable = Vec::new();
+        let mut last_error = None;
+        for (method, owner) in candidates {
+            if let Err(err) =
+                self.check_member_visible(owner, method.visibility, &method.name, c.callee.span())
+            {
+                last_error = Some(err);
+                continue;
+            }
+            let class_args = match self.infer_type_args_from_patterns(
+                &owner.type_params,
+                &method.params.iter().collect::<Vec<_>>(),
+                &arg_tys,
+                c.span,
+                &format!("static method `{}`", method.name),
+            ) {
+                Ok(args) => args,
+                Err(err) => {
+                    last_error = Some(err);
+                    continue;
+                }
+            };
+            let class_subst = type_subst_map(&owner.type_params, &class_args);
+            let class_params = method
+                .params
+                .iter()
+                .map(|param| subst_ty(param, &class_subst))
+                .collect::<Vec<_>>();
+            let method_args = if method.type_params.is_empty() {
+                if !c.type_args.is_empty() {
+                    last_error = Some(SemaError {
+                        message: format!("method `{}` does not take type arguments", method.name),
+                        span: c.span,
+                    });
+                    continue;
+                }
+                Vec::new()
+            } else if !c.type_args.is_empty() {
+                if c.type_args.len() != method.type_params.len() {
+                    last_error = Some(SemaError {
+                        message: format!(
+                            "method `{}` expects {} type argument(s), got {}",
+                            method.name,
+                            method.type_params.len(),
+                            c.type_args.len()
+                        ),
+                        span: c.span,
+                    });
+                    continue;
+                }
+                match c
+                    .type_args
+                    .iter()
+                    .map(|arg| self.type_from_ref(arg))
+                    .collect()
+                {
+                    Ok(args) => args,
+                    Err(err) => {
+                        last_error = Some(err);
+                        continue;
+                    }
+                }
+            } else {
+                match self.infer_type_args_from_patterns(
+                    &method.type_params,
+                    &class_params.iter().collect::<Vec<_>>(),
+                    &arg_tys,
+                    c.span,
+                    &format!("method `{}`", method.name),
+                ) {
+                    Ok(args) => args,
+                    Err(err) => {
+                        last_error = Some(err);
+                        continue;
+                    }
+                }
+            };
+            if let Err(err) = self.check_type_args_bounds(
+                &method.type_params,
+                &method.bounds,
+                &method_args,
+                c.span,
+                &format!("method `{}`", method.name),
+            ) {
+                last_error = Some(err);
+                continue;
+            }
+            let method_subst = type_subst_map(&method.type_params, &method_args);
+            let params = class_params
+                .iter()
+                .map(|param| subst_ty(param, &method_subst))
+                .collect::<Vec<_>>();
+            if let Err(err) = self.check_args_with_shape(
+                &params,
+                method.required_params,
+                method.is_vararg,
+                &c.args,
+                label,
+                c.span,
+            ) {
+                last_error = Some(err);
+                continue;
+            }
+            let ret = subst_ty(&subst_ty(&method.ret, &class_subst), &method_subst);
+            applicable.push((
+                method.clone(),
+                owner.clone(),
+                class_args,
+                method_args,
+                params,
+                ret,
+            ));
+        }
+        match applicable.len() {
+            1 => Ok(applicable.remove(0)),
+            0 => Err(last_error.unwrap_or_else(|| SemaError {
+                message: format!("no overload of `{label}` accepts these arguments"),
+                span: c.span,
+            })),
+            _ => Err(SemaError {
+                message: format!(
+                    "ambiguous overload of `{label}`; candidates at spans {}",
+                    applicable
+                        .iter()
+                        .map(|(method, _, _, _, _, _)| format!(
+                            "{}..{}",
+                            method.span.start, method.span.end
+                        ))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                span: c.span,
+            }),
+        }
+    }
+
     fn select_method_overload(
         &mut self,
         candidates: &[(crate::sigs::ClassMethodSig, ClassSig)],
@@ -174,26 +331,12 @@ impl Checker {
                             span: fe.field.span,
                         });
                     }
-                    let (method, _owner, method_args, _method_params, _ret) = self
-                        .select_method_overload(
+                    let (method, _owner, class_args, method_args, _method_params, _ret) = self
+                        .select_static_method_overload(
                             &candidates,
                             c,
-                            expected,
                             &format!("{}.{}", id.name, fe.field.name),
                         )?;
-                    let arg_tys: Vec<Ty> = c
-                        .args
-                        .iter()
-                        .map(|a| self.check_expr(a))
-                        .collect::<Result<_, _>>()?;
-                    let class_patterns: Vec<&Ty> = method.params.iter().collect();
-                    let class_args = self.infer_type_args_from_patterns(
-                        &class.type_params,
-                        &class_patterns,
-                        &arg_tys,
-                        c.span,
-                        &format!("static method `{}`", method.name),
-                    )?;
                     let class_subst = type_subst_map(&class.type_params, &class_args);
                     let method_params: Vec<Ty> = method
                         .params

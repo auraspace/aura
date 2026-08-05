@@ -1347,7 +1347,15 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             }
 
             // Prefer type args resolved by sema (explicit or inferred)
-            let inst = ctx.checked.call_instantiations.get(&c.span.start);
+            // Nested calls can share a start offset; never apply another call's
+            // instantiation metadata to this callee.
+            let inst = ctx
+                .checked
+                .call_instantiations
+                .get(&c.span.start)
+                .filter(|inst| {
+                    inst.name == id.name || inst.variant.as_deref() == Some(id.name.as_str())
+                });
 
             // Builtin Array constructor
             if id.name == "Array" {
