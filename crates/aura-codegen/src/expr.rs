@@ -1381,9 +1381,11 @@ pub(crate) fn race_write(code: String, lvalue: &str, span: Span, ctx: &EmitCtx<'
 /// that a consuming expression must release after copying or inspection.
 pub(crate) fn string_expr_is_owned_temp(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
     match e {
-        // Local strings remain owned by their slot; the assignment lowering
-        // releases the previous value after the concat has been evaluated.
-        Expr::Ident(_) => false,
+        // Ordinary locals remain owned by their slot. Boxed String locals are
+        // different: reads call aura_box_str_get and return a heap snapshot.
+        Expr::Ident(id) => {
+            ctx.is_box_local(&id.name) && ctx.lookup_local(&id.name) == Some("String")
+        }
         Expr::Binary(b) => matches!(b.op, BinOp::Add),
         Expr::Call(_) => crate::stmt::string_call_owns_result(e, ctx),
         Expr::Field(field) => {
