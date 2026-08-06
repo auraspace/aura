@@ -100,7 +100,7 @@ cargo run -p aura-cli -- run corpus/multi
 Use the flat CLI commands to edit dependencies and refresh the lockfile:
 
 ```bash
-aura add auraspace/aura@v0.1.1-alpha.5 --subdir std/io
+aura add auraspace/aura@v0.1.1-alpha.6 --subdir std/io
 aura remove demo.dep
 ```
 
@@ -196,7 +196,7 @@ future proxy may expose the same Go-shaped read objects (`@v/list`, `.info`,
   sources are supported
 - Prefer monorepo-local or sibling `path = "…"` deps
 
-See the [current 0.1.1-alpha.5 release notes](../releases/0.1.1-alpha.5.md); the [0.1.0-alpha freeze](../releases/0.1.0-alpha.md) is historical.
+See the [current 0.1.1-alpha.6 release notes](../releases/0.1.1-alpha.6.md); the [0.1.0-alpha freeze](../releases/0.1.0-alpha.md) is historical.
 
 ## Next
 

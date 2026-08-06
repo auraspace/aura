@@ -11,7 +11,7 @@ Aura’s toolchain is the **`aura` CLI** (Rust crate `aura-cli`). User programs 
 
 ## One-liner (release tarball)
 
-The public `0.1.1-alpha.5` GitHub Release assets are available for the supported
+The public `0.1.1-alpha.6` GitHub Release assets are available for the supported
 Unix targets. `0.1.0-alpha` remains available as the previous public alpha.
 
 ```bash
@@ -23,14 +23,14 @@ curl -fsSL https://aura.fadosoft.com/install.sh | bash
 ```text
 $AURA_HOME/
   versions/
-    0.1.1-alpha.5/
+    0.1.1-alpha.6/
       bin/aura
       share/aura/runtime/runtime.c    # from the release archive (optional)
       meta/version, os, arch, installed_at
     0.2.0/
       bin/aura
       …
-  current -> versions/0.1.1-alpha.5     # active toolchain
+  current -> versions/0.1.1-alpha.6     # active toolchain
   bin/
     aura -> ../current/bin/aura       # put this on PATH
     avm                               # Aura Version Manager
@@ -46,7 +46,7 @@ install instead.
 
 ```bash
 # Pin a version (tag without leading v)
-curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=0.1.1-alpha.5 bash
+curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=0.1.1-alpha.6 bash
 
 # Custom home (multi-user or CI)
 curl -fsSL https://aura.fadosoft.com/install.sh | AURA_HOME=/opt/aura bash
@@ -61,7 +61,7 @@ avm 0.2.0
 ```bash
 avm --list
 avm --show
-avm 0.1.1-alpha.5
+avm 0.1.1-alpha.6
 aura version
 ```
 
@@ -173,8 +173,8 @@ Or use the installer (recommended): it unpacks into `$AURA_HOME/versions/<ver>/`
 Local package without publishing:
 
 ```bash
-TAG_VERSION=0.1.1-alpha.5 bash scripts/package-release.sh
-# → dist/aura-0.1.1-alpha.5-<os>-<arch>.tar.gz
+TAG_VERSION=0.1.1-alpha.6 bash scripts/package-release.sh
+# → dist/aura-0.1.1-alpha.6-<os>-<arch>.tar.gz
 ```
 
 ## Verify install
@@ -201,11 +201,11 @@ bash scripts/install-smoke.sh --checklist
 bash scripts/install-smoke.sh
 
 # Maintainer: package this checkout into a temp $AURA_HOME and smoke
-TAG_VERSION=0.1.1-alpha.5 bash scripts/package-release.sh
+TAG_VERSION=0.1.1-alpha.6 bash scripts/package-release.sh
 bash scripts/install-smoke.sh --local-pkg
 
 # Optional: curl the published installer into a temp home (network)
-# AURA_VERSION=0.1.1-alpha.5 bash scripts/install-smoke.sh --from-release
+# AURA_VERSION=0.1.1-alpha.6 bash scripts/install-smoke.sh --from-release
 ```
 
 Source: [`scripts/install-smoke.sh`](https://github.com/auraspace/aura/blob/main/scripts/install-smoke.sh).
@@ -224,5 +224,5 @@ Source: [`scripts/install-smoke.sh`](https://github.com/auraspace/aura/blob/main
 
 - [Getting started](./getting-started.md)
 - [CLI](./cli.md)
-- [Release notes 0.1.1-alpha.5](../releases/0.1.1-alpha.5.md)
+- [Release notes 0.1.1-alpha.6](../releases/0.1.1-alpha.6.md)
 - [Historical 0.1.0-alpha release notes](../releases/0.1.0-alpha.md)

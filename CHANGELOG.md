@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.1-alpha.6 (2026-08-06)
+
+Release `0.1.1-alpha.6`.
+
+Full notes: [`docs/releases/0.1.1-alpha.6.md`](docs/releases/0.1.1-alpha.6.md).
+
+### Changes
+
+- fix: update release acceptance gate condition and improve progress message formatting
+- refactor: registry and publication processes for direct Git origin support
+- refactor: registry and release acceptance scripts for origin compatibility
+- fix: enhance Aura syntax highlighting by adding new keywords
+
 ## 0.1.1-alpha.5 (2026-08-06)
 
 Next alpha release

@@ -8,7 +8,7 @@ Design documents and specifications for the **Aura** language core and toolchain
 docs/
 ├── README.md          ← you are here
 ├── roadmap.md         ← execution phases (P0–P3, compiler C-series)
-├── releases/          ← release notes (published 0.1.0-alpha, 0.1.1-alpha.5)
+├── releases/          ← release notes (published 0.1.0-alpha, current 0.1.1-alpha.6)
 ├── guide/             ← user-facing docs (site /docs)
 │   ├── introduction.md
 │   ├── install.md
@@ -29,7 +29,7 @@ docs/
 | If you want…                      | Read…                                                                              |
 | --------------------------------- | ---------------------------------------------------------------------------------- |
 | **Install the CLI**               | [guide/install.md](guide/install.md)                                               |
-| **Current release**               | [releases/0.1.1-alpha.5.md](releases/0.1.1-alpha.5.md)                             |
+| **Current release**               | [releases/0.1.1-alpha.6.md](releases/0.1.1-alpha.6.md)                             |
 | **Historical 0.1.0-alpha freeze** | [releases/0.1.0-alpha.md](releases/0.1.0-alpha.md)                                 |
 | **How to cut a release**          | [releases/README.md](releases/README.md)                                           |
 | **User guide (site)**             | [guide/](guide/) → published at `/docs`                                            |

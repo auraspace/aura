@@ -2,9 +2,9 @@
 
 How Aura cuts a public toolchain release (alpha → stable uses the same path).
 
-Current release: `0.1.1-alpha.5` is prepared for publication with GitHub Release assets. The
+Current release: `0.1.1-alpha.6` is prepared for publication with GitHub Release assets. The
 older `0.1.0-alpha` release remains available for compatibility and history;
-changes after `v0.1.1-alpha.5` belong to a subsequent release or maintenance
+changes after `v0.1.1-alpha.6` belong to a subsequent release or maintenance
 update.
 
 ## Flow
@@ -155,10 +155,10 @@ run IDs for the following:
 
 | Concept             | Example                                  | Where                                              |
 | ------------------- | ---------------------------------------- | -------------------------------------------------- |
-| Release version     | `0.1.1-alpha.5`                          | CHANGELOG, notes, install `AURA_VERSION`           |
-| Git tag             | `v0.1.1-alpha.5`                         | Triggers CI; GitHub Release name                   |
-| Cargo workspace ver | `0.1.1-alpha.5`                          | `Cargo.toml` `[workspace.package]`; `aura version` |
-| Artifact name       | `aura-0.1.1-alpha.5-darwin-arm64.tar.gz` | GH Release assets                                  |
+| Release version     | `0.1.1-alpha.6`                          | CHANGELOG, notes, install `AURA_VERSION`           |
+| Git tag             | `v0.1.1-alpha.6`                         | Triggers CI; GitHub Release name                   |
+| Cargo workspace ver | `0.1.1-alpha.6`                          | `Cargo.toml` `[workspace.package]`; `aura version` |
+| Artifact name       | `aura-0.1.1-alpha.6-darwin-arm64.tar.gz` | GH Release assets                                  |
 
 Prerelease tags (`*alpha*`, `*beta*`, `*rc*`) create a **prerelease** on GitHub.
 
@@ -175,6 +175,6 @@ docs/releases/<version>.md
 ## Local package only (no publish)
 
 ```bash
-TAG_VERSION=0.1.1-alpha.5 bash scripts/package-release.sh
-# → dist/aura-0.1.1-alpha.5-<os>-<arch>.tar.gz
+TAG_VERSION=0.1.1-alpha.6 bash scripts/package-release.sh
+# → dist/aura-0.1.1-alpha.6-<os>-<arch>.tar.gz
 ```
