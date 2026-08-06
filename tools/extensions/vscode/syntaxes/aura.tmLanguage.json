@@ -53,7 +53,7 @@
     },
     "keywords": {
       "name": "keyword.control.aura",
-      "match": "\\b(?:abstract|as|async|await|break|cancel|case|catch|class|const|continue|else|enum|extern|false|final|finally|for|fun|if|import|in|interface|is|join|match|null|open|override|package|private|protected|pub|return|spawn|struct|this|throw|true|try|type|val|var|where|while)\\b"
+      "match": "\\b(?:abstract|as|async|await|break|cancel|case|catch|class|companion|const|continue|else|enum|extern|false|final|finally|for|fun|if|import|in|interface|is|join|match|null|object|open|override|package|private|protected|pub|return|spawn|struct|this|throw|true|try|type|val|var|vararg|where|while)\\b"
     },
     "constants": {
       "name": "constant.language.aura",

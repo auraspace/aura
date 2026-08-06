@@ -256,6 +256,8 @@ fn render(tokens: &[Token]) -> String {
     let mut previous_was_unary_minus = false;
     let mut previous_was_generic_open = false;
     let mut inline_blocks = Vec::new();
+    let mut paren_continuation_columns = Vec::new();
+    let mut pending_continuation_column = None;
     for (index, token) in tokens.iter().enumerate() {
         let t = token.text.as_str();
         let after_unary_minus = previous_was_unary_minus;
@@ -267,6 +269,9 @@ fn render(tokens: &[Token]) -> String {
                 newline(&mut out);
             }
             line_start = true;
+            if previous == Some(",") {
+                pending_continuation_column = paren_continuation_columns.last().copied();
+            }
             if !matches!(
                 previous,
                 Some(
@@ -359,7 +364,12 @@ fn render(tokens: &[Token]) -> String {
             continue;
         }
         if line_start {
-            write_indent(&mut out, indent);
+            if let Some(column) = pending_continuation_column.take() {
+                out.push_str(&" ".repeat(column));
+                previous = None;
+            } else {
+                write_indent(&mut out, indent);
+            }
             line_start = false;
         }
         if t == "class" {
@@ -434,6 +444,10 @@ fn render(tokens: &[Token]) -> String {
                 out.push(' ');
             }
             out.push_str(t);
+            if t == "(" {
+                // Align manually broken parameters with the first parameter.
+                paren_continuation_columns.push(current_line_len(&out));
+            }
         } else if t == "-" && is_unary_minus(previous) {
             trim_space(&mut out);
             if previous.is_some_and(|p| !matches!(p, "(" | "[")) {
@@ -491,6 +505,9 @@ fn render(tokens: &[Token]) -> String {
             out.push_str(t);
         } else {
             out.push_str(t);
+        }
+        if t == ")" {
+            paren_continuation_columns.pop();
         }
         previous = Some(t);
     }
@@ -620,6 +637,10 @@ fn trim_space(out: &mut String) {
     while out.ends_with(' ') {
         out.pop();
     }
+}
+
+fn current_line_len(out: &str) -> usize {
+    out.len() - out.rfind('\n').map_or(0, |index| index + 1)
 }
 
 #[cfg(test)]
@@ -756,6 +777,43 @@ fun sample(x: Int, g: Greeter, flag: Bool, b: Box): String {
 }
 
 fun borrowed(task: Task<ref String>) {}
+"#;
+        assert_eq!(formatted, expected);
+        assert_eq!(formatted, format_source(&formatted).unwrap());
+    }
+
+    #[test]
+    fn aligns_broken_parameters_and_class_fields_without_wrapping() {
+        let source = r#"package demo
+
+class Context(pub val request: Request, pub val response: Response,
+ pub val params: Array<Param>, private val bodyLimit: Int) {
+    companion object {
+        pub fun empty(req: Request, res: Response,
+                      p: Array<Param> = Array<Param>(0),
+                      limit: Int = 1048576): Context {
+            return Context(req, res, p, limit)
+        }
+    }
+}
+
+fun short(a: Int, b: Int, c: Int): Int { return a }
+"#;
+        let formatted = format_source(source).unwrap();
+        let expected = r#"package demo
+
+class Context(pub val request: Request, pub val response: Response,
+              pub val params: Array<Param>, private val bodyLimit: Int) {
+    companion object {
+        pub fun empty(req: Request, res: Response,
+                      p: Array<Param> = Array<Param>(0),
+                      limit: Int = 1048576): Context {
+            return Context(req, res, p, limit)
+        }
+    }
+}
+
+fun short(a: Int, b: Int, c: Int): Int { return a }
 "#;
         assert_eq!(formatted, expected);
         assert_eq!(formatted, format_source(&formatted).unwrap());

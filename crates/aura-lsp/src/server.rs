@@ -16,6 +16,11 @@ use std::sync::{mpsc, Arc, Mutex};
 
 const SERVER_NAME: &str = "auralsp";
 
+#[path = "completion.rs"]
+mod completion;
+#[path = "editor.rs"]
+mod editor;
+
 type ExpressionTypes = Arc<HashMap<(u32, u32), aura_sema::Ty>>;
 type PackageExpressionResult = (ExpressionTypes, HashMap<PathBuf, u32>);
 type CancellationToken = Arc<AtomicBool>;
@@ -248,7 +253,7 @@ impl Server {
             }
             "textDocument/formatting" => self.format_document(message.get("params")),
             "textDocument/documentSymbol" => Ok(self.document_symbols(message.get("params"))),
-            "textDocument/completion" => Ok(self.completion(message.get("params"))),
+            "textDocument/completion" => Ok(completion::completion(self, message.get("params"))),
             "textDocument/hover" => Ok(self.hover(message.get("params"))),
             "textDocument/definition" => Ok(self.definition(message.get("params"))),
             "textDocument/documentHighlight" => Ok(self.document_highlight(message.get("params"))),
@@ -720,169 +725,10 @@ impl Server {
         let Some(source) = self.document_text(uri) else {
             return json!([]);
         };
-        let Ok(file) = parse_file(source) else {
+        let Some((_, file)) = editor::parse_editor_file(source, source.len()) else {
             return json!([]);
         };
         json!(collect_symbols(source, &file))
-    }
-
-    fn completion(&self, params: Option<&Value>) -> Value {
-        let Some(uri) = uri_param(params) else {
-            return json!({"isIncomplete":false,"items":[]});
-        };
-        let Some(source) = self.document_text(uri) else {
-            return json!({"isIncomplete":false,"items":[]});
-        };
-        let offset = params
-            .and_then(|p| p.get("position"))
-            .map(|position| position_to_offset(source, position))
-            .unwrap_or(source.len());
-        let start = word_start(source, offset);
-        let prefix = &source[start..offset.min(source.len())];
-        let member_completion = start > 0 && source[..start].ends_with('.');
-        let mut items = Vec::new();
-        if let Some((import_start, import_prefix)) = import_completion_context(source, offset) {
-            for package in self.workspace_packages() {
-                if !package.starts_with(import_prefix) {
-                    continue;
-                }
-                items.push(json!({
-                    "label": package,
-                    "kind": 9,
-                    "detail": "Aura package",
-                    "textEdit": {"range": span_range(source, Span::new(import_start as u32, offset as u32)), "newText": package}
-                }));
-            }
-        }
-        for keyword in KEYWORDS {
-            if keyword.starts_with(prefix) {
-                items.push(json!({"label":keyword,"kind":14}));
-            }
-        }
-        if member_completion {
-            items.extend(self.semantic_member_completion(uri, source, start, prefix));
-        }
-        for (document_uri, document) in &self.documents {
-            let Some(text) = document.get("text").and_then(Value::as_str) else {
-                continue;
-            };
-            let Ok(file) = parse_file(text) else { continue };
-            let parsed_symbols = declaration_symbols(text, &file);
-            let candidates = if member_completion {
-                flatten_symbols(&parsed_symbols)
-            } else {
-                parsed_symbols.iter().collect()
-            };
-            for symbol in candidates {
-                if !symbol.name.starts_with(prefix) {
-                    continue;
-                }
-                let documentation = documentation_before(text, symbol.range.start as usize);
-                let mut item = json!({
-                    "label": symbol.name,
-                    "kind": symbol.kind,
-                    "detail": symbol.detail,
-                    "textEdit": {"range": span_range(source, Span::new(start as u32, offset as u32)), "newText": symbol.name},
-                    "data": {"uri": document_uri, "bindingId": self.binding_id(document_uri, symbol)}
-                });
-                if !documentation.is_empty() {
-                    item["documentation"] = json!({"kind":"markdown","value":documentation});
-                }
-                items.push(item);
-            }
-            if document_uri == uri {
-                for symbol in self.local_symbols_for_document(document_uri, text, &file) {
-                    if !symbol.name.starts_with(prefix) {
-                        continue;
-                    }
-                    let documentation = documentation_before(text, symbol.range.start as usize);
-                    let mut item = json!({
-                        "label": symbol.name,
-                        "kind": symbol.kind,
-                        "detail": symbol.detail,
-                        "textEdit": {"range": span_range(source, Span::new(start as u32, offset as u32)), "newText": symbol.name},
-                        "data": {"uri": document_uri, "bindingId": self.binding_id(document_uri, &symbol)}
-                    });
-                    if !documentation.is_empty() {
-                        item["documentation"] = json!({"kind":"markdown","value":documentation});
-                    }
-                    items.push(item);
-                }
-            }
-        }
-        items.sort_by(|left, right| {
-            (left["label"].as_str(), left["data"]["bindingId"].as_str())
-                .cmp(&(right["label"].as_str(), right["data"]["bindingId"].as_str()))
-        });
-        items.dedup_by(|left, right| {
-            left["label"] == right["label"]
-                && left["data"]["bindingId"] == right["data"]["bindingId"]
-        });
-        json!({"isIncomplete":false,"items":items})
-    }
-
-    fn workspace_packages(&self) -> Vec<String> {
-        let mut packages = self
-            .documents
-            .values()
-            .filter_map(|document| document.get("text").and_then(Value::as_str))
-            .filter_map(|source| parse_file(source).ok())
-            .map(|file| file.package.display())
-            .collect::<Vec<_>>();
-        packages.sort();
-        packages.dedup();
-        packages
-    }
-
-    fn semantic_member_completion(
-        &self,
-        uri: &str,
-        source: &str,
-        start: usize,
-        prefix: &str,
-    ) -> Vec<Value> {
-        let Some(receiver_span) = receiver_span(source, start) else {
-            return Vec::new();
-        };
-        let id = DocumentId::from(uri);
-        let Ok(analysis) = self.host.snapshot().analyze(&id) else {
-            return Vec::new();
-        };
-        let Some(receiver_ty) = analysis
-            .checked
-            .expr_tys
-            .get(&(receiver_span.start, receiver_span.end))
-        else {
-            return Vec::new();
-        };
-        let receiver_name = nominal_type_name(receiver_ty);
-        let mut items = Vec::new();
-        for class in &analysis.checked.classes {
-            if receiver_name != Some(class.name.as_str()) {
-                continue;
-            }
-            for field in &class.fields {
-                if field.name.starts_with(prefix) {
-                    items.push(json!({"label":field.name,"kind":8,"detail":format!("{}: {}", field.name, field.ty.display())}));
-                }
-            }
-            for method in class.methods.values() {
-                if method.name.starts_with(prefix) {
-                    items.push(json!({"label":method.name,"kind":2,"detail":format_function_signature(&method.name, &method.params, &method.ret)}));
-                }
-            }
-        }
-        for interface in &analysis.checked.interfaces {
-            if receiver_name != Some(interface.name.as_str()) {
-                continue;
-            }
-            for method in interface.methods.values() {
-                if method.name.starts_with(prefix) {
-                    items.push(json!({"label":method.name,"kind":2,"detail":format_function_signature(&method.name, &method.params, &method.ret)}));
-                }
-            }
-        }
-        items
     }
 
     fn hover(&self, params: Option<&Value>) -> Value {
@@ -900,7 +746,8 @@ impl Server {
             return Value::Null;
         };
         let name = source[word_span.start as usize..word_span.end as usize].to_owned();
-        let Some((definition_uri, symbol)) = self.find_symbol_at(uri, &name, word_span) else {
+        let Some((definition_uri, symbol)) = self.definition_symbol_at(uri, &name, word_span)
+        else {
             return Value::Null;
         };
         let expression_type = self
@@ -914,7 +761,7 @@ impl Server {
         let local_type_declaration = local_type_name
             .as_deref()
             .and_then(|type_name| self.find_declaration_symbol(type_name));
-        let semantic_detail = self.semantic_detail(&definition_uri, &name);
+        let semantic_detail = self.semantic_detail(&definition_uri, &name, &symbol);
         let primary_signature = semantic_detail.clone().unwrap_or_else(|| {
             if let Some(ty) = expression_type.as_ref() {
                 format!("{}: {}", name, ty.display())
@@ -1154,7 +1001,7 @@ impl Server {
             let Some(source) = document.get("text").and_then(Value::as_str) else {
                 continue;
             };
-            let Ok(file) = parse_file(source) else {
+            let Some((_, file)) = editor::parse_editor_file(source, source.len()) else {
                 continue;
             };
             for symbol in flatten_symbols(&declaration_symbols(source, &file)) {
@@ -1241,7 +1088,7 @@ impl Server {
             let Some(source) = document.get("text").and_then(Value::as_str) else {
                 continue;
             };
-            let Ok(file) = parse_file(source) else {
+            let Some((_, file)) = editor::parse_editor_file(source, source.len()) else {
                 continue;
             };
             if let Some(symbol) = flatten_symbols(&declaration_symbols(source, &file))
@@ -1259,7 +1106,7 @@ impl Server {
             let Some(source) = document.get("text").and_then(Value::as_str) else {
                 continue;
             };
-            let Ok(file) = parse_file(source) else {
+            let Some((_, file)) = editor::parse_editor_file(source, source.len()) else {
                 continue;
             };
             if file.package.display() != package {
@@ -1280,7 +1127,7 @@ impl Server {
             let Some(source) = document.get("text").and_then(Value::as_str) else {
                 continue;
             };
-            let Ok(file) = parse_file(source) else {
+            let Some((_, file)) = editor::parse_editor_file(source, source.len()) else {
                 continue;
             };
             if file.package.display() != package {
@@ -1306,7 +1153,7 @@ impl Server {
             let Some(source) = document.get("text").and_then(Value::as_str) else {
                 continue;
             };
-            let Ok(file) = parse_file(source) else {
+            let Some((_, file)) = editor::parse_editor_file(source, source.len()) else {
                 continue;
             };
             let return_type = file
@@ -1335,7 +1182,7 @@ impl Server {
 
     fn find_symbol_at(&self, uri: &str, name: &str, word_span: Span) -> Option<(String, Symbol)> {
         let source = self.document_text(uri)?;
-        let file = parse_file(source).ok()?;
+        let (_, file) = editor::parse_editor_file(source, source.len())?;
         let locals = local_symbols(source, &file);
 
         if let Some(symbol) = locals
@@ -1364,10 +1211,19 @@ impl Server {
             return self.import_alias_symbol(&package, name);
         }
 
+        if let Some(symbol) = flatten_symbols(&declaration_symbols(source, &file))
+            .into_iter()
+            .find(|symbol| symbol.name == name && symbol.span == word_span)
+        {
+            return Some((uri.to_owned(), symbol.clone()));
+        }
+
         if let Some(qualifier) = qualifier_before(source, word_span) {
-            if let Some(package) = imported_package_for_alias(&file, qualifier) {
-                if let Some(symbol) = self.find_declaration_in_package(&package, name) {
-                    return Some(symbol);
+            if !matches!(qualifier, "this" | "super") {
+                if let Some(package) = imported_package_for_alias(&file, qualifier) {
+                    if let Some(symbol) = self.find_declaration_in_package(&package, name) {
+                        return Some(symbol);
+                    }
                 }
             }
         }
@@ -1387,13 +1243,19 @@ impl Server {
         word_span: Span,
     ) -> Option<(String, Symbol)> {
         let source = self.document_text(uri)?;
-        let file = parse_file(source).ok()?;
+        let (_, file) = editor::parse_editor_file(source, source.len())?;
         if let Some(qualifier) = qualifier_before(source, word_span) {
-            if imported_package_for_alias(&file, qualifier).is_none() {
+            if !matches!(qualifier, "this" | "super")
+                && imported_package_for_alias(&file, qualifier).is_none()
+            {
                 let receiver_span = receiver_span(source, word_span.start as usize)?;
-                let receiver_ty = self.expression_type_at(uri, receiver_span)?;
-                let receiver_name = nominal_type_name(&receiver_ty)?;
-                return self.find_member_declaration(receiver_name, name);
+                let receiver_name = self
+                    .expression_type_at(uri, receiver_span)
+                    .and_then(|ty| nominal_type_name(&ty).map(str::to_owned))
+                    .or_else(|| {
+                        receiver_field_type_name(source, &file, receiver_span, word_span.start)
+                    })?;
+                return self.find_member_declaration(&receiver_name, name, source, word_span);
             }
         }
         self.find_symbol_at(uri, name, word_span)
@@ -1414,13 +1276,20 @@ impl Server {
             })
     }
 
-    fn find_member_declaration(&self, receiver_name: &str, name: &str) -> Option<(String, Symbol)> {
+    fn find_member_declaration(
+        &self,
+        receiver_name: &str,
+        name: &str,
+        source: &str,
+        word_span: Span,
+    ) -> Option<(String, Symbol)> {
         let receiver_name = nominal_short_name(receiver_name);
+        let argument_count = call_argument_count(source, word_span.end as usize);
         for (uri, document) in &self.documents {
             let Some(source) = document.get("text").and_then(Value::as_str) else {
                 continue;
             };
-            let Ok(file) = parse_file(source) else {
+            let Some((_, file)) = editor::parse_editor_file(source, source.len()) else {
                 continue;
             };
             let Some(symbol) = declaration_symbols(source, &file)
@@ -1429,19 +1298,33 @@ impl Server {
             else {
                 continue;
             };
-            if let Some(member) = symbol
+            let mut members = symbol
                 .children
                 .into_iter()
-                .find(|member| member.name == name)
-            {
+                .filter(|member| member.name == name)
+                .collect::<Vec<_>>();
+            members.sort_by_key(|member| member.range.start);
+            let member = argument_count
+                .and_then(|count| {
+                    members
+                        .iter()
+                        .find(|member| function_parameter_count(&member.detail) == Some(count))
+                })
+                .or_else(|| members.first())
+                .cloned();
+            if let Some(member) = member {
                 return Some((uri.clone(), member));
             }
         }
         None
     }
 
-    fn semantic_detail(&self, uri: &str, name: &str) -> Option<String> {
-        let analysis = self.host.snapshot().analyze(&DocumentId::from(uri)).ok()?;
+    fn semantic_detail(&self, uri: &str, name: &str, symbol: &Symbol) -> Option<String> {
+        let analysis = self.host.snapshot().analyze(&DocumentId::from(uri)).ok();
+        let Some(analysis) = analysis else {
+            return (symbol.kind == 6 || symbol.kind == 12)
+                .then(|| compact_symbol_detail(&symbol.detail));
+        };
         if let Some(function) = analysis
             .checked
             .functions
@@ -1465,7 +1348,12 @@ impl Server {
             if let Some(field) = class.fields.iter().find(|field| field.name == name) {
                 return Some(format!("{}: {}", field.name, field.ty.display()));
             }
-            if let Some(method) = class.methods.get(name) {
+            if let Some(method) = class
+                .method_overloads
+                .get(name)
+                .and_then(|methods| methods.iter().find(|method| method.span == symbol.range))
+                .or_else(|| class.methods.get(name))
+            {
                 return Some(format_function_signature(
                     &method.name,
                     &method.params,
@@ -1498,7 +1386,7 @@ impl Server {
             let Some(source) = document.get("text").and_then(Value::as_str) else {
                 continue;
             };
-            let Ok(file) = parse_file(source) else {
+            let Some((_, file)) = editor::parse_editor_file(source, source.len()) else {
                 continue;
             };
             for symbol in flatten_symbols(&declaration_symbols(source, &file)) {
@@ -1810,6 +1698,11 @@ impl Server {
         let source = self.document_text(uri)?;
         let declaration =
             source.get(declaration_span.start as usize..declaration_span.end as usize)?;
+        if let Some(type_name) =
+            self.local_method_call_return_type(source, declaration_span, declaration)
+        {
+            return Some(type_name);
+        }
         let initializer = declaration.split_once('=')?.1.trim_start();
         let end = initializer
             .find(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
@@ -1821,6 +1714,66 @@ impl Server {
             12 => self.find_function_return_type_name(name),
             _ => None,
         }
+    }
+
+    fn local_method_call_return_type(
+        &self,
+        source: &str,
+        declaration_span: Span,
+        declaration: &str,
+    ) -> Option<String> {
+        let (_, file) = editor::parse_editor_file(source, source.len())?;
+        let initializer = declaration.split_once('=')?.1.trim();
+        let call_head = initializer.split_once('(')?.0.trim_end();
+        let dot = call_head.rfind('.')?;
+        let receiver_text = call_head[..dot].trim_end();
+        let method_name = call_head[dot + 1..].trim();
+        let receiver_start = declaration_span.start as usize + declaration.find(receiver_text)?;
+        let receiver_span = Span::new(
+            receiver_start as u32,
+            (receiver_start + receiver_text.len()) as u32,
+        );
+        let receiver_name =
+            receiver_field_type_name(source, &file, receiver_span, declaration_span.start)?;
+        if let Some(class) = file.classes.iter().find(|class| {
+            nominal_short_name(&class.name.name) == nominal_short_name(&receiver_name)
+        }) {
+            if let Some(method) = class
+                .methods
+                .iter()
+                .find(|method| method.name.name == method_name)
+            {
+                return method
+                    .return_type
+                    .as_ref()
+                    .map(|ty| source_span(source, ty.span));
+            }
+        }
+        for document in self.documents.values() {
+            let Some(other_source) = document.get("text").and_then(Value::as_str) else {
+                continue;
+            };
+            let Ok(other_file) = parse_file(other_source) else {
+                continue;
+            };
+            let Some(class) = other_file.classes.iter().find(|class| {
+                nominal_short_name(&class.name.name) == nominal_short_name(&receiver_name)
+            }) else {
+                continue;
+            };
+            let Some(method) = class
+                .methods
+                .iter()
+                .find(|method| method.name.name == method_name)
+            else {
+                continue;
+            };
+            return method
+                .return_type
+                .as_ref()
+                .map(|ty| source_span(other_source, ty.span));
+        }
+        None
     }
 }
 
@@ -2190,6 +2143,36 @@ fn format_function_signature(name: &str, params: &[aura_sema::Ty], ret: &aura_se
     format!("fun {name}({params}): {}", ret.display())
 }
 
+fn call_argument_count(source: &str, offset: usize) -> Option<usize> {
+    let tokens = lex(source).ok()?;
+    let open = tokens.iter().position(|token| {
+        token.span.start as usize >= offset && matches!(token.kind, TokenKind::LParen)
+    })?;
+    let mut depth = 1usize;
+    let mut count = 0usize;
+    let mut has_argument = false;
+    for token in tokens.into_iter().skip(open + 1) {
+        match token.kind {
+            TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => depth += 1,
+            TokenKind::RParen => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some(if has_argument { count + 1 } else { 0 });
+                }
+            }
+            TokenKind::RBracket | TokenKind::RBrace => depth = depth.saturating_sub(1),
+            TokenKind::Comma if depth == 1 => count += 1,
+            _ if depth == 1 => has_argument = true,
+            _ => {}
+        }
+    }
+    None
+}
+
+fn function_parameter_count(detail: &str) -> Option<usize> {
+    call_argument_count(detail, 0)
+}
+
 fn did_you_mean_name(message: &str) -> Option<&str> {
     let suffix = message.strip_prefix("undefined name")?;
     let marker = "did you mean `";
@@ -2405,10 +2388,25 @@ fn receiver_span(source: &str, member_start: usize) -> Option<Span> {
     if character != '.' {
         return None;
     }
-    let receiver_end = dot;
+    // Keep `?.` out of the receiver span while completion is requested after
+    // its dot.
+    let receiver_end = if dot > 0 && source.as_bytes().get(dot - 1) == Some(&b'?') {
+        dot - 1
+    } else {
+        dot
+    };
     let mut receiver_start = word_start(source, receiver_end);
-    while receiver_start > 0 && source.as_bytes().get(receiver_start - 1) == Some(&b'.') {
-        let previous_end = receiver_start - 1;
+    while receiver_start > 0 {
+        let separator_len = if receiver_start >= 2
+            && source.as_bytes().get(receiver_start - 2..receiver_start) == Some(b"?.")
+        {
+            2
+        } else if source.as_bytes().get(receiver_start - 1) == Some(&b'.') {
+            1
+        } else {
+            break;
+        };
+        let previous_end = receiver_start - separator_len;
         let previous_start = word_start(source, previous_end);
         if previous_start == previous_end {
             break;
@@ -2423,6 +2421,40 @@ fn nominal_type_name(ty: &aura_sema::Ty) -> Option<&str> {
         aura_sema::Ty::Nullable(inner) => nominal_type_name(inner),
         _ => ty.class_name().or_else(|| ty.iface_name()),
     }
+}
+
+fn receiver_field_type_name(
+    source: &str,
+    file: &File,
+    receiver_span: Span,
+    member_offset: u32,
+) -> Option<String> {
+    let receiver = source.get(receiver_span.start as usize..receiver_span.end as usize)?;
+    let fields = receiver.strip_prefix("this.")?.split('.');
+    let class = file
+        .classes
+        .iter()
+        .find(|class| class.span.start <= member_offset && member_offset <= class.span.end)?;
+    let mut current_class = class;
+    let mut current_type = None;
+    let mut fields = fields.peekable();
+    while let Some(field_name) = fields.next() {
+        let field = current_class
+            .fields
+            .iter()
+            .find(|field| field.name.name == field_name)?;
+        let next_type = source
+            .get(field.ty.span.start as usize..field.ty.span.end as usize)
+            .map(str::to_owned)
+            .unwrap_or_else(|| field.ty.name.name.clone());
+        current_type = Some(next_type.clone());
+        if fields.peek().is_some() {
+            current_class = file.classes.iter().find(|candidate| {
+                nominal_short_name(&candidate.name.name) == nominal_short_name(&next_type)
+            })?;
+        }
+    }
+    current_type
 }
 
 fn nominal_short_name(name: &str) -> &str {
@@ -3138,15 +3170,286 @@ fun main() {\n\
     #[test]
     fn completion_uses_checked_receiver_type_for_members() {
         let mut server = Server::new();
-        let source = "package demo\nclass Box(val value: Int) {}\nfun main() {\n  val box: Box = Box(1)\n  val x: Int = box.value\n}\n";
+        let source = "package demo\nclass Box(val value: Int) {\n  /// Returns the stored value.\n  fun size(): Int { return value }\n}\nfun main() {\n  val box: Box = Box(1)\n  val x: Int = box.value\n}\n";
         server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
         let line = "  val x: Int = box.";
-        let response = server.handle(json!({"jsonrpc":"2.0","id":11,"method":"textDocument/completion","params":{"textDocument":{"uri":"main.aura"},"position":{"line":4,"character":line.encode_utf16().count()}}})).unwrap();
+        let response = server.handle(json!({"jsonrpc":"2.0","id":11,"method":"textDocument/completion","params":{"textDocument":{"uri":"main.aura"},"position":{"line":7,"character":line.encode_utf16().count()}}})).unwrap();
         assert!(response["result"]["items"]
             .as_array()
             .unwrap()
             .iter()
             .any(|item| item["label"] == "value" && item["detail"] == "value: Int"));
+        assert!(response["result"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| {
+                item["label"] == "size"
+                    && item["detail"].as_str().unwrap().contains("size")
+                    && item["documentation"]["value"] == "Returns the stored value."
+            }));
+        assert_eq!(
+            response["result"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|item| item["label"] == "value")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn completion_suggests_builtin_string_and_int_members() {
+        let mut server = Server::new();
+        let source = "package demo\nfun main() {\n  val text: String = \"a\"\n  val number: Int = 1\n  val values: Array<Int> = Array<Int>(0)\n  text.substring(0, 1)\n  number.toString()\n  number.hash()\n  values.push(1)\n}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+
+        let string_response = server.handle(json!({"jsonrpc":"2.0","id":21,"method":"textDocument/completion","params":{"textDocument":{"uri":"main.aura"},"position":{"line":5,"character":7}}})).unwrap();
+        let string_items = string_response["result"]["items"].as_array().unwrap();
+        assert!(
+            string_items.iter().any(|item| item["label"] == "substring"),
+            "string completion labels: {string_items:?}"
+        );
+        assert!(string_items
+            .iter()
+            .any(|item| item["label"] == "startsWith"));
+        assert!(!string_items.iter().any(|item| item["label"] == "toString"));
+
+        let int_response = server.handle(json!({"jsonrpc":"2.0","id":22,"method":"textDocument/completion","params":{"textDocument":{"uri":"main.aura"},"position":{"line":6,"character":9}}})).unwrap();
+        let int_items = int_response["result"]["items"].as_array().unwrap();
+        assert!(int_items.iter().any(|item| item["label"] == "toString"));
+        let hash_response = server.handle(json!({"jsonrpc":"2.0","id":23,"method":"textDocument/completion","params":{"textDocument":{"uri":"main.aura"},"position":{"line":7,"character":9}}})).unwrap();
+        assert!(hash_response["result"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["label"] == "hash"));
+        assert!(!int_items.iter().any(|item| item["label"] == "substring"));
+
+        let array_response = server.handle(json!({"jsonrpc":"2.0","id":24,"method":"textDocument/completion","params":{"textDocument":{"uri":"main.aura"},"position":{"line":8,"character":9}}})).unwrap();
+        let array_items = array_response["result"]["items"].as_array().unwrap();
+        assert!(array_items.iter().any(|item| item["label"] == "len"));
+        let push = array_items
+            .iter()
+            .find(|item| item["label"] == "push")
+            .unwrap();
+        assert!(push["documentation"]["value"]
+            .as_str()
+            .unwrap()
+            .contains("Appends"));
+        assert!(array_items.iter().any(|item| item["label"] == "clone"));
+    }
+
+    #[test]
+    fn completion_orders_members_without_leaking_keywords() {
+        let mut server = Server::new();
+        let source = "package demo\n\
+class Request(pub val body: String, pub val bodyReader: String) {\n\
+    pub fun method(): String { return this.body }\n\
+}\n\
+class Context(pub val request: Request) {\n\
+    pub fun read(): String { return this.request. }\n\
+}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+        let line = source
+            .lines()
+            .position(|line| line.contains("this.request."))
+            .unwrap();
+        let line_text = source.lines().nth(line).unwrap();
+        let character = line_text.find("this.request.").unwrap() + "this.request.".len();
+        let response = server.handle(json!({"jsonrpc":"2.0","id":36,"method":"textDocument/completion","params":{"textDocument":{"uri":"main.aura"},"position":{"line":line,"character":character}}})).unwrap();
+        let items = response["result"]["items"].as_array().unwrap();
+        let labels = items
+            .iter()
+            .map(|item| item["label"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(labels, vec!["body", "bodyReader", "method"]);
+        assert!(!labels.contains(&"async"));
+        assert!(items.iter().all(|item| item["sortText"].is_string()));
+    }
+
+    #[test]
+    fn completion_recovers_local_primitive_receiver_before_member_name_is_complete() {
+        let mut server = Server::new();
+        let source = "package demo\nfun test() {\n  val a: String = \"ABC\"\n  val b = a.\n}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+        let line = source.lines().position(|line| line.contains("a.")).unwrap();
+        let line_text = source.lines().nth(line).unwrap();
+        let character = line_text.find("a.").unwrap() + "a.".len();
+        let response = server.handle(json!({"jsonrpc":"2.0","id":44,"method":"textDocument/completion","params":{"textDocument":{"uri":"main.aura"},"position":{"line":line,"character":character}}})).unwrap();
+        assert!(response["result"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["label"] == "substring"));
+        assert!(!response["result"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["label"] == "toString"));
+    }
+
+    #[test]
+    fn completion_recovers_local_receiver_inferred_from_method_call() {
+        let mut server = Server::new();
+        let source = "package demo\n\
+class Request() {\n\
+    pub fun target(): String { return \"/\" }\n\
+}\n\
+class Context(pub val request: Request) {\n\
+    pub fun query(): String {\n\
+        val target = this.request.target()\n\
+        val queryStart = target.\n\
+        return target\n\
+    }\n\
+}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+        let line = source
+            .lines()
+            .position(|line| line.contains("queryStart = target."))
+            .unwrap();
+        let line_text = source.lines().nth(line).unwrap();
+        let character = line_text.find("target.").unwrap() + "target.".len();
+        let response = server.handle(json!({"jsonrpc":"2.0","id":45,"method":"textDocument/completion","params":{"textDocument":{"uri":"main.aura"},"position":{"line":line,"character":character}}})).unwrap();
+        assert!(response["result"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["label"] == "substring"));
+
+        let target_line = source
+            .lines()
+            .position(|line| line.contains("val target ="))
+            .unwrap();
+        let target_character = source
+            .lines()
+            .nth(target_line)
+            .unwrap()
+            .find("target")
+            .unwrap();
+        let hover = server.handle(json!({"jsonrpc":"2.0","id":46,"method":"textDocument/hover","params":{"textDocument":{"uri":"main.aura"},"position":{"line":target_line,"character":target_character}}})).unwrap();
+        assert!(
+            hover_contents_text(&hover).contains("target: String"),
+            "hover: {hover}"
+        );
+    }
+
+    #[test]
+    fn completion_recovers_aura_web_imported_request_case() {
+        let mut server = Server::new();
+        let request_source = "package std.http\n\
+pub class Request() {\n\
+    /// Returns the HTTP request target.\n\
+    pub fun target(): String { return \"/\" }\n\
+}\n";
+        let context_source = "package aura.web\n\
+import std.http\n\
+import std.json\n\
+pub class Context(pub val request: Request) {\n\
+    pub fun query(): String {\n\
+        val target = this.request.target()\n\
+        val queryStart = target.\n\
+        return target\n\
+    }\n\
+}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"request.aura","version":1,"text":request_source}}}));
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"context.aura","version":1,"text":context_source}}}));
+        let line = context_source
+            .lines()
+            .position(|line| line.contains("queryStart = target."))
+            .unwrap();
+        let line_text = context_source.lines().nth(line).unwrap();
+        let character = line_text.find("target.").unwrap() + "target.".len();
+        let response = server.handle(json!({"jsonrpc":"2.0","id":47,"method":"textDocument/completion","params":{"textDocument":{"uri":"context.aura"},"position":{"line":line,"character":character}}})).unwrap();
+        assert!(
+            response["result"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["label"] == "substring"),
+            "completion: {response}"
+        );
+
+        let target_line = context_source
+            .lines()
+            .position(|line| line.contains("val target ="))
+            .unwrap();
+        let target_character = context_source
+            .lines()
+            .nth(target_line)
+            .unwrap()
+            .find("target")
+            .unwrap();
+        let hover = server.handle(json!({"jsonrpc":"2.0","id":48,"method":"textDocument/hover","params":{"textDocument":{"uri":"context.aura"},"position":{"line":target_line,"character":target_character}}})).unwrap();
+        assert!(
+            hover_contents_text(&hover).contains("target: String"),
+            "hover: {hover}"
+        );
+    }
+
+    #[test]
+    fn completion_and_hover_recover_real_aura_web_context_fixture() {
+        let mut server = Server::new();
+        let request_source = include_str!("../../../std/http/src/lib.aura");
+        let context_source = include_str!("../../../examples/aura-web/src/request/context.aura")
+            .replacen(
+                "val queryStart = target.indexOf(\"?\")",
+                "val queryStart = target.",
+                1,
+            );
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"std-http.aura","version":1,"text":request_source}}}));
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"context.aura","version":1,"text":context_source}}}));
+
+        let line = context_source
+            .lines()
+            .position(|line| line.contains("val queryStart = target."))
+            .unwrap();
+        let line_text = context_source.lines().nth(line).unwrap();
+        let character = line_text.find("target.").unwrap() + "target.".len();
+        let completion = server.handle(json!({"jsonrpc":"2.0","id":49,"method":"textDocument/completion","params":{"textDocument":{"uri":"context.aura"},"position":{"line":line,"character":character}}})).unwrap();
+        assert!(
+            completion["result"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["label"] == "substring"),
+            "completion: {completion}"
+        );
+
+        let target_line = context_source
+            .lines()
+            .position(|line| line.contains("val target ="))
+            .unwrap();
+        let target_character = context_source
+            .lines()
+            .nth(target_line)
+            .unwrap()
+            .find("target")
+            .unwrap();
+        let hover = server.handle(json!({"jsonrpc":"2.0","id":50,"method":"textDocument/hover","params":{"textDocument":{"uri":"context.aura"},"position":{"line":target_line,"character":target_character}}})).unwrap();
+        assert!(
+            hover_contents_text(&hover).contains("target: String"),
+            "hover: {hover}"
+        );
+    }
+
+    #[test]
+    fn completion_orders_locals_before_keywords() {
+        let mut server = Server::new();
+        let source = "package demo\nfun main() {\n  val answer = 1\n  \n}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+        let response = server.handle(json!({"jsonrpc":"2.0","id":37,"method":"textDocument/completion","params":{"textDocument":{"uri":"main.aura"},"position":{"line":3,"character":2}}})).unwrap();
+        let items = response["result"]["items"].as_array().unwrap();
+        let answer = items
+            .iter()
+            .position(|item| item["label"] == "answer")
+            .unwrap();
+        let async_keyword = items
+            .iter()
+            .position(|item| item["label"] == "async")
+            .unwrap();
+        assert!(answer < async_keyword);
     }
 
     #[test]
@@ -3176,6 +3479,259 @@ fun main() {\n\
             .unwrap()
             .iter()
             .any(|item| item["label"] == "demo.util"));
+    }
+
+    #[test]
+    fn completion_includes_types_and_symbols_from_other_documents() {
+        let mut server = Server::new();
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"lib.aura","version":1,"text":"package demo\npub class Widget() {}\npub interface Runnable {}\npub enum Status { Ready }\npub type Alias = Widget\npub const LIMIT: Int = 1\npub fun helper() {}\n"}}}));
+        let source = "package demo\nfun main() {\n  hel\n}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+        let response = server.handle(json!({"jsonrpc":"2.0","id":24,"method":"textDocument/completion","params":{"textDocument":{"uri":"main.aura"},"position":{"line":2,"character":5}}})).unwrap();
+        assert!(response["result"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["label"] == "helper"));
+
+        let type_source = "package demo\nfun main() {\n  val value: Wid\n}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"type.aura","version":1,"text":type_source}}}));
+        let type_response = server.handle(json!({"jsonrpc":"2.0","id":25,"method":"textDocument/completion","params":{"textDocument":{"uri":"type.aura"},"position":{"line":2,"character":15}}})).unwrap();
+        assert!(type_response["result"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["label"] == "Widget"));
+    }
+
+    #[test]
+    fn completion_suggests_member_declared_in_another_package_source_file() {
+        let root = std::env::temp_dir().join(format!(
+            "aura-lsp-completion-cross-file-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("aura.toml"), "[package]\nname = \"demo\"\n").unwrap();
+        std::fs::write(
+            root.join("types.aura"),
+            "package demo\npub class Box(val value: Int) {}\n",
+        )
+        .unwrap();
+        let main = root.join("main.aura");
+        let source =
+            "package demo\nfun main() {\n  val box: Box = Box(1)\n  val x: Int = box.value\n}\n";
+        std::fs::write(&main, source).unwrap();
+
+        let mut server = Server::new();
+        server.handle(json!({"jsonrpc":"2.0","id":26,"method":"initialize","params":{"rootUri":path_to_uri(&root)}}));
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":path_to_uri(&main),"version":1,"text":source}}}));
+        let line = "  val x: Int = box.";
+        let response = server.handle(json!({"jsonrpc":"2.0","id":27,"method":"textDocument/completion","params":{"textDocument":{"uri":path_to_uri(&main)},"position":{"line":3,"character":line.encode_utf16().count()}}})).unwrap();
+        assert!(response["result"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["label"] == "value"));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn completion_resolves_this_field_receiver_while_member_expression_is_incomplete() {
+        let mut server = Server::new();
+        let source = "package demo\n\
+class Request() {\n\
+    pub fun target(): String { return \"/\" }\n\
+}\n\
+class Context(pub val request: Request) {\n\
+    pub fun method(): String { return this.request. }\n\
+}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+        let line = source
+            .lines()
+            .position(|line| line.contains("this.request."))
+            .unwrap();
+        let line_text = source.lines().nth(line).unwrap();
+        let character =
+            line_text.find("this.request.").unwrap() + "this.request.".encode_utf16().count();
+        let response = server.handle(json!({"jsonrpc":"2.0","id":30,"method":"textDocument/completion","params":{"textDocument":{"uri":"main.aura"},"position":{"line":line,"character":character}}})).unwrap();
+        assert!(
+            response["result"]["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["label"] == "target"),
+            "completion: {}",
+            response
+        );
+    }
+
+    #[test]
+    fn editor_features_recover_incomplete_member_expression() {
+        let mut server = Server::new();
+        let source = "package demo\n\
+class Request() {\n\
+    /// Returns the request target.\n\
+    pub fun target(): String { return \"/\" }\n\
+}\n\
+class Context(pub val request: Request) {\n\
+    pub fun method(): String { return this.request. }\n\
+}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+        let line = source
+            .lines()
+            .position(|line| line.contains("this.request."))
+            .unwrap();
+        let line_text = source.lines().nth(line).unwrap();
+        let request_offset = line_text.find("request").unwrap();
+        let request_character = request_offset + "request".len();
+
+        let symbols = server.handle(json!({"jsonrpc":"2.0","id":38,"method":"textDocument/documentSymbol","params":{"textDocument":{"uri":"main.aura"}}})).unwrap();
+        assert!(symbols["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|symbol| symbol["name"] == "Context"));
+
+        let hover = server.handle(json!({"jsonrpc":"2.0","id":39,"method":"textDocument/hover","params":{"textDocument":{"uri":"main.aura"},"position":{"line":line,"character":request_character}}})).unwrap();
+        assert!(
+            hover["result"]["contents"].to_string().contains("request"),
+            "hover: {hover}"
+        );
+
+        let definition = server.handle(json!({"jsonrpc":"2.0","id":40,"method":"textDocument/definition","params":{"textDocument":{"uri":"main.aura"},"position":{"line":line,"character":request_character}}})).unwrap();
+        assert_eq!(definition["result"].as_array().unwrap().len(), 1);
+
+        let highlights = server.handle(json!({"jsonrpc":"2.0","id":41,"method":"textDocument/documentHighlight","params":{"textDocument":{"uri":"main.aura"},"position":{"line":line,"character":request_character}}})).unwrap();
+        assert_eq!(highlights["result"].as_array().unwrap().len(), 2);
+
+        let references = server.handle(json!({"jsonrpc":"2.0","id":42,"method":"textDocument/references","params":{"textDocument":{"uri":"main.aura"},"position":{"line":line,"character":request_character},"context":{"includeDeclaration":true}}})).unwrap();
+        assert_eq!(references["result"].as_array().unwrap().len(), 2);
+
+        let rename = server.handle(json!({"jsonrpc":"2.0","id":43,"method":"textDocument/rename","params":{"textDocument":{"uri":"main.aura"},"position":{"line":line,"character":request_character},"newName":"req"}})).unwrap();
+        assert_eq!(
+            rename["result"]["documentChanges"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn completion_typechecks_a_recovered_nested_receiver() {
+        let mut server = Server::new();
+        let source = "package demo\n\
+class Response() {\n\
+    pub fun target(): String { return \"/\" }\n\
+}\n\
+class Request(pub val response: Response) {}\n\
+class Context(pub val request: Request) {\n\
+    pub fun method(): String { return this.request.response.ta }\n\
+}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+        let line = source
+            .lines()
+            .position(|line| line.contains("this.request.response.ta"))
+            .unwrap();
+        let line_text = source.lines().nth(line).unwrap();
+        let character = line_text.find("this.request.response.ta").unwrap()
+            + "this.request.response.ta".encode_utf16().count();
+        let response = server.handle(json!({"jsonrpc":"2.0","id":31,"method":"textDocument/completion","params":{"textDocument":{"uri":"main.aura"},"position":{"line":line,"character":character}}})).unwrap();
+        assert!(response["result"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["label"] == "target"));
+    }
+
+    #[test]
+    fn completion_recovers_generic_this_field_receiver() {
+        let mut server = Server::new();
+        let source = "package demo\n\
+class Box<T>(val value: T) {\n\
+    pub fun unwrap(): T { return this.value }\n\
+}\n\
+class Context(pub val box: Box<String>) {\n\
+    pub fun read(): String { return this.box. }\n\
+}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+        let line = source
+            .lines()
+            .position(|line| line.contains("this.box."))
+            .unwrap();
+        let line_text = source.lines().nth(line).unwrap();
+        let character = line_text.find("this.box.").unwrap() + "this.box.".len();
+        let response = server.handle(json!({"jsonrpc":"2.0","id":32,"method":"textDocument/completion","params":{"textDocument":{"uri":"main.aura"},"position":{"line":line,"character":character}}})).unwrap();
+        assert!(response["result"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["label"] == "value"));
+        assert!(response["result"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["label"] == "unwrap"));
+    }
+
+    #[test]
+    fn completion_recovers_nullable_safe_receiver() {
+        let mut server = Server::new();
+        let source = "package demo\n\
+class Request() {\n\
+    pub fun target(): String { return \"/\" }\n\
+}\n\
+class Context(pub val request: Request?) {\n\
+    pub fun method(): String { return this.request?.ta }\n\
+}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+        let line = source
+            .lines()
+            .position(|line| line.contains("this.request?.ta"))
+            .unwrap();
+        let line_text = source.lines().nth(line).unwrap();
+        let character = line_text.find("this.request?.ta").unwrap() + "this.request?.ta".len();
+        let response = server.handle(json!({"jsonrpc":"2.0","id":33,"method":"textDocument/completion","params":{"textDocument":{"uri":"main.aura"},"position":{"line":line,"character":character}}})).unwrap();
+        assert!(response["result"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["label"] == "target"));
+    }
+
+    #[test]
+    fn completion_recovers_generic_receiver_from_another_source_file() {
+        let root = std::env::temp_dir().join(format!(
+            "aura-lsp-completion-generic-cross-file-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("aura.toml"), "[package]\nname = \"demo\"\n").unwrap();
+        std::fs::write(
+            root.join("types.aura"),
+            "package demo.types\npub class Box<T>(val value: T) {\n  pub fun unwrap(): T { return this.value }\n}\n",
+        )
+        .unwrap();
+        let main = root.join("main.aura");
+        let source = "package demo\nimport demo.types as Types\nclass Context(pub val box: Types.Box<String>) {\n  pub fun read(): String { return this.box. }\n}\n";
+        std::fs::write(&main, source).unwrap();
+
+        let mut server = Server::new();
+        server.handle(json!({"jsonrpc":"2.0","id":34,"method":"initialize","params":{"rootUri":path_to_uri(&root)}}));
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":path_to_uri(&main),"version":1,"text":source}}}));
+        let line = source
+            .lines()
+            .position(|line| line.contains("this.box."))
+            .unwrap();
+        let line_text = source.lines().nth(line).unwrap();
+        let character = line_text.find("this.box.").unwrap() + "this.box.".len();
+        let response = server.handle(json!({"jsonrpc":"2.0","id":35,"method":"textDocument/completion","params":{"textDocument":{"uri":path_to_uri(&main)},"position":{"line":line,"character":character}}})).unwrap();
+        assert!(response["result"]["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["label"] == "unwrap"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -3261,6 +3817,83 @@ pub fun main() {\n\
         assert!(local_contents.contains("nb: demo.Notebook"));
         assert!(local_contents.contains("Represents a notebook."));
         assert!(!local_contents.contains("Defined in"));
+    }
+
+    #[test]
+    fn hover_resolves_member_documentation_from_receiver_type() {
+        let mut server = Server::new();
+        let source = "package demo\n\
+class Request(val code: String) {\n\
+    /// Return the request method, such as `GET` or `POST`.\n\
+    pub fun method(): String { return \"GET\" }\n\
+}\n\
+class Context(val request: Request) {\n\
+    pub fun method(): String { return this.request.method() }\n\
+}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+
+        let line = source
+            .lines()
+            .position(|line| line.contains("this.request.method"))
+            .unwrap();
+        let character = source.lines().nth(line).unwrap().rfind("method").unwrap();
+        let response = server.handle(json!({"jsonrpc":"2.0","id":19,"method":"textDocument/hover","params":{"textDocument":{"uri":"main.aura"},"position":{"line":line,"character":character}}})).unwrap();
+
+        let contents = hover_contents_text(&response);
+        assert!(contents.contains("Return the request method, such as `GET` or `POST`."));
+    }
+
+    #[test]
+    fn hover_resolves_the_selected_overload_signature_and_documentation() {
+        let mut server = Server::new();
+        let source = "package demo\n\
+class Request(val value: String) {\n\
+    /// Reads the request method without an argument.\n\
+    pub fun method(): String { return this.value }\n\
+    /// Reads the request method using a fallback.\n\
+    pub fun method(fallback: String): String { return fallback }\n\
+}\n\
+fun main() {\n\
+    val request = Request(\"GET\")\n\
+    request.method()\n\
+    request.method(\"POST\")\n\
+}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+
+        let no_arg_line = source
+            .lines()
+            .position(|line| line.contains("request.method()"))
+            .unwrap();
+        let no_arg_character = source
+            .lines()
+            .nth(no_arg_line)
+            .unwrap()
+            .find("method")
+            .unwrap();
+        let no_arg = server.handle(json!({"jsonrpc":"2.0","id":28,"method":"textDocument/hover","params":{"textDocument":{"uri":"main.aura"},"position":{"line":no_arg_line,"character":no_arg_character}}})).unwrap();
+        let no_arg_contents = hover_contents_text(&no_arg);
+        assert!(no_arg_contents.contains("fun method(): String"));
+        assert!(no_arg_contents.contains("without an argument"));
+        assert!(!no_arg_contents.contains("using a fallback"));
+
+        let one_arg_line = source
+            .lines()
+            .position(|line| line.contains("request.method(\"POST\")"))
+            .unwrap();
+        let one_arg_character = source
+            .lines()
+            .nth(one_arg_line)
+            .unwrap()
+            .find("method")
+            .unwrap();
+        let one_arg = server.handle(json!({"jsonrpc":"2.0","id":29,"method":"textDocument/hover","params":{"textDocument":{"uri":"main.aura"},"position":{"line":one_arg_line,"character":one_arg_character}}})).unwrap();
+        let one_arg_contents = hover_contents_text(&one_arg);
+        assert!(
+            one_arg_contents.contains("fun method(String): String"),
+            "one-arg hover: {one_arg_contents}"
+        );
+        assert!(one_arg_contents.contains("using a fallback"));
+        assert!(!one_arg_contents.contains("without an argument"));
     }
 
     #[test]

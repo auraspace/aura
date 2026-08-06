@@ -103,6 +103,13 @@ const EMBEDDED_RUNTIME_FILES: &[(&str, &str)] = &[
         )),
     ),
     (
+        "src/io/io_tls.c",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/src/io/io_tls.c"
+        )),
+    ),
+    (
         "src/http/http_parser.c",
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -258,11 +265,21 @@ fn disk_candidates() -> Vec<PathBuf> {
 
     // Alongside installed binary (optional layout from package-release).
     if let Ok(exe) = env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            out.push(dir.join("runtime.c"));
-            out.push(dir.join("runtime/runtime.c"));
-            out.push(dir.join("../share/aura/runtime/runtime.c"));
-            out.push(dir.join("share/aura/runtime/runtime.c"));
+        // Keep both paths: launchers may expose a symlink, while release
+        // assets live beside the resolved executable.
+        let mut executables = vec![exe.clone()];
+        if let Ok(resolved) = exe.canonicalize() {
+            if resolved != exe {
+                executables.push(resolved);
+            }
+        }
+        for executable in executables {
+            if let Some(dir) = executable.parent() {
+                out.push(dir.join("runtime.c"));
+                out.push(dir.join("runtime/runtime.c"));
+                out.push(dir.join("../share/aura/runtime/runtime.c"));
+                out.push(dir.join("share/aura/runtime/runtime.c"));
+            }
         }
     }
     out
@@ -373,6 +390,7 @@ mod tests {
         assert!(embedded.contains("aura_read_line"));
         assert!(embedded.contains("aura_read_all_stdin"));
         assert!(embedded.contains("aura_exit"));
+        assert!(embedded.contains("src/io/io_tls.c"));
     }
 
     #[test]
@@ -382,6 +400,7 @@ mod tests {
         let s = fs::read_to_string(&p).unwrap();
         assert!(s.contains("src/memory/gc.c"));
         assert!(p.parent().unwrap().join("src/memory/gc.c").is_file());
+        assert!(p.parent().unwrap().join("src/io/io_tls.c").is_file());
     }
 
     #[test]

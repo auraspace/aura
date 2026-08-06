@@ -104,6 +104,7 @@ for (const keyword of [
   'case',
   'catch',
   'class',
+  'companion',
   'const',
   'continue',
   'else',
@@ -122,6 +123,7 @@ for (const keyword of [
   'join',
   'match',
   'null',
+  'object',
   'open',
   'override',
   'package',
@@ -138,6 +140,7 @@ for (const keyword of [
   'type',
   'val',
   'var',
+  'vararg',
   'where',
   'while',
 ]) {
