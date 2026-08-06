@@ -75,20 +75,6 @@ commits, RFCs, or release notes instead of appending progress for every change.
 - Next step: run the full matrix on supported clean hosts and retain the host,
   target, and sanitizer configuration with the release evidence.
 
-### RELEASE-001 release and registry publication (2026-08-06)
-
-- Area: package origin, publication, signing, proxy, and cross-target release
-- Symptom: origin publication/authentication, alternate dependency sources,
-  production signing, and clean-host installer rehearsal are not complete; the
-  proxy layer has not started.
-- Why deferred: the direct-origin contract must stabilize before adding a cache
-  or mirror. Publication requires Git credentials and supported target hosts.
-  The bounded local self-update and
-  rollback contract is covered by U7/U8 evidence.
-- Next step: implement the Go-compatible origin tag/source contract,
-  then run the frozen-release installer and checksum matrix on every supported
-  host; add a proxy only after the origin contract is proven.
-
 ## Resolved History
 
 The detailed progress log was intentionally removed from this file on
@@ -105,6 +91,10 @@ The detailed progress log was intentionally removed from this file on
   Linux amd64/arm64 and macOS release/tooling matrix; Windows remains outside
   scope. The remaining collector work moved to GC-001, while overload-aware LSP
   results remain tracked by LSP-001.
+- 2026-08-06: public package origin contract closed: publication is an
+  immutable Git tag push, direct Git origins pin version/source/revision/checksum,
+  warm-cache verification is fail-closed, and the versioned proxy read boundary
+  is prepared without serving a proxy.
 
 For exact evidence, use the relevant commit history, RFC, or test fixture rather
 than restoring a per-change progress dump here.

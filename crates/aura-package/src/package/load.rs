@@ -8,14 +8,14 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use super::fetch::{
-    cache_root_from_env, crate_source_for_meta, ensure_installed, package_src_dir, sha256_hex,
-};
+use super::archive::{archive_sha256, build_source_archive};
+use super::fetch::{cache_root_from_env, install_from_bytes, package_src_dir, sha256_hex};
 use super::lock::{
-    read_lock, verify_lock_against_toml, write_lock_entries, AuraLock, LockEntry, LockWriteEntry,
+    read_lock, verify_lock_against_toml, write_lock_entries, AuraLock, LockWriteEntry,
 };
-use super::registry::{RegistryIndex, VersionMeta};
-use super::semver::{lock_pin_from_meta, parse_req, parse_version, resolve, RegistryLockPin};
+use super::origin::{resolve_git, OriginResolution};
+use super::registry::VersionMeta;
+use super::semver::OriginLockPin;
 use super::toml::{parse_aura_toml, AuraToml, DepSpec};
 use super::types::{LoadedPackage, SourceEntry};
 use super::util::{
@@ -227,7 +227,7 @@ pub(crate) fn load_from_manifest(
         pkg.bin_name = last_segment(&pkg.package);
     }
 
-    // C3p/C13l: if aura.lock exists, direct deps must match it (paths + registry reqs).
+    // If aura.lock exists, direct deps must match it.
     verify_lock_against_toml(&root, &toml.dependencies)?;
     let macro_plugin_entries = macro_plugin_lock_entries(&root, &toml.macro_plugins)?;
     verify_macro_plugin_lock(&root, &toml.macro_plugins, write_lock)?;
@@ -236,19 +236,18 @@ pub(crate) fn load_from_manifest(
     let mut effective = toml.clone();
     apply_std_io_prelude(&mut pkg, &mut effective, &root, std_root)?;
 
-    // C13l: resolve registry version deps → cache src paths (offline warm cache OK).
-    let mut registry = RegistryResolver::new(&root)?;
-    materialize_registry_deps_with(&mut effective, &toml, &mut registry)?;
+    let mut registry = OriginResolver::new(&root)?;
+    materialize_origin_deps_with(&mut effective, &toml, &mut registry)?;
 
     // Merge path deps from this manifest and from each loaded dep's own aura.toml.
     // C4j: also collect the full resolved path map for aura.lock.
     let resolved = resolve_imports(&mut pkg, &effective, &root, std_root, &mut registry)?;
 
-    // Refresh lockfile: path deps + registry pins (C4j/C13l).
+    // Refresh lockfile: path deps + immutable origin pins.
     // Exclude auto-prelude-only entries not declared in the user's aura.toml.
     let mut lock_entries: BTreeMap<String, LockWriteEntry> = BTreeMap::new();
     for (name, pin) in &registry.pins {
-        lock_entries.insert(name.clone(), LockWriteEntry::Registry(pin.clone()));
+        lock_entries.insert(name.clone(), LockWriteEntry::Origin(pin.clone()));
     }
     for (name, abs) in &resolved {
         if registry.pins.contains_key(name) {
@@ -294,28 +293,34 @@ fn manifest_root(manifest: &Path) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Resolve registry deps from the index/lock, ensure cache install, and rewrite
-/// them as absolute path deps on `effective`.
-///
-/// Prefer env `AURA_REGISTRY_INDEX` + `AURA_REGISTRY_CACHE` (tests/CI).
-fn materialize_registry_deps_with(
+/// Resolve direct origins and rewrite them as absolute path deps on `effective`.
+fn materialize_origin_deps_with(
     effective: &mut AuraToml,
     original: &AuraToml,
-    registry: &mut RegistryResolver,
+    registry: &mut OriginResolver,
 ) -> Result<(), String> {
-    let mut registry_names: Vec<(String, String)> = original
+    let mut registry_names: Vec<(String, DepSpec)> = original
         .dependencies
         .iter()
-        .filter_map(|(n, d)| d.as_version_req().map(|v| (n.clone(), v.to_string())))
+        .filter_map(|(n, d)| match d {
+            DepSpec::Git { .. } => Some((n.clone(), d.clone())),
+            DepSpec::Path(_) => None,
+        })
         .collect();
     registry_names.sort_by(|a, b| a.0.cmp(&b.0));
     if registry_names.is_empty() {
         return Ok(());
     }
 
-    for (name, req) in registry_names {
-        let (meta, pin) = registry.resolve(&name, &req)?;
-        let installed = ensure_registry_src(&meta, registry.index.as_ref(), &registry.cache)?;
+    for (name, dep) in registry_names {
+        let (pin, installed) = match &dep {
+            DepSpec::Git { .. } => {
+                let (meta, pin, resolution) = registry.resolve_git(&name, &dep)?;
+                let installed = ensure_origin_src(&meta, &resolution, &registry.cache)?;
+                (pin, installed)
+            }
+            DepSpec::Path(_) => unreachable!(),
+        };
         effective
             .dependencies
             .insert(name.clone(), DepSpec::Path(installed.display().to_string()));
@@ -324,11 +329,10 @@ fn materialize_registry_deps_with(
     Ok(())
 }
 
-struct RegistryResolver {
+struct OriginResolver {
     lock: Option<AuraLock>,
     cache: PathBuf,
-    index: Option<RegistryIndex>,
-    pins: BTreeMap<String, RegistryLockPin>,
+    pins: BTreeMap<String, OriginLockPin>,
 }
 
 fn macro_plugin_lock_entries(
@@ -415,165 +419,213 @@ fn verify_macro_plugin_lock(
     Ok(())
 }
 
-impl RegistryResolver {
+impl OriginResolver {
     fn new(root: &Path) -> Result<Self, String> {
         Ok(Self {
             lock: read_lock(root)?,
             cache: cache_root_from_env(),
-            index: None,
             pins: BTreeMap::new(),
         })
     }
 
-    fn resolve(&mut self, name: &str, req: &str) -> Result<(VersionMeta, RegistryLockPin), String> {
+    fn resolve_git(
+        &mut self,
+        name: &str,
+        dep: &DepSpec,
+    ) -> Result<(VersionMeta, OriginLockPin, OriginResolution), String> {
         if let Some(pin) = self.pins.get(name) {
-            let requirement = parse_req(req).map_err(|e| {
-                format!("error: package `{name}`: invalid version requirement `{req}`: {e}")
-            })?;
-            let version = parse_version(&pin.version).map_err(|e| {
-                format!(
-                    "error: resolved package `{name}` has invalid version `{}`: {e}",
-                    pin.version
-                )
-            })?;
-            if !requirement.matches(&version) {
-                return Err(format!(
-                    "error: conflicting registry requirements for `{name}`: `{}` does not satisfy `{req}`",
-                    pin.version
-                ));
-            }
-            return Ok((
-                VersionMeta {
-                    name: name.into(),
-                    vers: pin.version.clone(),
-                    cksum: pin.checksum.clone(),
-                    yanked: false,
-                    repository: None,
-                    targets: None,
-                    min_aura: None,
-                    max_aura: None,
-                    revoked: false,
-                    revoke_reason: None,
-                },
-                pin.clone(),
-            ));
+            let source = pin
+                .source
+                .strip_prefix("git+")
+                .ok_or_else(|| format!("error: conflicting origins for `{name}`"))?;
+            let locked = DepSpec::Git {
+                source: source.into(),
+                subdir: None,
+                version: Some(pin.version.clone()),
+                tag: None,
+                rev: pin.rev.clone(),
+            };
+            let resolution = resolve_git(name, &locked)?;
+            return self.git_result(name, resolution);
         }
         let lock_pin = self.lock.as_ref().and_then(|lock| lock.packages.get(name));
         if self.lock.is_some() && lock_pin.is_none() {
             return Err(format!(
-                "error: aura.lock missing package `{name}` required by a registry dependency"
+                "error: aura.lock missing package `{name}` required by a Git dependency"
             ));
         }
         if let Some(entry) = lock_pin {
-            if !entry.is_registry() {
+            let source = entry
+                .source
+                .as_deref()
+                .and_then(|source| source.strip_prefix("git+"))
+                .ok_or_else(|| {
+                    format!("error: aura.lock has a non-Git entry for Git dependency `{name}`")
+                })?;
+            let locked_version = entry.version.as_deref().ok_or_else(|| {
+                format!("error: aura.lock Git dependency `{name}` is missing version")
+            })?;
+            let locked_rev = entry.rev.as_deref().ok_or_else(|| {
+                format!("error: aura.lock Git dependency `{name}` is missing rev")
+            })?;
+            let locked_checksum = normalize_checksum(entry.checksum.as_deref().unwrap_or(""));
+            if origin_cache_is_valid(&self.cache, name, locked_version, &locked_checksum) {
+                return self.git_result(
+                    name,
+                    OriginResolution {
+                        source: source.into(),
+                        version: locked_version.into(),
+                        rev: locked_rev.into(),
+                        checksum: locked_checksum,
+                        archive: Vec::new(),
+                    },
+                );
+            }
+            let locked = DepSpec::Git {
+                source: source.into(),
+                subdir: None,
+                version: Some(locked_version.into()),
+                tag: None,
+                rev: Some(locked_rev.into()),
+            };
+            let resolution = resolve_git(name, &locked)?;
+            let expected = entry.checksum.as_deref().unwrap_or("");
+            if normalize_checksum(expected) != resolution.checksum {
                 return Err(format!(
-                    "error: aura.lock has a path entry for registry dependency `{name}`"
+                    "error: Git dependency `{name}` checksum mismatch in aura.lock\n  expected {expected}\n  got sha256:{}",
+                    resolution.checksum
                 ));
             }
-            if let Some(resolved) = try_use_lock_pin(name, req, entry)? {
-                return Ok(resolved);
-            }
+            return self.git_result(name, resolution);
         }
-        let idx = open_index_if_needed(&mut self.index)?;
-        let meta = resolve(name, req, idx)?;
-        let pin = lock_pin_from_meta(&meta);
-        Ok((meta, pin))
+        let resolution = resolve_git(name, dep)?;
+        self.git_result(name, resolution)
+    }
+
+    fn git_result(
+        &self,
+        name: &str,
+        resolution: OriginResolution,
+    ) -> Result<(VersionMeta, OriginLockPin, OriginResolution), String> {
+        let checksum = format!("sha256:{}", resolution.checksum);
+        let meta = VersionMeta {
+            name: name.into(),
+            vers: resolution.version.clone(),
+            cksum: checksum.clone(),
+            yanked: false,
+            repository: Some(resolution.source.clone()),
+            targets: None,
+            min_aura: None,
+            max_aura: None,
+            revoked: false,
+            revoke_reason: None,
+        };
+        let pin = OriginLockPin {
+            version: resolution.version.clone(),
+            checksum,
+            source: format!("git+{}", resolution.source),
+            rev: Some(resolution.rev.clone()),
+        };
+        Ok((meta, pin, resolution))
     }
 }
 
-fn open_index_if_needed(index: &mut Option<RegistryIndex>) -> Result<&RegistryIndex, String> {
-    if index.is_none() {
-        *index = Some(RegistryIndex::from_env_or_default().map_err(|e| {
-            format!(
-                "{e}\n  hint: set `AURA_REGISTRY_INDEX` to a local index (fixture or cache) \
-                 when resolving registry dependencies"
-            )
-        })?);
-    }
-    index
-        .as_ref()
-        .ok_or_else(|| "error: registry index was not initialized".to_string())
+fn normalize_checksum(checksum: &str) -> String {
+    checksum
+        .strip_prefix("sha256:")
+        .unwrap_or(checksum)
+        .to_ascii_lowercase()
 }
 
-fn try_use_lock_pin(
-    name: &str,
-    req: &str,
-    entry: &LockEntry,
-) -> Result<Option<(VersionMeta, RegistryLockPin)>, String> {
-    let ver = entry
-        .version
-        .as_deref()
-        .ok_or_else(|| format!("error: aura.lock registry pin for `{name}` missing version"))?;
-    let cksum = entry
-        .checksum
-        .as_deref()
-        .ok_or_else(|| format!("error: aura.lock registry pin for `{name}` missing checksum"))?;
-    let requirement = parse_req(req).map_err(|e| {
-        format!("error: package `{name}`: invalid version requirement `{req}`: {e}")
-    })?;
-    let pinned = parse_version(ver)
-        .map_err(|e| format!("error: aura.lock package `{name}`: invalid version `{ver}`: {e}"))?;
-    if !requirement.matches(&pinned) {
-        return Ok(None);
-    }
-    let meta = VersionMeta {
-        name: name.to_string(),
-        vers: ver.to_string(),
-        cksum: cksum.to_string(),
-        yanked: false,
-        repository: None,
-        targets: None,
-        min_aura: None,
-        max_aura: None,
-        revoked: false,
-        revoke_reason: None,
-    };
-    let pin = RegistryLockPin {
-        version: ver.to_string(),
-        checksum: cksum.to_string(),
-        source: "registry".into(),
-    };
-    Ok(Some((meta, pin)))
+fn origin_cache_is_valid(cache: &Path, name: &str, version: &str, checksum: &str) -> bool {
+    package_src_dir(cache, name, version)
+        .join("aura.toml")
+        .is_file()
+        && fs::read_to_string(
+            cache
+                .join("checksums")
+                .join(format!("{name}-{version}.sha256")),
+        )
+        .map(|value| value.trim().eq_ignore_ascii_case(checksum))
+        .unwrap_or(false)
 }
 
-/// Ensure crate sources are on disk under the registry cache; fetch from local
-/// fixture when cold.
-fn ensure_registry_src(
+fn ensure_origin_src(
     meta: &VersionMeta,
-    index: Option<&RegistryIndex>,
+    resolution: &OriginResolution,
     cache: &Path,
 ) -> Result<PathBuf, String> {
     let dest = package_src_dir(cache, &meta.name, &meta.vers);
-    // Warm cache: no network / no index required.
-    if dest.is_dir() && (dest.join("aura.toml").is_file() || dir_nonempty(&dest)) {
+    let expected = normalize_checksum(&meta.cksum);
+    let marker = cache
+        .join("checksums")
+        .join(format!("{}-{}.sha256", meta.name, meta.vers));
+    if dest.is_dir()
+        && dest.join("aura.toml").is_file()
+        && fs::read_to_string(&marker)
+            .map(|value| value.trim().eq_ignore_ascii_case(&expected))
+            .unwrap_or(false)
+        && cached_source_matches(&dest, &meta.name, &meta.vers, &expected)
+    {
         return Ok(dest);
     }
-
-    let source = match index {
-        Some(idx) => Some(crate_source_for_meta(
-            idx.root(),
-            idx.config().dl.as_deref(),
-            meta,
-        )?),
-        None => {
-            // Try opening index just for local crates/ + dl template.
-            match RegistryIndex::from_env_or_default() {
-                Ok(idx) => Some(crate_source_for_meta(
-                    idx.root(),
-                    idx.config().dl.as_deref(),
-                    meta,
-                )?),
-                Err(_) => None,
-            }
-        }
-    };
-    ensure_installed(meta, source.as_deref(), Some(cache))
+    if dest.exists() {
+        fs::remove_dir_all(&dest)
+            .map_err(|e| format!("error: replace cached package `{}`: {e}", meta.name))?;
+    }
+    if resolution.archive.is_empty() {
+        return Err(format!(
+            "error: cached Git dependency `{}` failed checksum validation and its origin is unavailable",
+            meta.name
+        ));
+    }
+    let installed = install_from_bytes(meta, &resolution.archive, Some(cache))?;
+    fs::create_dir_all(marker.parent().expect("checksum marker has parent"))
+        .map_err(|e| format!("error: create registry checksum cache: {e}"))?;
+    fs::write(&marker, expected)
+        .map_err(|e| format!("error: write registry checksum marker: {e}"))?;
+    Ok(installed)
 }
 
-fn dir_nonempty(dir: &Path) -> bool {
-    fs::read_dir(dir)
-        .map(|mut d| d.next().is_some())
+fn cached_source_matches(dest: &Path, name: &str, version: &str, expected: &str) -> bool {
+    let mut files = Vec::new();
+    if collect_cached_files(dest, &mut files).is_err() {
+        return false;
+    }
+    let entries = files
+        .into_iter()
+        .filter_map(|path| {
+            let relative = path
+                .strip_prefix(dest)
+                .ok()?
+                .to_string_lossy()
+                .replace('\\', "/");
+            Some((relative, fs::read(path).ok()?))
+        })
+        .collect::<Vec<_>>();
+    build_source_archive(name, version, &entries)
+        .map(|archive| archive_sha256(&archive).eq_ignore_ascii_case(expected))
         .unwrap_or(false)
+}
+
+fn collect_cached_files(current: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+    let mut children = fs::read_dir(current)
+        .map_err(|e| format!("error: read cache directory {}: {e}", current.display()))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .collect::<Vec<_>>();
+    children.sort();
+    for child in children {
+        if child.file_name().is_some_and(|name| name == ".git") {
+            continue;
+        }
+        if child.is_dir() {
+            collect_cached_files(&child, out)?;
+        } else if child.is_file() {
+            out.push(child);
+        }
+    }
+    Ok(())
 }
 
 /// Prefer a relative path for lock entries when `abs` is under or near `root`.
@@ -664,7 +716,7 @@ fn resolve_imports(
     toml: &AuraToml,
     root: &Path,
     std_root: Option<&Path>,
-    registry: &mut RegistryResolver,
+    registry: &mut OriginResolver,
 ) -> Result<HashMap<String, PathBuf>, String> {
     let mut loaded = HashSet::new();
     loaded.insert(pkg.package.clone());
@@ -694,7 +746,7 @@ fn visit_imports(
     loaded: &mut HashSet<String>,
     active: &mut Vec<String>,
     std_root: Option<&Path>,
-    registry: &mut RegistryResolver,
+    registry: &mut OriginResolver,
 ) -> Result<(), String> {
     let mut imports: Vec<String> = pkg.ast.imports.iter().map(|i| i.path.display()).collect();
     imports.sort();
@@ -746,7 +798,7 @@ fn visit_imports(
 
         let dep_toml = read_manifest(&dep_pkg.root)?;
         let mut effective = dep_toml.clone();
-        materialize_registry_deps_with(&mut effective, &dep_toml, registry)?;
+        materialize_origin_deps_with(&mut effective, &dep_toml, registry)?;
         let mut nested_deps: HashMap<String, PathBuf> = effective
             .dependencies
             .iter()

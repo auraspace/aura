@@ -19,7 +19,7 @@
 
 This RFC defines the **Aura package manager**: manifest format (`aura.toml`), lockfile, dependency resolver, origin/module protocol, workspaces, and publication flow. The default public package origin is a Git repository, normally hosted on GitHub. A package is published by pushing an immutable `vX.Y.Z` tag; a proxy is an optional read-through cache layered on direct VCS access. Implemented in **Rust** as part of the `aura` CLI, the package manager ensures **reproducible** dependency graphs for libraries and binaries.
 
-**Toolchain today (2026-08-06, S2 + v0.1.1-alpha follow-up):** multi-file packages with minimal `aura.toml`, path dependencies, and `aura.lock` write/verify including nested/transitive entries. Locked registry dependencies are consumed through HTTPS metadata and archive downloads with semver pinning, SHA-256 verification, cache extraction, and atomic cache publication. Root procedural macro executables are also pinned by package-relative path and SHA-256 in the lockfile. Local origin fixtures, offline update evidence, rollback, and signature fixtures exist. The public origin protocol, GitHub publication workflow, `git=`/`github=` sources, and workspaces remain deferred; a proxy is explicitly deferred until the origin contract is stable.
+**Toolchain today (2026-08-06, S2 + v0.1.1-alpha follow-up):** multi-file packages with minimal `aura.toml`, path dependencies, and `aura.lock` write/verify including nested/transitive entries. Direct Git origins now support `git=`/`github=` dependencies, normalized monorepo `subdir` selection, semver tag discovery, tag-to-commit resolution, deterministic source archives, SHA-256 verification, credential-safe fetch, cache extraction, and immutable VCS lock pins. Local and live public-origin round-trip evidence exist; root procedural macro executables are also pinned by package-relative path and SHA-256 in the lockfile. Workspaces, proxy serving, and checksum database remain outside this release; the proxy read-object boundary is reserved and versioned.
 
 ## 2. Motivation
 
@@ -36,7 +36,7 @@ Build (RFC-008), CLI (RFC-012), and distribution (RFC-013) consume the package g
 | Metric          | Target                                            |
 | --------------- | ------------------------------------------------- |
 | Reproducibility | Same lockfile → same graph on two machines        |
-| UX              | `aura add`, `aura publish` for common flows       |
+| UX              | `aura add` for common dependency flows            |
 | Offline         | Build with warm cache + lockfile without registry |
 
 ## 3. Goals
@@ -265,15 +265,13 @@ members = ["crates/*"]
 
 ### 6.8 Commands (see also RFC-012)
 
-| Command                      | Action                                        |
-| ---------------------------- | --------------------------------------------- |
-| `aura init` / `new`          | Scaffold                                      |
-| `aura add <pkg>`             | Edit manifest + resolve the module origin     |
-| `aura add github:owner/repo` | Add direct GitHub dep (resolve a semver tag)  |
-| `aura update`                | Refresh within constraints                    |
-| `aura publish`               | Validate and optionally create/push a Git tag |
-| `aura tree`                  | Show graph                                    |
-| `aura login`                 | Configure Git/GitHub credentials (optional)   |
+| Command                       | Action                                       |
+| ----------------------------- | -------------------------------------------- |
+| `aura init` / `new`           | Scaffold                                     |
+| `aura add <origin>[@version]` | Add a direct VCS origin and refresh the lock |
+| `aura update`                 | Refresh within constraints                   |
+| `aura tree`                   | Show graph                                   |
+| `aura login`                  | Configure Git/GitHub credentials (optional)  |
 
 ### 6.9 Examples
 
@@ -281,18 +279,18 @@ members = ["crates/*"]
 # Registry (GitHub index)
 aura new hello
 cd hello
-aura add stdx-json
+aura add owner/stdx-json@1.2
 aura build
 
 # Direct GitHub source
-aura add github:acme/aura-metrics --tag v0.3.1
+aura add acme/aura-metrics@0.3.1
 
-# Publish (requires GITHUB_TOKEN with repo + index rights)
-export GITHUB_TOKEN=…
-aura publish
+# Publish from the package origin repository
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
-Manifest snippet after `aura add github:acme/aura-metrics --tag v0.3.1`:
+Manifest snippet after `aura add acme/aura-metrics@0.3.1`:
 
 ```toml
 [dependencies]
@@ -360,14 +358,14 @@ checksum database address those concerns without changing the origin contract.
 
 ## 11. Implementation plan (optional)
 
-| Phase | Scope                             | Exit criteria                            | Status                                                                        |
-| ----- | --------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------- |
-| K0    | Path deps + lock                  | Multi-package build                      | **Done** (incl. nested path lock C4j)                                         |
-| K0b   | Lock schema v0 (`registry` pins)  | Parse/verify without fetch               | **Done** (C8k)                                                                |
-| K1    | Direct origin fetch + semver tags | Locked origin consumption and fixture    | **Partial** — read/verify/cache path landed; public VCS compatibility remains |
-| K1b   | Direct `github =` / `git =` deps  | Lock pins rev + checksum                 | Deferred                                                                      |
-| K2    | Origin publication (tag push)     | Round-trip public package                | Deferred                                                                      |
-| K3    | Optional proxy/cache              | Same read objects served through a cache | Explicitly deferred until K1/K2 contract is stable                            |
+| Phase | Scope                             | Exit criteria                            | Status                                                                         |
+| ----- | --------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------ |
+| K0    | Path deps + lock                  | Multi-package build                      | **Done** (incl. nested path lock C4j)                                          |
+| K0b   | Lock schema v0 (`registry` pins)  | Parse/verify without fetch               | **Done** (C8k)                                                                 |
+| K1    | Direct origin fetch + semver tags | Locked origin consumption and fixture    | **Done** — direct Git read/verify/cache path and offline round-trip            |
+| K1b   | Direct `github =` / `git =` deps  | Lock pins rev + checksum                 | **Done** — tag/rev selectors, commit pins, checksum verification               |
+| K2    | Origin publication (tag push)     | Round-trip public package                | **Resolved** — ordinary Git tag/push; live public-host rehearsal is acceptance |
+| K3    | Optional proxy/cache              | Same read objects served through a cache | **Prepared boundary** — serving remains deferred after origin stabilization    |
 
 ## 12. References
 

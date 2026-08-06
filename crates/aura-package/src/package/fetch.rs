@@ -308,57 +308,6 @@ pub fn is_package_installed(cache_root: &Path, name: &str, version: &str) -> boo
     is_installed(&package_src_dir(cache_root, name, version))
 }
 
-/// Ensure `meta` is installed under the cache. Uses a warm cache when present;
-/// otherwise fetches from `source` (required if not installed).
-///
-/// Returns the extracted package directory path.
-pub fn ensure_installed(
-    meta: &VersionMeta,
-    source: Option<&str>,
-    cache_root: Option<&Path>,
-) -> Result<PathBuf, String> {
-    let root = cache_root
-        .map(Path::to_path_buf)
-        .unwrap_or_else(cache_root_from_env);
-    let dest = package_src_dir(&root, &meta.name, &meta.vers);
-    if is_installed(&dest) {
-        return Ok(dest);
-    }
-    let source = source.ok_or_else(|| {
-        format!(
-            "error: package `{}-{}` is not in the registry cache (`{}`) and no download source is available\n  \
-             hint: set `AURA_REGISTRY_CACHE`, pre-fetch the crate, or provide a local `.crate` under the index `crates/` dir",
-            meta.name,
-            meta.vers,
-            dest.display()
-        )
-    })?;
-    fetch_and_install(meta, source, Some(&root))
-}
-
-/// Fetch crate from `source`, verify `meta.cksum`, extract into cache.
-///
-/// `cache_root`: explicit root, or [`cache_root_from_env`] when `None`.
-/// Returns the extracted package directory path.
-///
-/// If the destination already looks installed (contains `aura.toml` or any file),
-/// returns it without re-fetching.
-pub fn fetch_and_install(
-    meta: &VersionMeta,
-    source: &str,
-    cache_root: Option<&Path>,
-) -> Result<PathBuf, String> {
-    let root = cache_root
-        .map(Path::to_path_buf)
-        .unwrap_or_else(cache_root_from_env);
-    let dest = package_src_dir(&root, &meta.name, &meta.vers);
-    if is_installed(&dest) {
-        return Ok(dest);
-    }
-    let bytes = read_crate_bytes(source)?;
-    install_from_bytes(meta, &bytes, Some(&root))
-}
-
 /// Verify checksum and extract `bytes` (`.crate` / `.tar.gz`) into the cache.
 pub fn install_from_bytes(
     meta: &VersionMeta,

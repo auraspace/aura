@@ -30,7 +30,7 @@ try:
 except (OSError, json.JSONDecodeError) as exc:
     raise SystemExit(f"invalid registry acceptance report: {exc}") from exc
 
-if record.get("schema_version") != 3:
+if record.get("schema_version") != 4:
     raise SystemExit("unsupported registry acceptance report schema")
 if record.get("network") is not False or record.get("production_claim") is not False:
     raise SystemExit("offline fixture report must not claim production network acceptance")
@@ -45,6 +45,21 @@ if record.get("cross_host") != "artifact-file-acceptance":
 host = record.get("host")
 if not isinstance(host, str) or "-" not in host or not all(host.split("-", 1)):
     raise SystemExit("registry acceptance host evidence is incomplete")
+
+origin_read = record.get("origin_read")
+if not isinstance(origin_read, dict) or origin_read.get("transport") != "direct-git":
+    raise SystemExit("direct Git origin evidence is incomplete")
+for field in ("tag_to_commit", "archive_checksum", "warm_cache_offline"):
+    if origin_read.get(field) is not True:
+        raise SystemExit(f"direct Git origin acceptance field is not proven: {field}")
+
+proxy = record.get("proxy")
+if not isinstance(proxy, dict) or proxy.get("status") != "prepared-not-served":
+    raise SystemExit("proxy preparation boundary is incomplete")
+if proxy.get("protocol") != "aura-origin-v1":
+    raise SystemExit("proxy protocol boundary is incomplete")
+if proxy.get("objects") != ["@v/list", "@v/{version}.info", "@v/{version}.mod", "@v/{version}.zip"]:
+    raise SystemExit("proxy read object shapes are incomplete")
 
 publish = record.get("publish")
 if not isinstance(publish, dict):

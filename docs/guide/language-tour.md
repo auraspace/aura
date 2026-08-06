@@ -94,10 +94,11 @@ These topics match **in-tree** behavior (corpus + CLI), not only Accepted RFCs:
 - Macros / plugins ([RFC-010](/rfc/010))
 - Reflection ([RFC-009](/rfc/009))
 - LLVM backend as default ([RFC-004](/rfc/004) — C backend is what runs now)
-- Verified locked origin consumption: HTTPS metadata/archive fetch, semver pinning,
-  SHA-256 verification, cache extraction, and offline warm-cache builds; the
-  Go-module-inspired origin publication workflow, `git=`/`github=` sources, and
-  workspaces remain deferred. A proxy is intentionally later work.
+- Verified locked origin consumption: HTTPS metadata/archive fetch, direct Git
+  tag/revision resolution, semver pinning, SHA-256 verification, cache
+  extraction, and offline warm-cache builds. The Go-module-inspired origin
+  publication workflow and `git=`/`github=` sources are supported; workspaces
+  and proxy serving are intentionally later work.
 - Live collection iterators are invalidation-checked by collection epoch;
   snapshot iterators remain available when mutation-safe copies are preferred
 

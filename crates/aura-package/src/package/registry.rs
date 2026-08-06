@@ -20,6 +20,8 @@ use std::path::{Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
+#[cfg(test)]
+use super::archive::{archive_sha256, build_source_archive};
 use super::fetch::read_crate_bytes;
 use super::fetch::{read_crate_bytes_bounded, verify_sha256, MAX_ARTIFACT_BYTES};
 use super::semver::parse_version;
@@ -1714,9 +1716,24 @@ mod unit {
         .unwrap();
 
         // U5 fixture: materialize the deterministic archive at the origin.
-        let preview = crate::package::publish_dry_run(&package).unwrap();
+        let archive = build_source_archive(
+            "release.fixture",
+            "1.0.0",
+            &[
+                (
+                    "aura.toml".into(),
+                    fs::read(package.join("aura.toml")).unwrap(),
+                ),
+                (
+                    "src/main.aura".into(),
+                    fs::read(package.join("src/main.aura")).unwrap(),
+                ),
+            ],
+        )
+        .unwrap();
+        let checksum = archive_sha256(&archive);
         let published_path = index.join("crates/release.fixture-1.0.0.crate");
-        fs::write(&published_path, &preview.archive).unwrap();
+        fs::write(&published_path, &archive).unwrap();
 
         // U3/U5: install the exact bytes published at the origin and verify
         // the archive checksum before extracting it into the isolated cache.
@@ -1724,7 +1741,7 @@ mod unit {
         let published_meta = VersionMeta {
             name: "release.fixture".into(),
             vers: "1.0.0".into(),
-            cksum: preview.checksum.clone(),
+            cksum: checksum.clone(),
             yanked: false,
             repository: None,
             targets: Some(vec![target.into()]),
@@ -1733,7 +1750,7 @@ mod unit {
             revoked: false,
             revoke_reason: None,
         };
-        assert_eq!(sha256_hex(&published), preview.checksum);
+        assert_eq!(sha256_hex(&published), checksum);
         let installed = install_from_bytes(&published_meta, &published, Some(&cache)).unwrap();
         assert!(installed.join("aura.toml").is_file());
         assert!(installed.join("src/main.aura").is_file());

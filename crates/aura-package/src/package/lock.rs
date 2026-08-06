@@ -1,6 +1,6 @@
 //! Minimal `aura.lock` for path dependencies (C3p) + registry schema v0 (C8k/C13l).
 
-use super::semver::{parse_req, parse_version, RegistryLockPin};
+use super::semver::{parse_req, parse_version, OriginLockPin};
 use super::toml::DepSpec;
 use std::collections::BTreeMap;
 use std::fs;
@@ -13,19 +13,17 @@ pub(crate) struct LockEntry {
     pub(crate) path: Option<String>,
     /// Semver pin (path docs or registry).
     pub(crate) version: Option<String>,
-    /// `path` | `registry` (default path when only path string).
+    /// `path` or `git+...` (default path when only path string).
     pub(crate) source: Option<String>,
-    /// sha256 for registry crates.
+    /// sha256 for downloaded origins.
     pub(crate) checksum: Option<String>,
+    /// Immutable Git commit SHA for VCS origins.
+    pub(crate) rev: Option<String>,
 }
 
 impl LockEntry {
     pub(crate) fn path_str(&self) -> Option<&str> {
         self.path.as_deref()
-    }
-
-    pub(crate) fn is_registry(&self) -> bool {
-        self.source.as_deref() == Some("registry")
     }
 }
 
@@ -55,7 +53,7 @@ pub(crate) enum LockWriteEntry {
         /// Transitive path deps get a comment marker.
         transitive: bool,
     },
-    Registry(RegistryLockPin),
+    Origin(OriginLockPin),
     MacroPlugin {
         path: String,
         checksum: String,
@@ -128,6 +126,7 @@ fn parse_lock_value(v: &str) -> Result<LockEntry, String> {
         version: None,
         source: Some("path".into()),
         checksum: None,
+        rev: None,
     })
 }
 
@@ -160,6 +159,7 @@ fn parse_inline_table(v: &str) -> Result<LockEntry, String> {
             "version" => entry.version = Some(val),
             "source" => entry.source = Some(val),
             "checksum" => entry.checksum = Some(val),
+            "rev" => entry.rev = Some(val),
             other => {
                 return Err(format!(
                     "unknown lock field `{other}` (expected path, version, source, checksum)"
@@ -167,23 +167,30 @@ fn parse_inline_table(v: &str) -> Result<LockEntry, String> {
             }
         }
     }
-    // Registry entries need version+checksum; plugin entries need path+checksum;
-    // path entries need path.
+    // Git entries need immutable version/checksum/revision; plugin entries need
+    // path/checksum; path entries need path.
     let source = entry.source.as_deref().unwrap_or("path");
-    if source == "registry" {
-        if entry.version.is_none() {
-            return Err("registry lock entry requires version".into());
-        }
-        if entry.checksum.is_none() {
-            return Err("registry lock entry requires checksum".into());
-        }
-    } else if source == "plugin" {
+    if source == "plugin" {
         if entry.path.is_none() {
             return Err("macro plugin lock entry requires path".into());
         }
         if entry.checksum.is_none() {
             return Err("macro plugin lock entry requires checksum".into());
         }
+    } else if source.starts_with("git+") {
+        if entry.version.is_none() || entry.checksum.is_none() || entry.rev.is_none() {
+            return Err("Git lock entry requires version, checksum, and rev".into());
+        }
+        let rev = entry.rev.as_deref().unwrap_or_default();
+        if rev.len() != 40 || !rev.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err("Git lock entry rev must be a 40-character commit SHA".into());
+        }
+    } else if source == "path" {
+        if entry.path.is_none() {
+            return Err("path lock entry requires path".into());
+        }
+    } else if source == "registry" {
+        return Err("legacy registry lock entries are unsupported; use a Git origin".into());
     } else if entry.path.is_none() {
         return Err("path lock entry requires path".into());
     }
@@ -206,7 +213,6 @@ fn parse_quoted(v: &str) -> Result<String, String> {
 /// Ensure direct `aura.toml` deps match an existing lockfile (if any).
 /// C4j: lock may list extra transitive packages; those are not required in toml.
 /// C8b: every locked path (direct + transitive) must resolve under the package root.
-/// C13l: registry entries require version+checksum; pinned version must satisfy the req.
 pub(crate) fn verify_lock_against_toml(
     root: &Path,
     toml_deps: &std::collections::HashMap<String, DepSpec>,
@@ -224,7 +230,11 @@ pub(crate) fn verify_lock_against_toml(
             }
             Some(entry) => match dep {
                 DepSpec::Path(path) => {
-                    if entry.is_registry() {
+                    if entry
+                        .source
+                        .as_deref()
+                        .is_some_and(|source| source != "path")
+                    {
                         return Err(format!(
                             "error: aura.lock has registry pin for `{name}`, but aura.toml declares a path dependency\n  \
                              hint: update aura.toml or delete aura.lock and re-run"
@@ -238,38 +248,70 @@ pub(crate) fn verify_lock_against_toml(
                         ));
                     }
                 }
-                DepSpec::Version(req) => {
-                    if !entry.is_registry() {
+                DepSpec::Git {
+                    source,
+                    subdir,
+                    version,
+                    tag,
+                    rev,
+                } => {
+                    let source_identity = subdir
+                        .as_deref()
+                        .map(|path| format!("{source}#subdir={path}"))
+                        .unwrap_or_else(|| source.clone());
+                    let expected_source =
+                        format!("git+{}", super::origin::canonical_source(&source_identity)?);
+                    if entry.source.as_deref() != Some(expected_source.as_str()) {
                         return Err(format!(
-                            "error: aura.lock has path entry for `{name}`, but aura.toml declares a registry version\n  \
-                             hint: update aura.toml or delete aura.lock and re-run"
+                            "error: aura.lock source for `{name}` does not match Git origin `{source}`"
                         ));
                     }
-                    let Some(ver) = entry.version.as_deref() else {
+                    let Some(locked_rev) = entry.rev.as_deref() else {
                         return Err(format!(
-                            "error: aura.lock registry pin for `{name}` missing version"
+                            "error: aura.lock Git dependency `{name}` is missing rev"
                         ));
                     };
-                    let requirement = parse_req(req).map_err(|e| {
-                        format!("error: package `{name}`: invalid version requirement `{req}`: {e}")
-                    })?;
-                    let pinned = parse_version(ver).map_err(|e| {
-                        format!("error: aura.lock package `{name}`: invalid version `{ver}`: {e}")
-                    })?;
-                    if !requirement.matches(&pinned) {
-                        return Err(format!(
-                            "error: aura.lock pins `{name}` at `{ver}`, which does not satisfy aura.toml requirement `{req}`\n  \
-                             hint: delete aura.lock and re-run to re-resolve"
-                        ));
+                    if let Some(expected_rev) = rev {
+                        if locked_rev != expected_rev {
+                            return Err(format!(
+                                "error: aura.lock rev for `{name}` is `{locked_rev}`, but aura.toml pins `{expected_rev}`"
+                            ));
+                        }
+                    }
+                    if let Some(requirement) = version {
+                        let requirement = parse_req(requirement).map_err(|e| {
+                            format!("error: package `{name}`: invalid version requirement `{requirement}`: {e}")
+                        })?;
+                        let locked_version = entry.version.as_deref().ok_or_else(|| {
+                            format!("error: aura.lock Git dependency `{name}` is missing version")
+                        })?;
+                        let pinned = parse_version(locked_version).map_err(|e| {
+                            format!("error: aura.lock package `{name}`: invalid version `{locked_version}`: {e}")
+                        })?;
+                        if !requirement.matches(&pinned) {
+                            return Err(format!(
+                                "error: aura.lock version for `{name}` is `{locked_version}`, which does not satisfy `{}`",
+                                requirement.raw
+                            ));
+                        }
+                    }
+                    if let Some(expected_tag) = tag {
+                        let expected_version =
+                            expected_tag.strip_prefix('v').unwrap_or(expected_tag);
+                        if entry.version.as_deref() != Some(expected_version) {
+                            return Err(format!(
+                                "error: aura.lock version for `{name}` does not match tag `{expected_tag}`"
+                            ));
+                        }
                     }
                 }
             },
         }
     }
-    // C8b/C13l: path entries must exist on disk; registry pins are satisfied later via cache.
+    // Path entries must exist on disk; Git pins are satisfied by origin resolution.
     for (name, entry) in &lock.packages {
         let source = entry.source.as_deref().unwrap_or("path");
-        if source == "registry" {
+        if source.starts_with("git+") {
             continue;
         }
         let Some(rel) = entry.path_str() else {
@@ -323,19 +365,22 @@ pub(crate) fn write_lock_with_direct(
     write_lock_entries(root, &entries)
 }
 
-/// Write mixed path + registry lock entries (C13l). Sorted by package name.
+/// Write path + immutable origin lock entries. Sorted by package name.
 pub(crate) fn write_lock_entries(
     root: &Path,
     entries: &BTreeMap<String, LockWriteEntry>,
 ) -> Result<(), String> {
+    let path = lock_path(root);
     if entries.is_empty() {
+        if path.is_file() {
+            fs::remove_file(&path).map_err(|e| format!("error: remove {}: {e}", path.display()))?;
+        }
         return Ok(());
     }
-    let path = lock_path(root);
     let mut body = String::from(
-        "# aura.lock — path dependencies (C3p/C4j); registry pins (C8k/C13l)\n\
+        "# aura.lock — path dependencies and immutable Git pins\n\
          # Direct deps match aura.toml; extra path entries are transitive.\n\
-         # Registry pins: name = { version = \"…\", checksum = \"…\", source = \"registry\" }\n\
+         # Git pins: name = { version = \"…\", checksum = \"…\", source = \"git+…\", rev = \"…\" }\n\
          # Macro pins: macro_plugin.Name = { path = \"…\", checksum = \"…\", source = \"plugin\" }\n",
     );
     for (name, entry) in entries {
@@ -350,7 +395,7 @@ pub(crate) fn write_lock_entries(
                     body.push_str(&format!("{name} = \"{p}\"\n"));
                 }
             }
-            LockWriteEntry::Registry(pin) => {
+            LockWriteEntry::Origin(pin) => {
                 body.push_str(&pin.format_lock_line(name));
                 body.push('\n');
             }

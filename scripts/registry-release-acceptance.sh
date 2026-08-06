@@ -24,6 +24,8 @@ run() {
 
 run "registry package fixture acceptance" \
   env AURA_U8_REPORT="$u8_report" cargo test -p aura-package u8_local_origin_release_acceptance_installs_updates_rolls_back_and_runs -- --nocapture
+run "direct Git origin round-trip acceptance" \
+  cargo test -p aura-package direct_git_origin_round_trip_writes_immutable_lock -- --nocapture
 [[ -s "$u8_report" ]] || { printf 'registry acceptance: U8 test produced no evidence report\n' >&2; exit 1; }
 run "origin archive and update verification regressions" \
   cargo test -p aura-package u8_ -- --nocapture
@@ -49,7 +51,7 @@ grep -Eq 'verify_package_signatures' crates/aura-package/src/package/registry.rs
 
 host="$(uname -s)-$(uname -m)"
 cat >"$report" <<EOF
-{"schema_version":3,"network":false,"production_claim":false,"production_credentials":"not-configured","registry_fixture":"u8_local_origin_release_acceptance","protocol":"rfc005-go-style-origin-v1","publish":{"origin":"verified-local-fixture","archive":"materialized-at-origin","identity":"package/version/checksum"},"update":{"checksum":"verified-local-fixture","rollback":"verified-local-fixture","signature":"verified-aura-sig-v1"},"crypto":{"format":"aura-sig-v1","trusted_key_verification":true,"tamper_rejection":true,"replay_rejection":true,"fail_closed":true},"cross_host":"artifact-file-acceptance","host":"$host","outcome":"pass"}
+{"schema_version":4,"network":false,"production_claim":false,"production_credentials":"not-configured","registry_fixture":"u8_local_origin_release_acceptance","protocol":"rfc005-go-style-origin-v1","origin_read":{"transport":"direct-git","tag_to_commit":true,"archive_checksum":true,"warm_cache_offline":true},"proxy":{"status":"prepared-not-served","protocol":"aura-origin-v1","objects":["@v/list","@v/{version}.info","@v/{version}.mod","@v/{version}.zip"]},"publish":{"origin":"verified-local-fixture","archive":"materialized-at-origin","identity":"package/version/checksum"},"update":{"checksum":"verified-local-fixture","rollback":"verified-local-fixture","signature":"verified-aura-sig-v1"},"crypto":{"format":"aura-sig-v1","trusted_key_verification":true,"tamper_rejection":true,"replay_rejection":true,"fail_closed":true},"cross_host":"artifact-file-acceptance","host":"$host","outcome":"pass"}
 EOF
 bash scripts/validate-registry-acceptance.sh --report "$report"
 printf 'registry/release acceptance: PASS (%s)\n' "$report"

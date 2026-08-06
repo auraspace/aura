@@ -81,8 +81,8 @@ private reads use configured GitHub credentials. Every downloaded archive is
 verified against its declared SHA-256 before extraction or cache publication,
 and transient transport failures retry with bounded backoff. Authentication,
 transport, checksum, origin, and manifest failures have distinct stable error
-classes. `aura publish --dry-run` performs all manifest, version, contents, and
-dependency checks without network mutation. The target real publication flow
+classes. Local fixtures validate manifest, version, contents, and dependency
+identity without network mutation. The target real publication flow
 creates and pushes an immutable origin tag; GitHub Release assets are optional
 and no index or registry upload endpoint is required. A proxy/checksum database
 is not part of the alpha contract.
@@ -114,7 +114,8 @@ behavior during implementation.
 
 - [x] Specify commands, flags, exit codes, structured output, and error classes.
 - [x] Specify origin authentication, download, checksum, and retry behavior.
-- [ ] Specify origin tag publication and optional proxy/checksum contracts.
+- [x] Specify origin tag publication and versioned optional proxy/checksum
+      boundaries; serving those optional services is outside the alpha contract.
 - [x] Specify self-update failure and rollback behavior.
 - [x] Specify supported FFI types, ownership, callbacks, and ABI errors.
 - [x] Specify HTTP server commands/examples and explicit non-goals.

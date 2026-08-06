@@ -143,7 +143,8 @@ run IDs for the following:
 
 - Windows amd64 and Windows arm64: native package, installer,
   `aura version`, and `aura new && aura run` results on the declared runner.
-- Registry: authenticated origin publication and signed index metadata
+- Registry: direct Git-origin consumption with immutable lock pins; proxy serving
+  and checksum-database/index services are not part of this release contract
   verification, install/update checksum verification, and a rollback against
   the live endpoint using non-test credentials.
 - Release signing: a tag-triggered GitHub Actions run with the configured

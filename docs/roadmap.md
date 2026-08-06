@@ -10,15 +10,15 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 
 ## Status snapshot
 
-| Track                       | Status                                                                                                                         |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                                                                  |
-| RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                                                            |
-| Language MVP                | RFC-001 §6.0 + post-C1; C22 syntax/barriers plus bounded await, spawn, channel, and outcome slices are covered                 |
-| Compiler                    | **C0–C21j closed; C22a–s landed**; await state machines and non-empty spawn captures remain deferred                           |
-| Runtime / packages / stdlib | GC + deterministic executor/channels; typed I/O/FFI slices and bounded HTTP/1.1 server landed; extended protocols remain gated |
-| Distribution contract       | **S2 complete:** Linux amd64, macOS arm64, macOS amd64; Windows amd64 deferred                                                 |
-| Release metadata            | **0.1.1-alpha.5 prepared**; tier-2/native evidence and live origin publication remain follow-up work; proxy is deferred        |
+| Track                       | Status                                                                                                                                                                                                                  |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.fadosoft.com**                                                                                                                                                           |
+| RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                                                                                                                                                     |
+| Language MVP                | RFC-001 §6.0 + post-C1; C22 syntax/barriers plus bounded await, spawn, channel, and outcome slices are covered                                                                                                          |
+| Compiler                    | **C0–C21j closed; C22a–s landed**; await state machines and non-empty spawn captures remain deferred                                                                                                                    |
+| Runtime / packages / stdlib | GC + deterministic executor/channels; typed I/O/FFI slices and bounded HTTP/1.1 server landed; extended protocols remain gated                                                                                          |
+| Distribution contract       | **S2 complete:** Linux amd64, macOS arm64, macOS amd64; Windows amd64 deferred                                                                                                                                          |
+| Release metadata            | **0.1.1-alpha.5 prepared**; direct Git-origin package consumption and immutable lock pins are implemented; tier-2/native evidence remains a release-host gate; proxy serving is prepared but intentionally out of scope |
 
 ## Phases
 
@@ -280,13 +280,13 @@ Plans:
 
 **Out of scope C12:** async/tasks, registry HTTP/semver, LLVM, true borrow, Array-of-iface, generic `HashMap<K,V>`, Fun-in-env capture, signed installers.
 
-**Out of scope C13:** async/tasks, LLVM, true borrow, Array-of-iface, full generic HashMap, K1b `github=` / K2 publish, notarized installers (design note optional via C13s). C14 shipped the generic HashMap follow-up.
+**Out of scope C13:** async/tasks, LLVM, true borrow, Array-of-iface, full generic HashMap, workspaces, proxy serving, checksum database, notarized installers (design note optional via C13s). C14 shipped the generic HashMap follow-up.
 
 ### P3 — Expand (after hello)
 
 1. ~~Language surface through C21~~ (funs/lambdas, mutable captures, scoped `ref T`, borrow-safe field returns, Array-of-interface support) → C22 surface/borrow rules and bounded await lowering landed; general lowering and richer captures remain later work
 2. Runtime: ~~GC + process I/O + String Array free + Fun env RC~~ → C22 deterministic executor/channels, task storage scans, typed causes, and bounded FFI pin retention landed; POSIX OS-thread scheduling, poll reactor, and executor-safe GC landed; arbitrary async lowering, concurrent tracing GC, non-POSIX backends, and richer frame ownership remain later work
-3. Toolchain: ~~path deps + registry K1 offline~~ → ~~**S2:** verified HTTPS + nested locked registry deps and published `0.1.1-alpha`~~ → origin publication/update and tier-2/native evidence remain open; proxy follows contract stabilization
+3. Toolchain: ~~path deps + registry K1 offline~~ → ~~**S2:** verified HTTPS + nested locked registry deps and published `0.1.1-alpha`~~ → direct Git-origin consumption and lock identity are implemented; public-host rehearsal and tier-2/native evidence remain open; proxy follows contract stabilization
 4. Stdlib: ~~io + collections + C13 toString/case/eprint/tryWrite + C14 generic HashMap + C15 generic HashSet + C18 hash-collection HOFs + C19 accessors/entry snapshots/entry for-in + C20 snapshot/live iterators and entry mutation + C21i Result I/O~~
 5. Cross targets + signed releases — ~~**S2 contract:** Linux amd64, macOS arm64/amd64~~; minisign-signed release manifests are shipped; Windows amd64 and OS notarization remain deferred
 

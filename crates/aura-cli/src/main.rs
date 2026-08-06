@@ -13,8 +13,8 @@ use aura_diagnostics::{
 use aura_lsp::run_stdio_with_std_root;
 use aura_package as package;
 use package::{
-    activate_update, current_target, load_package, load_package_default, publish_dry_run,
-    LoadedPackage, RegistryIndex, UpdateDecision,
+    activate_update, add_dependency, current_target, load_package, load_package_default,
+    remove_dependency, LoadedPackage, RegistryIndex, UpdateDecision,
 };
 use std::env;
 use std::fs;
@@ -39,8 +39,9 @@ fn main() -> ExitCode {
         "test" => cmd_test(&args),
         "bench" => cmd_bench(&args),
         "race" => cmd_race(&args),
-        "publish" => cmd_publish(&args),
         "update" => cmd_update(&args),
+        "add" => cmd_add(&args),
+        "remove" => cmd_remove(&args),
         "fmt" => cmd_fmt(&args),
         "emit-c" => cmd_emit_c(&args),
         "language-server" | "lsp" => cmd_language_server(&args),
@@ -74,9 +75,9 @@ fn eprint_usage() {
            aura test [path] [--test-name <pattern>] [--format json] [-- args...]\n  \
            aura bench [path] [--test-name <pattern>] [-- args...]\n  \
            aura race [path] [--format json] [-- args...]\n  \
-           aura publish --dry-run [path]    Validate and preview origin publication\n  \
-           aura publish [path]              Origin publication (not yet available)\n  \
            aura update ... --activate           Verify and atomically activate update\n  \
+           aura add <origin>[@version] [options] Add dependency and refresh lock\n  \
+           aura remove <name|origin> [options] Remove dependency and refresh lock\n  \
            aura fmt [--check] <path>          Format/check `.aura` files, project, or folder\n  \
            aura emit-c [path]                Print generated C (debug)\n  \
            aura language-server              Run the stdio LSP server (alias: lsp)\n  \
@@ -86,6 +87,336 @@ fn eprint_usage() {
          With no path, commands look for `./aura.toml`.\n\n\
          See docs/roadmap.md and RFC-001 §6.0 / RFC-005 / RFC-008 / RFC-012."
     );
+}
+
+fn cmd_add(args: &[String]) -> ExitCode {
+    let parsed = match AddOptions::parse(args) {
+        Ok(options) => options,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::from(2);
+        }
+    };
+    let value = match parsed.dependency_value() {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::from(2);
+        }
+    };
+    let name = match parsed.dependency_name() {
+        Ok(name) => name,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::from(2);
+        }
+    };
+    let manifest = parsed
+        .manifest
+        .unwrap_or_else(|| PathBuf::from("aura.toml"));
+    let original = match fs::read(&manifest) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            eprintln!("error: read {}: {error}", manifest.display());
+            return ExitCode::from(1);
+        }
+    };
+    let lock = manifest.with_file_name("aura.lock");
+    let original_lock = fs::read(&lock).ok();
+    if let Err(error) = add_dependency(&manifest, &name, &value) {
+        eprintln!("{error}");
+        return ExitCode::from(1);
+    }
+    match load_package(&manifest) {
+        Ok(_) => {
+            println!("added dependency `{name}`");
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            restore_file(&manifest, &original);
+            restore_optional_file(&lock, original_lock.as_deref());
+            eprintln!("{error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn cmd_remove(args: &[String]) -> ExitCode {
+    let (manifest, name) = match parse_remove_args(args) {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::from(2);
+        }
+    };
+    let original = match fs::read(&manifest) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            eprintln!("error: read {}: {error}", manifest.display());
+            return ExitCode::from(1);
+        }
+    };
+    let lock = manifest.with_file_name("aura.lock");
+    let original_lock = fs::read(&lock).ok();
+    if let Err(error) = remove_dependency(&manifest, &name) {
+        eprintln!("{error}");
+        return ExitCode::from(1);
+    }
+    match load_package(&manifest) {
+        Ok(_) => {
+            println!("removed dependency `{name}`");
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            restore_file(&manifest, &original);
+            restore_optional_file(&lock, original_lock.as_deref());
+            eprintln!("{error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn restore_file(path: &Path, contents: &[u8]) {
+    let _ = fs::write(path, contents);
+}
+
+fn restore_optional_file(path: &Path, contents: Option<&[u8]>) {
+    match contents {
+        Some(contents) => restore_file(path, contents),
+        None => {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+#[derive(Debug)]
+struct AddOptions {
+    origin: String,
+    version: Option<String>,
+    subdir: Option<String>,
+    manifest: Option<PathBuf>,
+}
+
+impl AddOptions {
+    fn parse(args: &[String]) -> Result<Self, String> {
+        let mut options = Self {
+            origin: String::new(),
+            version: None,
+            subdir: None,
+            manifest: None,
+        };
+        let mut i = 0;
+        while i < args.len() {
+            match args[i].as_str() {
+                "--subdir" | "--manifest" => {
+                    let flag = args[i].clone();
+                    i += 1;
+                    let value = args
+                        .get(i)
+                        .ok_or_else(|| format!("error: {flag} requires a value"))?
+                        .clone();
+                    match flag.as_str() {
+                        "--subdir" => options.subdir = Some(value),
+                        "--manifest" => options.manifest = Some(PathBuf::from(value)),
+                        _ => unreachable!(),
+                    }
+                }
+                value if value.starts_with('-') => {
+                    return Err(format!("error: unknown add option `{value}`"));
+                }
+                value => {
+                    if !options.origin.is_empty() {
+                        return Err("error: usage: aura add <origin>[@version] [options]".into());
+                    }
+                    options.origin = value.to_string();
+                }
+            }
+            i += 1;
+        }
+        if options.origin.is_empty() {
+            return Err("error: aura add requires a Git origin".into());
+        }
+        let spec = options.origin.clone();
+        let (origin, version) = split_origin_version(&spec);
+        options.origin = normalize_origin(origin)?;
+        if let Some(version) = version {
+            validate_version_selector(version)?;
+            options.version = Some(version.trim_start_matches('v').to_string());
+        }
+        Ok(options)
+    }
+
+    fn dependency_name(&self) -> Result<String, String> {
+        dependency_name_from_origin(&self.origin, self.subdir.as_deref())
+    }
+
+    fn dependency_value(&self) -> Result<String, String> {
+        if let Some(subdir) = &self.subdir {
+            if subdir.is_empty()
+                || subdir.starts_with('/')
+                || subdir
+                    .split('/')
+                    .any(|part| part.is_empty() || part == "." || part == "..")
+            {
+                return Err("error: --subdir must be a normalized relative path".into());
+            }
+        }
+        let mut fields = vec![format!("git = {}", quote_toml(&self.origin))];
+        if let Some(subdir) = &self.subdir {
+            fields.push(format!("subdir = {}", quote_toml(subdir)));
+        }
+        if let Some(version) = &self.version {
+            fields.push(format!("tag = {}", quote_toml(&format!("v{version}"))));
+        }
+        Ok(format!("{{ {} }}", fields.join(", ")))
+    }
+}
+
+fn parse_remove_args(args: &[String]) -> Result<(PathBuf, String), String> {
+    let mut manifest = None;
+    let mut subdir = None;
+    let mut name = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--manifest" | "--subdir" => {
+                i += 1;
+                let value = args
+                    .get(i)
+                    .ok_or_else(|| format!("error: {} requires a value", args[i - 1]))?;
+                if args[i - 1] == "--manifest" {
+                    manifest = Some(PathBuf::from(value));
+                } else {
+                    subdir = Some(value.to_string());
+                }
+            }
+            value if value.starts_with('-') => {
+                return Err(format!("error: unknown remove option `{value}`"))
+            }
+            value if name.is_none() => name = Some(value.to_string()),
+            _ => {
+                return Err(
+                    "error: usage: aura remove <name|origin> [--subdir <path>] [--manifest <path>]"
+                        .into(),
+                )
+            }
+        }
+        i += 1;
+    }
+    let spec =
+        name.ok_or_else(|| "error: aura remove requires a dependency name or origin".to_string())?;
+    let dependency = if spec.contains('/')
+        || spec.starts_with("http")
+        || spec.starts_with("ssh://")
+        || spec.starts_with("git@")
+        || spec.starts_with("github:")
+    {
+        let (origin, _) = split_origin_version(&spec);
+        let normalized = normalize_origin(origin)?;
+        dependency_name_from_origin(&normalized, subdir.as_deref())?
+    } else {
+        spec
+    };
+    validate_dependency_name(&dependency)?;
+    Ok((
+        manifest.unwrap_or_else(|| PathBuf::from("aura.toml")),
+        dependency,
+    ))
+}
+
+fn split_origin_version(spec: &str) -> (&str, Option<&str>) {
+    let Some((origin, suffix)) = spec.rsplit_once('@') else {
+        return (spec, None);
+    };
+    let version_like = suffix
+        .strip_prefix('v')
+        .unwrap_or(suffix)
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_digit());
+    if version_like && !origin.is_empty() {
+        (origin, Some(suffix))
+    } else {
+        (spec, None)
+    }
+}
+
+fn normalize_origin(origin: &str) -> Result<String, String> {
+    let origin = origin.trim();
+    if let Some(repo) = origin.strip_prefix("github:") {
+        return normalize_github_repo(repo);
+    }
+    if origin.starts_with("https://")
+        || origin.starts_with("ssh://")
+        || origin.starts_with("git@")
+        || origin.starts_with("file://")
+        || Path::new(origin).is_absolute()
+    {
+        return Ok(origin
+            .trim_end_matches('/')
+            .trim_end_matches(".git")
+            .to_string());
+    }
+    if origin.matches('/').count() == 1 && !origin.contains(':') {
+        return normalize_github_repo(origin);
+    }
+    Err(format!(
+        "error: unsupported origin `{origin}`; use a full Git URL, github:owner/repo, or owner/repo"
+    ))
+}
+
+fn normalize_github_repo(repo: &str) -> Result<String, String> {
+    let repo = repo.trim().trim_end_matches('/').trim_end_matches(".git");
+    let mut parts = repo.split('/');
+    if parts.next().is_none()
+        || parts.next().is_none()
+        || parts.next().is_some()
+        || repo.contains("..")
+    {
+        return Err(format!(
+            "error: invalid GitHub repository `{repo}`; expected owner/repo"
+        ));
+    }
+    Ok(format!("https://github.com/{repo}"))
+}
+
+fn dependency_name_from_origin(origin: &str, subdir: Option<&str>) -> Result<String, String> {
+    let source = subdir
+        .and_then(|path| path.rsplit('/').next())
+        .filter(|name| !name.is_empty())
+        .or_else(|| origin.rsplit('/').next())
+        .unwrap_or(origin)
+        .trim_end_matches(".git");
+    let name = source.rsplit(':').next().unwrap_or(source);
+    validate_dependency_name(name)?;
+    Ok(name.to_string())
+}
+
+fn validate_version_selector(version: &str) -> Result<(), String> {
+    if version.is_empty()
+        || version
+            .chars()
+            .any(|ch| ch.is_whitespace() || ch == '"' || ch == '@')
+        || !version.chars().any(|ch| ch.is_ascii_digit())
+    {
+        return Err(format!("error: invalid version `{version}`"));
+    }
+    Ok(())
+}
+
+fn validate_dependency_name(name: &str) -> Result<(), String> {
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+    {
+        return Err(format!("error: invalid dependency name `{name}`"));
+    }
+    Ok(())
+}
+
+fn quote_toml(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 fn cmd_language_server(args: &[String]) -> ExitCode {
@@ -238,42 +569,6 @@ fn cmd_update(args: &[String]) -> ExitCode {
         UpdateDecision::Revoked { .. } => ExitCode::from(3),
         _ => ExitCode::SUCCESS,
     }
-}
-
-fn cmd_publish(args: &[String]) -> ExitCode {
-    let mut dry_run = false;
-    let mut path = None;
-    let mut i = 0;
-    while i < args.len() {
-        let arg = &args[i];
-        if arg == "--dry-run" {
-            dry_run = true;
-        } else if arg.starts_with('-') {
-            eprintln!("error: unknown publish option `{arg}`");
-            return ExitCode::from(2);
-        } else if path.replace(PathBuf::from(arg)).is_some() {
-            eprintln!("error: unexpected extra package argument `{arg}`");
-            return ExitCode::from(2);
-        }
-        i += 1;
-    }
-    let path = path.unwrap_or_else(|| PathBuf::from("aura.toml"));
-    if dry_run {
-        return match publish_dry_run(path) {
-            Ok(preview) => {
-                println!("{}", preview.render());
-                ExitCode::SUCCESS
-            }
-            Err(error) => {
-                eprintln!("{error}");
-                ExitCode::from(1)
-            }
-        };
-    }
-    eprintln!(
-        "error: origin publication is not implemented; use `aura publish --dry-run` to validate the release"
-    );
-    ExitCode::from(2)
 }
 
 fn cmd_fmt(args: &[String]) -> ExitCode {
@@ -1043,7 +1338,7 @@ fn build_test_package(pkg: &LoadedPackage, out: &Path) -> Result<PathBuf, String
 
 #[cfg(test)]
 mod tests {
-    use super::{build_package, cmd_fmt, split_pass_through, TestOptions};
+    use super::{build_package, cmd_fmt, split_pass_through, AddOptions, TestOptions};
     use crate::package::load_package;
     use std::fs;
     use std::path::PathBuf;
@@ -1071,6 +1366,34 @@ mod tests {
             super::parse_check_options(&s(&["--format", "json", "x"])).unwrap(),
             (true, s(&["x"]))
         );
+    }
+
+    #[test]
+    fn add_options_render_git_dependency() {
+        let options =
+            AddOptions::parse(&s(&["auraspace/aura@v0.1.1-alpha.5", "--subdir", "std/io"]))
+                .unwrap();
+        assert_eq!(options.dependency_name().unwrap(), "io");
+        assert_eq!(
+            options.dependency_value().unwrap(),
+            "{ git = \"https://github.com/auraspace/aura\", subdir = \"std/io\", tag = \"v0.1.1-alpha.5\" }"
+        );
+    }
+
+    #[test]
+    fn add_options_allow_versionless_git_origin() {
+        let options = AddOptions::parse(&s(&["https://git.example.com/org/demo.git"])).unwrap();
+        assert_eq!(options.dependency_name().unwrap(), "demo");
+        assert_eq!(
+            options.dependency_value().unwrap(),
+            "{ git = \"https://git.example.com/org/demo\" }"
+        );
+    }
+
+    #[test]
+    fn add_options_reject_legacy_name_version_form() {
+        let error = AddOptions::parse(&s(&["demo.dep@1.0.0"])).unwrap_err();
+        assert!(error.contains("unsupported origin"));
     }
 
     #[test]

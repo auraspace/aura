@@ -2,7 +2,7 @@
 title: CLI
 section: Toolchain
 order: 40
-summary: aura new, init, check, build, run, test, fmt, race, publish, update, and language-server.
+summary: aura new, init, check, build, run, test, fmt, race, update, and language-server.
 ---
 
 # CLI
@@ -23,21 +23,20 @@ cargo run -p aura-cli -- <command> [args]
 
 ## Commands (0.1.1-alpha.5)
 
-| Command                   | Purpose                                           |
-| ------------------------- | ------------------------------------------------- |
-| `new <path>`              | Scaffold a package directory                      |
-| `init [name]`             | Scaffold in the current directory                 |
-| `check <file\|dir>`       | Parse + typecheck                                 |
-| `build <file\|dir>`       | Emit native binary (`-o` for output path)         |
-| `run <file\|dir>`         | Build and execute                                 |
-| `test <file\|dir>`        | Run `@test` functions                             |
-| `race <file\|dir>`        | Run tests with the runtime race detector          |
-| `fmt [--check] <path>`    | Format/check a source file, package, or folder    |
-| `lsp` / `language-server` | Run the stdio Aura language server (`auralsp`)    |
-| `emit-c <file\|dir>`      | Emit C (advanced / debugging)                     |
-| `publish [path]`          | Validate locally; later publish to package origin |
-| `update`                  | Check, or activate, a toolchain update            |
-| `version`                 | Print the installed CLI version                   |
+| Command                   | Purpose                                        |
+| ------------------------- | ---------------------------------------------- |
+| `new <path>`              | Scaffold a package directory                   |
+| `init [name]`             | Scaffold in the current directory              |
+| `check <file\|dir>`       | Parse + typecheck                              |
+| `build <file\|dir>`       | Emit native binary (`-o` for output path)      |
+| `run <file\|dir>`         | Build and execute                              |
+| `test <file\|dir>`        | Run `@test` functions                          |
+| `race <file\|dir>`        | Run tests with the runtime race detector       |
+| `fmt [--check] <path>`    | Format/check a source file, package, or folder |
+| `lsp` / `language-server` | Run the stdio Aura language server (`auralsp`) |
+| `emit-c <file\|dir>`      | Emit C (advanced / debugging)                  |
+| `update`                  | Check, or activate, a toolchain update         |
+| `version`                 | Print the installed CLI version                |
 
 Examples:
 
@@ -50,8 +49,6 @@ aura test path
 aura test path --test-name filter --format json
 aura race path --format json
 aura fmt path/src/main.aura
-aura publish --dry-run path
-# Public origin publication is not shipped yet.
 aura update --package aura --current 0.1.1-alpha.5
 auralsp
 # or: aura lsp
@@ -119,16 +116,17 @@ Hyphens in the path become underscores in the package name (`my-app` → package
 
 ## Registry and update commands
 
-`publish --dry-run` validates and previews a package without network access.
-The former registry upload path has been removed. The target publication flow
-creates and pushes an immutable origin tag; GitHub Releases are optional for
-packages. A proxy and checksum database are intentionally deferred. `update` checks a toolchain registry; `--activate`
+Package publication is an ordinary Git operation: commit the package, create
+and push an immutable `vX.Y.Z` origin tag, and let consumers discover that tag.
+GitHub Releases are optional for packages. A proxy and checksum database are
+intentionally deferred. `update` checks a toolchain registry; `--activate`
 downloads and atomically switches the active executable, with `--json` for
-machine-readable output. These are bounded alpha workflows, not a complete
-package UX.
+machine-readable output. `add` and `remove` update `[dependencies]` and
+refresh `aura.lock`; `add` accepts a full VCS origin or `owner/repo` GitHub
+shorthand, with optional `@version` and `--subdir`.
 
-RFC-012 also describes `add`, `doc`, `clean`, and a complete toolchain manager;
-those remain deferred. Process argv, stdin (`readLine` / `readAllStdin`), and
+RFC-012 also describes `doc`, `clean`, and a complete toolchain manager; those
+remain deferred. Process argv, stdin (`readLine` / `readAllStdin`), and
 `exit` are available via `std.io`.
 
 ## Next

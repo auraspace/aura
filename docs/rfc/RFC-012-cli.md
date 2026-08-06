@@ -19,7 +19,7 @@
 
 This RFC defines the unified **`aura` CLI** (implemented in **Rust**): the single entrypoint for create, build, run, test, check, format, package, and toolchain management. Subcommands delegate to compiler, package manager, build, and test subsystems while presenting a consistent UX, exit codes, and machine-readable output modes.
 
-**Toolchain today (2026-08-06, S2/C22):** shipped subcommands — `new`, `init`, `version`, `check`, `build`, `run`, `test`, `race`, `fmt`, and `emit-c` — on files or package dirs (`aura.toml`). `run`/`test`/`race` forward args after `--`; `test` supports substring filters and structured JSON reports. Programs read argv via `std.io.args()`. Pretty diagnostics include path, line/column, source context, and notes; structured diagnostic models/JSON are available to tooling. Locked origin dependencies are consumed by the package commands. `aura publish --dry-run` and local origin fixtures exist; real Git-tag publication, `add`, live credentialed update, an optional proxy, and a checksum database remain deferred.
+**Toolchain today (2026-08-06, S2/C22):** shipped subcommands — `new`, `init`, `version`, `check`, `build`, `run`, `test`, `race`, `fmt`, `emit-c`, `add`, and `remove` — on files or package dirs (`aura.toml`). `add` accepts a full VCS origin or `owner/repo` GitHub shorthand, with an optional `@version` tag and optional monorepo subdirectory, then refreshes `aura.lock`. Legacy registry-name/version adds are rejected. `remove` accepts either the dependency name or the same origin form and re-resolves the lock graph transactionally. `run`/`test`/`race` forward args after `--`; `test` supports substring filters and structured JSON reports. Programs read argv via `std.io.args()`. Pretty diagnostics include path, line/column, source context, and notes; structured diagnostic models/JSON are available to tooling. Direct Git resolution pins tag/revision/checksum and supports warm-cache offline reload. Package publication uses ordinary Git tags; workspaces, optional proxy serving, and checksum database remain separate follow-up UX/services.
 
 ## 2. Motivation
 
@@ -77,10 +77,9 @@ All toolchain RFCs need a user-facing contract.
 | `aura fmt`                        | Format sources                                                     |
 | `aura fix`                        | Apply machine-applicable fixes (later)                             |
 | `aura doc`                        | Generate docs (later)                                              |
-| `aura add` / `remove`             | Dependencies                                                       |
+| `aura add` / `remove`             | Add/remove dependencies and refresh the lockfile                   |
 | `aura update`                     | Update lock within constraints                                     |
 | `aura tree`                       | Dep graph                                                          |
-| `aura publish`                    | Publish package                                                    |
 | `aura clean`                      | Remove target/                                                     |
 | `aura version` / `aura toolchain` | Version & install (RFC-013)                                        |
 
@@ -141,6 +140,9 @@ aura run . -- flag value
 aura test
 aura build --release -o hello
 aura check --format json
+aura add owner/demo.dep@1.2
+aura add auraspace/aura@v0.1.1-alpha.5 --subdir std/io
+aura remove demo.dep
 ```
 
 ### 6.8 Error model / edge cases
@@ -176,7 +178,6 @@ Cargo-like flat verbs optimize for daily memory. Single binary matches product s
 
 ## 10. Security & safety considerations
 
-- `publish` requires explicit Git repository auth when origin tag publication is implemented; it must not imply a registry upload service.
 - Commands that execute project code (`run`, `test`) are trusted-project operations.
 - Config file permissions documented on multi-user systems.
 
@@ -186,7 +187,7 @@ Cargo-like flat verbs optimize for daily memory. Single binary matches product s
 | ----- | ------------------- | ------------- |
 | L0    | new/build/run/check | Hello path    |
 | L1    | test/fmt            | CI usable     |
-| L2    | add/update/publish  | Package path  |
+| L2    | add/update          | Package path  |
 
 ## 12. References
 

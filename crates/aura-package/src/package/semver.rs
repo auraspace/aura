@@ -14,8 +14,6 @@
 //!
 //! Resolve picks the **highest unyanked** version in the index that matches.
 
-use super::registry::{RegistryIndex, VersionMeta};
-
 /// Parsed semver (MVP: major.minor.patch + optional prerelease identity).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Version {
@@ -37,7 +35,6 @@ impl Version {
     }
 
     /// Display form matching index `vers` strings when no pre: `X.Y.Z`.
-    #[cfg(test)]
     pub fn to_string_canonical(&self) -> String {
         match &self.pre {
             None => format!("{}.{}.{}", self.major, self.minor, self.patch),
@@ -140,30 +137,27 @@ impl VersionReq {
     }
 }
 
-/// Registry lock pin fields derived from resolved metadata (pure; no I/O).
+/// Immutable origin lock pin fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RegistryLockPin {
+pub struct OriginLockPin {
     pub version: String,
     pub checksum: String,
     pub source: String,
+    pub rev: Option<String>,
 }
 
-impl RegistryLockPin {
-    /// Format one `aura.lock` line: `name = { version = "…", checksum = "…", source = "registry" }`.
+impl OriginLockPin {
+    /// Format one `aura.lock` line.
     pub fn format_lock_line(&self, name: &str) -> String {
+        let rev = self
+            .rev
+            .as_deref()
+            .map(|rev| format!(", rev = \"{rev}\""))
+            .unwrap_or_default();
         format!(
-            "{name} = {{ version = \"{}\", checksum = \"{}\", source = \"{}\" }}",
+            "{name} = {{ version = \"{}\", checksum = \"{}\", source = \"{}\"{rev} }}",
             self.version, self.checksum, self.source
         )
-    }
-}
-
-/// Build lock pin fields from resolved index metadata.
-pub fn lock_pin_from_meta(meta: &VersionMeta) -> RegistryLockPin {
-    RegistryLockPin {
-        version: meta.vers.clone(),
-        checksum: meta.cksum.clone(),
-        source: "registry".into(),
     }
 }
 
@@ -311,54 +305,6 @@ fn caret_upper_bound(min: &Version, body: &str) -> Version {
     }
 }
 
-/// Resolve `req` for package `name` against a local index: highest matching unyanked.
-pub fn resolve(name: &str, req: &str, index: &RegistryIndex) -> Result<VersionMeta, String> {
-    let requirement = parse_req(req).map_err(|e| {
-        format!("error: package `{name}`: invalid version requirement `{req}`: {e}")
-    })?;
-
-    let versions = index.package_versions(name)?;
-    let mut best: Option<(Version, VersionMeta)> = None;
-
-    for meta in versions {
-        if meta.yanked {
-            continue;
-        }
-        let Ok(ver) = parse_version(&meta.vers) else {
-            // Skip unparsable index entries rather than failing the whole resolve.
-            continue;
-        };
-        if !requirement.matches(&ver) {
-            continue;
-        }
-        match &best {
-            None => best = Some((ver, meta)),
-            Some((prev, _)) if ver > *prev => best = Some((ver, meta)),
-            _ => {}
-        }
-    }
-
-    best.map(|(_, meta)| meta).ok_or_else(|| {
-        format!(
-            "error: no matching version for `{name}` with requirement `{}` \
-             (unyanked only; check the registry index)",
-            requirement.raw
-        )
-    })
-}
-
-/// Convenience: resolve then produce lock pin fields (version + checksum + source).
-#[cfg(test)]
-pub fn resolve_lock_pin(
-    name: &str,
-    req: &str,
-    index: &RegistryIndex,
-) -> Result<(VersionMeta, RegistryLockPin), String> {
-    let meta = resolve(name, req, index)?;
-    let pin = lock_pin_from_meta(&meta);
-    Ok((meta, pin))
-}
-
 #[cfg(test)]
 mod unit {
     use super::*;
@@ -435,27 +381,5 @@ mod unit {
         assert!(r2.matches(&parse_version("1.0.0-beta").unwrap()));
         assert!(r2.matches(&Version::new(1, 0, 0))); // release still matches >= min
         assert!(!r2.matches(&parse_version("1.0.1-alpha").unwrap()));
-    }
-
-    #[test]
-    fn lock_pin_format() {
-        let meta = VersionMeta {
-            name: "hello".into(),
-            vers: "1.1.0".into(),
-            cksum: "sha256:bb".into(),
-            yanked: false,
-            repository: None,
-            targets: None,
-            min_aura: None,
-            max_aura: None,
-            revoked: false,
-            revoke_reason: None,
-        };
-        let pin = lock_pin_from_meta(&meta);
-        assert_eq!(pin.source, "registry");
-        assert_eq!(
-            pin.format_lock_line("hello"),
-            r#"hello = { version = "1.1.0", checksum = "sha256:bb", source = "registry" }"#
-        );
     }
 }

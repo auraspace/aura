@@ -3,27 +3,27 @@
 use aura_codegen::{Backend, Lto, OptimizationLevel, PanicStrategy, Profile, ProfileSettings};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-/// One `[dependencies]` entry: path or registry version requirement (C13l).
+/// One `[dependencies]` entry: a local path or direct VCS origin.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum DepSpec {
     /// Path dependency (`{ path = "…" }` or a non-version bare string).
     Path(String),
-    /// Registry version requirement (`"1.2"` / `{ version = "1.2" }`).
-    Version(String),
+    /// Direct Git origin. `tag`/`rev` are optional selectors; a version range
+    /// is used to discover the highest matching semver tag when present.
+    Git {
+        source: String,
+        subdir: Option<String>,
+        version: Option<String>,
+        tag: Option<String>,
+        rev: Option<String>,
+    },
 }
 
 impl DepSpec {
     pub(crate) fn as_path(&self) -> Option<&str> {
         match self {
             DepSpec::Path(p) => Some(p.as_str()),
-            DepSpec::Version(_) => None,
-        }
-    }
-
-    pub(crate) fn as_version_req(&self) -> Option<&str> {
-        match self {
-            DepSpec::Version(v) => Some(v.as_str()),
-            DepSpec::Path(_) => None,
+            DepSpec::Git { .. } => None,
         }
     }
 }
@@ -36,7 +36,7 @@ pub(crate) struct AuraToml {
     pub(crate) bin_name: Option<String>,
     /// Relative path to a source file or directory (default: `src/` or package root).
     pub(crate) bin_path: Option<String>,
-    /// Dependencies: path and/or registry version requirements.
+    /// Dependencies: local paths and direct VCS origins.
     pub(crate) dependencies: HashMap<String, DepSpec>,
     /// RFC-010 procedural macro plugins: derive/macro name → executable path.
     pub(crate) macro_plugins: BTreeMap<String, String>,
@@ -409,7 +409,7 @@ fn resolve_profiles(
     Ok(resolved)
 }
 
-/// Path, registry version table, or bare string (version-like → registry; else path).
+/// Parse a path or direct VCS origin dependency.
 fn parse_dep_spec(v: &str) -> Result<DepSpec, String> {
     let v = v.trim();
     if v.starts_with('{') {
@@ -431,13 +431,24 @@ fn parse_dep_spec(v: &str) -> Result<DepSpec, String> {
             match k.trim() {
                 "path" => path = Some(parse_toml_string(val.trim())?),
                 "version" => version = Some(parse_toml_string(val.trim())?),
+                "github" => {
+                    let repo = parse_toml_string(val.trim())?;
+                    let source = format!("https://github.com/{}", repo.trim_end_matches(".git"));
+                    return parse_git_table(inner, source);
+                }
+                "git" => {
+                    let source = parse_toml_string(val.trim())?;
+                    return parse_git_table(inner, source);
+                }
                 // Ignore unknown keys for forward-compat (features, registry, …).
                 _ => {}
             }
         }
         return match (path, version) {
             (Some(p), None) => Ok(DepSpec::Path(p)),
-            (None, Some(ver)) => Ok(DepSpec::Version(ver)),
+            (None, Some(_)) => {
+                Err("dependency table must include `git` or `github` for a version selector".into())
+            }
             (Some(_), Some(_)) => {
                 Err("dependency table cannot set both `path` and `version` (use one source)".into())
             }
@@ -445,32 +456,59 @@ fn parse_dep_spec(v: &str) -> Result<DepSpec, String> {
         };
     }
     let s = parse_toml_string(v)?;
-    if looks_like_version_req(&s) {
-        Ok(DepSpec::Version(s))
-    } else {
-        Ok(DepSpec::Path(s))
-    }
+    Ok(DepSpec::Path(s))
 }
 
-/// Bare `"1.2"`, `"^0.1"`, `"0.1.0"` → registry; `"../math"`, `"vendor/x"` → path.
-fn looks_like_version_req(s: &str) -> bool {
-    let t = s.trim();
-    if t.is_empty() {
-        return false;
+fn parse_git_table(inner: &str, source: String) -> Result<DepSpec, String> {
+    let mut subdir = None;
+    let mut version = None;
+    let mut tag = None;
+    let mut rev = None;
+    for part in inner.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let Some((key, val)) = part.split_once('=') else {
+            return Err(format!("invalid dependency field `{part}`"));
+        };
+        match key.trim() {
+            "github" | "git" => {}
+            "version" => version = Some(parse_toml_string(val.trim())?),
+            "subdir" => subdir = Some(parse_toml_string(val.trim())?),
+            "tag" => tag = Some(parse_toml_string(val.trim())?),
+            "rev" => rev = Some(parse_toml_string(val.trim())?),
+            "branch" => {
+                return Err(
+                    "floating `branch` dependencies are unsupported; use `tag` or `rev`".into(),
+                )
+            }
+            "path" => return Err("dependency table cannot mix `path` with a Git origin".into()),
+            _ => {}
+        }
     }
-    let body = t.strip_prefix('^').unwrap_or(t);
-    let first = match body.chars().next() {
-        Some(c) => c,
-        None => return false,
-    };
-    if !first.is_ascii_digit() {
-        return false;
+    if tag.is_some() && rev.is_some() {
+        return Err("Git dependency cannot set both `tag` and `rev`".into());
     }
-    // Path segments like `1.2/foo` are still paths; version reqs are a single token.
-    if body.contains('/') || body.contains('\\') {
-        return false;
+    if source.is_empty() {
+        return Err("Git dependency source cannot be empty".into());
     }
-    true
+    if subdir.as_deref().is_some_and(|value| {
+        value.is_empty()
+            || value.starts_with('/')
+            || value
+                .split('/')
+                .any(|part| part.is_empty() || part == "." || part == "..")
+    }) {
+        return Err("Git dependency subdir must be a normalized relative path".into());
+    }
+    Ok(DepSpec::Git {
+        source,
+        subdir,
+        version,
+        tag,
+        rev,
+    })
 }
 
 fn parse_toml_string(v: &str) -> Result<String, String> {

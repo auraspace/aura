@@ -95,6 +95,18 @@ aura test corpus/multi
 cargo run -p aura-cli -- run corpus/multi
 ```
 
+## Dependency commands
+
+Use the flat CLI commands to edit dependencies and refresh the lockfile:
+
+```bash
+aura add auraspace/aura@v0.1.1-alpha.5 --subdir std/io
+aura remove demo.dep
+```
+
+`aura add` is transactional: if resolution or integrity verification fails,
+both `aura.toml` and `aura.lock` are restored.
+
 ## Imports and visibility
 
 - `import path.to.pkg` and `import path.to.pkg as Alias`
@@ -158,25 +170,30 @@ registry requirements must match it; mismatches fail the load instead of being
 silently rewritten.
 
 Locked origin consumption supports Git tag resolution, source/archive fetch,
-semver pinning, SHA-256 verification, cache extraction, and offline locked
-inputs. The public design follows Go: a public Git repository plus an immutable
-`vX.Y.Z` tag is enough to publish. A proxy and checksum database are optional
-later layers; `git=`/`github=` sources and workspaces remain deferred.
+semver pinning, immutable commit pins, SHA-256 verification, cache extraction,
+and offline locked inputs. Direct dependencies can use
+`{ git = "https://…", tag = "vX.Y.Z" }`, `{ git = "https://…", rev = "…" }`,
+or `{ github = "owner/repo", tag = "vX.Y.Z" }`. The public design follows Go:
+a public Git repository plus an immutable `vX.Y.Z` tag is enough to publish. A
+proxy and checksum database are later layers; the proxy read shapes are reserved
+without changing origin identity.
 
-The current client uses origin metadata/archive downloads with semver pinning,
-checksum verification, and cache extraction. The planned client resolves Git
-tags directly; a future proxy may expose Go-shaped read objects (`@v/list`,
-`.info`, `.mod`, and `.zip`). See [RFC-005](../rfc/RFC-005-package-manager.md)
-§6.6.
+The current client resolves Git tags/revisions directly, archives the selected
+source tree, pins the commit and checksum, and extracts it into the cache. A
+future proxy may expose the same Go-shaped read objects (`@v/list`, `.info`,
+`.mod`, and `.zip`) without changing the origin identity. See
+[RFC-005](../rfc/RFC-005-package-manager.md) §6.6.
 
 ## Publish and registry limits
 
-- `aura publish --dry-run` is available for local validation and preview
+- Package publication uses an immutable `vX.Y.Z` Git tag pushed to the origin
 - The former HTTP upload path has been removed; publication is origin-based
 - Public publication is a Git operation: create and push an immutable origin tag
+- Git origins may select a normalized monorepo package with `subdir = "path/to/package"`
 - GitHub Releases are optional for packages and reserved primarily for binaries
 - A proxy/cache and checksum database are deliberately deferred
-- No `git=` / `github=` sources or workspaces
+- Workspaces remain separate package-manager work; direct `git=` / `github=`
+  sources are supported
 - Prefer monorepo-local or sibling `path = "…"` deps
 
 See the [current 0.1.1-alpha.5 release notes](../releases/0.1.1-alpha.5.md); the [0.1.0-alpha freeze](../releases/0.1.0-alpha.md) is historical.
