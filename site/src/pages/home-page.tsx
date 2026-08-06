@@ -187,7 +187,7 @@ const WORKFLOW_STEPS = [
   ✔  Symbol resolution complete (2.4ms)
   ✔  Type check & null-safety validation complete (3.8ms)
   
-✨  Checked 14 files in 7.4ms. 0 errors, 0 warnings.`,
+⚡  Checked 14 files in 7.4ms. 0 errors, 0 warnings.`,
   },
   {
     id: 'test',

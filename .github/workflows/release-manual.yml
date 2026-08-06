@@ -87,6 +87,10 @@ jobs:
         run: bash scripts/package-release.sh
 
       - name: Release acceptance gate
+        # The gate executes native compiler/runtime tests. Cross-built jobs
+        # validate their foreign artifact with the file-type and cross-file
+        # acceptance steps below instead.
+        if: ${{ !matrix.rust_target }}
         run: bash scripts/release-acceptance.sh
 
       # Native artifacts only: a cross-built x86_64 binary cannot run on arm64 runners.

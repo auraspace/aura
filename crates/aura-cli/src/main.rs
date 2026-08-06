@@ -802,7 +802,7 @@ fn render_check_progress(
 ) -> String {
     let total_ms = parsing_ms + checking_ms;
     format!(
-        "[1/1] Checking package {}...\n  ✔  Syntax parsing complete ({})\n  ✔  Symbol resolution complete ({})\n  ✔  Type check & null-safety validation complete ({})\n\n✨  Checked {} files in {}. 0 errors, 0 warnings.",
+        "[1/1] Checking package {}...\n  ✔  Syntax parsing complete ({})\n  ✔  Symbol resolution complete ({})\n  ✔  Type check & null-safety validation complete ({})\n\n⚡  Checked {} files in {}. 0 errors, 0 warnings.",
         target,
         format_ms(parsing_ms),
         format_ms(checking_ms * 0.35),
