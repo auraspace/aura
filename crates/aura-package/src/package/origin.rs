@@ -12,9 +12,11 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
 const GIT_TOKEN_ENV: &str = "AURA_REGISTRY_TOKEN";
 const GITHUB_TOKEN_ENV: &str = "GITHUB_TOKEN";
+static TEMP_CHECKOUT_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 #[allow(dead_code)]
 pub(crate) const ORIGIN_PROTOCOL_VERSION: &str = "aura-origin-v1";
 
@@ -383,8 +385,9 @@ fn temp_checkout_root(name: &str, rev: &str) -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_nanos())
         .unwrap_or_default();
+    let sequence = TEMP_CHECKOUT_SEQUENCE.fetch_add(1, AtomicOrdering::Relaxed);
     env::temp_dir().join(format!(
-        "aura-origin-{}-{}-{}-{nonce}",
+        "aura-origin-{}-{}-{}-{nonce}-{sequence}",
         name.replace(|c: char| !c.is_ascii_alphanumeric(), "-"),
         &rev[..rev.len().min(12)],
         std::process::id()
@@ -480,7 +483,11 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let root = env::temp_dir().join(format!("aura-origin-test-{}-{nonce}", std::process::id()));
+        let sequence = TEMP_CHECKOUT_SEQUENCE.fetch_add(1, AtomicOrdering::Relaxed);
+        let root = env::temp_dir().join(format!(
+            "aura-origin-test-{}-{nonce}-{sequence}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("src")).unwrap();
         fs::write(
