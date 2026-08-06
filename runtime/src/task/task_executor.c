@@ -786,6 +786,7 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
   AuraTaskFrame **frames;
   size_t count = 0;
   size_t descriptor_count;
+  size_t descriptor_capacity;
   size_t index = 0;
   size_t woke = 0;
   int pipe_woke = 0;
@@ -809,9 +810,8 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
   }
 #endif
 #if defined(AURA_TCP_POSIX)
-  /* Keep the owned-list scan and descriptor count consistent with the fill
-   * pass below. poll_waiting already marks the reactor active, so release
-   * cannot destroy one of these frames while the snapshot is in use. */
+  /* Hold the ownership snapshot lock while counting. The frame list may grow
+   * before the fill pass, so that pass expands the arrays when needed. */
   if (executor->workers_started)
   {
     pthread_mutex_lock(&executor->worker_lock);
@@ -872,10 +872,12 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
     return (int)woke;
   }
   descriptor_count = count;
+  descriptor_capacity = descriptor_count;
 #if defined(AURA_TCP_POSIX)
   if (executor->wake_pipe[0] >= 0)
   {
     descriptor_count++;
+    descriptor_capacity = descriptor_count;
   }
 #endif
   if (descriptor_count == 0 && !has_deadline)
@@ -904,8 +906,8 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
     }
     return (int)woke;
   }
-  descriptors = (struct pollfd *)calloc(descriptor_count, sizeof(*descriptors));
-  frames = (AuraTaskFrame **)calloc(descriptor_count, sizeof(*frames));
+  descriptors = (struct pollfd *)calloc(descriptor_capacity, sizeof(*descriptors));
+  frames = (AuraTaskFrame **)calloc(descriptor_capacity, sizeof(*frames));
   if (descriptors == NULL || frames == NULL)
   {
     free(descriptors);
@@ -921,18 +923,38 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
     index++;
   }
 #endif
-#if defined(AURA_TCP_POSIX)
-  if (executor->workers_started)
-  {
-    pthread_mutex_lock(&executor->worker_lock);
-  }
-#endif
   for (frame = executor->owned_head; frame != NULL; frame = frame->owned_next)
   {
     if (!frame->fd_wait_active || frame->waiting_node == NULL ||
         frame->state != AURA_TASK_PENDING)
     {
       continue;
+    }
+    if (index == descriptor_capacity)
+    {
+      size_t next_capacity = descriptor_capacity == 0
+                                 ? 1
+                                 : descriptor_capacity * 2;
+      struct pollfd *next_descriptors =
+          (struct pollfd *)calloc(next_capacity, sizeof(*next_descriptors));
+      AuraTaskFrame **next_frames =
+          (AuraTaskFrame **)calloc(next_capacity, sizeof(*next_frames));
+      if (next_descriptors == NULL || next_frames == NULL)
+      {
+        free(next_descriptors);
+        free(next_frames);
+        free(descriptors);
+        free(frames);
+        return 0;
+      }
+      memcpy(next_descriptors, descriptors,
+             descriptor_capacity * sizeof(*descriptors));
+      memcpy(next_frames, frames, descriptor_capacity * sizeof(*frames));
+      free(descriptors);
+      free(frames);
+      descriptors = next_descriptors;
+      frames = next_frames;
+      descriptor_capacity = next_capacity;
     }
     descriptors[index] = (struct pollfd){
       frame->fd_wait_fd,
@@ -942,12 +964,6 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
     frames[index] = frame;
     index++;
   }
-#if defined(AURA_TCP_POSIX)
-  if (executor->workers_started)
-  {
-    pthread_mutex_unlock(&executor->worker_lock);
-  }
-#endif
   /* The list can change after the snapshot lock is released; poll only the
    * descriptors actually copied into the arrays. */
   descriptor_count = index;
@@ -1886,6 +1902,17 @@ int aura_task_executor_release(AuraTaskExecutor *executor, AuraTaskFrame **handl
 #if defined(AURA_TCP_POSIX)
   while (executor->workers_started && executor->reactor_active != 0)
   {
+    pthread_mutex_unlock(&executor->worker_lock);
+    if (executor->wake_pipe[1] >= 0)
+    {
+      const unsigned char signal_byte = 1;
+      (void)write(executor->wake_pipe[1], &signal_byte, sizeof(signal_byte));
+    }
+    pthread_mutex_lock(&executor->worker_lock);
+    if (executor->reactor_active == 0)
+    {
+      break;
+    }
     pthread_cond_wait(&executor->worker_cond, &executor->worker_lock);
   }
 #endif
