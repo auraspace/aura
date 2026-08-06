@@ -2,9 +2,9 @@
 
 How Aura cuts a public toolchain release (alpha → stable uses the same path).
 
-Current release: `0.1.1-alpha.4` is prepared for publication with GitHub Release assets. The
+Current release: `0.1.1-alpha.5` is prepared for publication with GitHub Release assets. The
 older `0.1.0-alpha` release remains available for compatibility and history;
-changes after `v0.1.1-alpha.4` belong to a subsequent release or maintenance
+changes after `v0.1.1-alpha.5` belong to a subsequent release or maintenance
 update.
 
 ## Flow
@@ -129,7 +129,7 @@ signs and verifies `SHA256SUMS` and publishes `SHA256SUMS.minisig` plus
 `minisign.pub`. Missing or invalid signing material is a release failure, not
 an unsigned success.
 
-## Evidence boundary for v0.1.1-alpha.4
+## Evidence boundary for v0.1.1-alpha.5
 
 The checked-in policy and fixture gates prove matrix alignment, package layout,
 checksums, signed-bundle wiring, and the distinction between native execution
@@ -154,10 +154,10 @@ run IDs for the following:
 
 | Concept             | Example                                  | Where                                              |
 | ------------------- | ---------------------------------------- | -------------------------------------------------- |
-| Release version     | `0.1.1-alpha.4`                          | CHANGELOG, notes, install `AURA_VERSION`           |
-| Git tag             | `v0.1.1-alpha.4`                         | Triggers CI; GitHub Release name                   |
-| Cargo workspace ver | `0.1.1-alpha.4`                          | `Cargo.toml` `[workspace.package]`; `aura version` |
-| Artifact name       | `aura-0.1.1-alpha.4-darwin-arm64.tar.gz` | GH Release assets                                  |
+| Release version     | `0.1.1-alpha.5`                          | CHANGELOG, notes, install `AURA_VERSION`           |
+| Git tag             | `v0.1.1-alpha.5`                         | Triggers CI; GitHub Release name                   |
+| Cargo workspace ver | `0.1.1-alpha.5`                          | `Cargo.toml` `[workspace.package]`; `aura version` |
+| Artifact name       | `aura-0.1.1-alpha.5-darwin-arm64.tar.gz` | GH Release assets                                  |
 
 Prerelease tags (`*alpha*`, `*beta*`, `*rc*`) create a **prerelease** on GitHub.
 
@@ -174,6 +174,6 @@ docs/releases/<version>.md
 ## Local package only (no publish)
 
 ```bash
-TAG_VERSION=0.1.1-alpha.4 bash scripts/package-release.sh
-# → dist/aura-0.1.1-alpha.4-<os>-<arch>.tar.gz
+TAG_VERSION=0.1.1-alpha.5 bash scripts/package-release.sh
+# → dist/aura-0.1.1-alpha.5-<os>-<arch>.tar.gz
 ```

@@ -26,7 +26,9 @@ import { Reveal, Stagger, StaggerItem } from '@/components/motion/reveal'
 import { ensureHighlighter, highlightCode } from '@/lib/highlight'
 import { getAllMeta } from '@/lib/rfc/load-rfcs'
 
-// Code Showcase Samples (Verified against Aura v0.1.1-alpha.4 compiler)
+const RELEASE_VERSION = '0.1.1-alpha.5'
+
+// Code Showcase Samples (Verified against the current alpha compiler)
 const CODE_SAMPLES = [
   {
     id: 'hello',
@@ -217,7 +219,7 @@ const WORKFLOW_STEPS = [
     title: '4. Zero-Dependency Deploy',
     subtitle:
       'Run directly on server or minimal Docker container without JVM or VM.',
-    terminalOutput: `[service] Starting Aura HTTP Server v0.1.1-alpha.4
+    terminalOutput: `[service] Starting Aura HTTP Server v${RELEASE_VERSION}
 [service] Listening on http://0.0.0.0:8080
 [service] Active GC: Managed mark-and-sweep enabled
 [service] Deterministic concurrency executor initialized (1 thread)
@@ -321,7 +323,7 @@ export function HomePage() {
 
   const handleCopyInstall = () => {
     navigator.clipboard.writeText(
-      'curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=0.1.1-alpha.4 bash',
+      `curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=${RELEASE_VERSION} bash`,
     )
     setCopiedInstall(true)
     setTimeout(() => setCopiedInstall(false), 2000)
@@ -347,7 +349,7 @@ export function HomePage() {
                       <span className="relative inline-flex h-2 w-2 rounded-full bg-accent"></span>
                     </span>
                     <span className="font-mono text-[11px] uppercase tracking-[0.12em] text-muted">
-                      Aura v0.1.1-alpha.4 • Compiled Service Language
+                      Aura v{RELEASE_VERSION} • Compiled Service Language
                     </span>
                   </div>
                 </Reveal>
@@ -397,7 +399,7 @@ export function HomePage() {
                     <span className="font-mono text-[11px] text-accent">$</span>
                     <code className="truncate font-mono text-[12.5px] text-fg">
                       curl -fsSL https://aura.fadosoft.com/install.sh |
-                      AURA_VERSION=0.1.1-alpha.4 bash
+                      AURA_VERSION={RELEASE_VERSION} bash
                     </code>
                     <button
                       onClick={handleCopyInstall}
@@ -867,7 +869,7 @@ export function HomePage() {
                 Aura
               </p>
               <span className="font-mono text-[11px] text-muted border border-border px-2 py-0.5 rounded">
-                v0.1.1-alpha.4
+                v{RELEASE_VERSION}
               </span>
             </div>
             <p className="text-[13px] text-muted">

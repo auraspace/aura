@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.1.1-alpha.5 (2026-08-06)
+
+Next alpha release
+
+Full notes: [`docs/releases/0.1.1-alpha.5.md`](docs/releases/0.1.1-alpha.5.md).
+
+### Changes
+
+- fix(expr): update ownership logic for boxed String locals in string_expr_is_owned_temp
+- feat(release): add manual release workflow for building and publishing GitHub releases
+- fix(tests): update expected output for aura test to match actual results
+- refactor(call): update method overload types to use ClassMethodSig for consistency refactor(emit): simplify json field name extraction logic and improve clarity
+- refactor(cli): streamline error handling and improve progress reporting in check and build commands
+- feat(example): add dotenv example with loader and configuration
+- refactor: remove http-engine-aura example and add todo-app example
+- refactor(example): adopt current aura oop APIs
+- fix(codegen): upcast secondary constructor arguments
+- refactor(example): organize http engine library modules
+- docs(oop): mark overload resolution complete
+- fix(oop): preserve nested call and static generic resolution
+- docs(oop): document defaults varargs and overloads
+- feat(oop): complete interface and constructor overloads
+- feat(oop): support method overloads and variadic arrays
+- feat(oop): support defaults and free-function overloads
+- feat(oop): support secondary constructors
+- fix(oop): substitute generic interface defaults
+- feat(oop): support interface default methods
+- feat(oop): add super method calls
+- feat(oop): support abstract method declarations
+- feat(oop): add companion object syntax
+- docs: update testing instructions in README and contributing guide
+- feat(http): Introduce Aura HTTP engine example with routing and middleware
+
 ## 0.1.1-alpha.4 (2026-08-04)
 
 Expanded typed standard-library support, reflection, async ownership, and release targets.

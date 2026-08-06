@@ -21,7 +21,7 @@ From this monorepo without a global install:
 cargo run -p aura-cli -- <command> [args]
 ```
 
-## Commands (0.1.1-alpha.4)
+## Commands (0.1.1-alpha.5)
 
 | Command                   | Purpose                                        |
 | ------------------------- | ---------------------------------------------- |
@@ -53,7 +53,7 @@ aura fmt path/src/main.aura
 aura publish --dry-run path
 # upload requires a registry URL and AURA_REGISTRY_TOKEN
 aura publish --registry https://registry.example path
-aura update --package aura --current 0.1.1-alpha.4
+aura update --package aura --current 0.1.1-alpha.5
 auralsp
 # or: aura lsp
 aura version
