@@ -25,19 +25,22 @@ deferred.
       **Verification:** Compare repeated archives and malformed metadata cases.
       **Dependencies:** C1–C3, P1–P8.
 
-## U2. Registry client
+## U2. Registry/origin client
 
-**Objective:** Consume and publish registry data through a stable protocol.
+**Objective:** Consume package origins through a Go-compatible direct-VCS
+contract. Publication is a Git tag push; an HTTP proxy is explicitly out of
+scope for this plan.
 **Implementation status:** Partial. The client already reads local/offline
-fixtures and HTTPS metadata/tarballs with bounded timeouts; transient transport
+fixtures and HTTPS source/archive reads with bounded timeouts; transient transport
 and 5xx failures now retry at most three times, while 4xx responses fail
 immediately. HTTPS requests may carry an optional bearer token from
-`AURA_REGISTRY_TOKEN`; upload and stable error taxonomy remain open.
+`AURA_REGISTRY_TOKEN`; public origin publication and Git-tag discovery remain
+open.
 **Checklist:**
 
-- [x] Support registry configuration and the bounded publish upload endpoint.
+- [x] Support local/offline origin fixtures and bounded source/archive reads.
 - [x] Support HTTPS fetch, bounded timeout/retry, and optional bearer
-      authentication via `AURA_REGISTRY_TOKEN`; upload remains open.
+      authentication via `AURA_REGISTRY_TOKEN` for private origins.
 - [x] Map HTTP status, transport, auth, and validation failures to stable
       bounded CLI outcomes.
 - [x] Keep offline fixtures separate from network-required tests; local fixture
@@ -81,50 +84,45 @@ policy; production artifact signing remains governed by the release workflow.
 - [x] Produce bounded archive/checksum preview; unsigned dry-run output does not
       claim production signing, while signed registry metadata uses `aura-sig-v1`.
 - [x] Show all validation errors before any upload operation; dry-run has no
-      upload path and does not mutate registry or package state.
+      publication path and does not mutate origin or package state.
       **Acceptance:** Dry-run never mutates registry state.
       **Verification:** Compare preview with actual package and block invalid inputs.
       **Dependencies:** U1, U2.
 
-## U5. Publish upload
+## U5. Origin publication contract
 
-**Objective:** Publish valid packages with safe failure behavior. The alpha
-contract is deliberately minimal and fixture-oriented: `POST
-/api/v1/publish` with the deterministic U1 archive as the
-`application/gzip` body and `X-Aura-Package`, `X-Aura-Version`, and
-`X-Aura-Sha256` headers. An optional `Authorization: Bearer` header follows
-the existing registry client convention. A successful response is HTTP 201
-with `{"status":"published","name":"…","version":"…","checksum":"…"}`.
-No multipart format, index mutation protocol, signing, or production registry
-compatibility is implied by this alpha endpoint.
+**Objective:** Define how a valid package becomes visible at its authoritative
+origin. The target architecture follows Go publication: a maintainer commits
+the package and pushes an immutable `vX.Y.Z` tag to the package repository.
+There is no required package Release asset, registry upload endpoint, index
+repository, or proxy in this alpha contract.
 
-**Implementation status:** Implemented as a bounded upload after U4 validation.
-The client uses a 30-second connect/read/write timeout, retries transport and
-5xx failures at most three attempts, and caps the archive at 64 MiB and the
-receipt at 64 KiB. 4xx responses are not retried. Version conflict (409) and
-authentication (401/403) are stable rejections. Exhausted transport failures
-are `indeterminate`, because a POST may have reached the registry; the CLI
-returns exit code 3 and never claims completion. The fixture server is the
-authoritative focused test for this contract.
+The former HTTP upload fixture has been removed. Publication tests now
+materialize the deterministic archive at a local origin and verify it through
+the same metadata/checksum read path used by consumers.
+
+**Implementation status:** The deterministic archive and local-origin fixture
+are implemented. The real origin tag publication workflow and Git credentials
+remain deferred. Proxy and checksum database implementation are also deferred.
 
 **Checklist:**
 
-- [x] Upload archive and metadata in one registry request; HTTP 201 is the
-      only completion acknowledgment (server-side atomicity remains the
-      registry's responsibility).
-- [x] Handle version conflicts, retries, auth, and partial/indeterminate
-      failures without reporting a false success.
-- [x] Return stable exit codes and machine-readable JSON results.
-      **Acceptance:** A failed publish cannot leave a falsely complete release.
-      **Verification:** Run local-registry success, duplicate, timeout, and retry tests.
+- [x] Verify local-origin archive materialization and machine-readable acceptance evidence.
+- [ ] Define the origin tag publication workflow and immutable tag checks.
+- [ ] Define direct VCS tag discovery and source archive mapping.
+      **Acceptance:** A published version is discoverable from the repository,
+      resolves to one immutable commit/checksum identity, and cannot silently
+      change after the lockfile is written.
+      **Verification:** Add an offline tag/commit fixture, then run a native
+      Git-origin rehearsal when credentials and a public package exist.
       **Dependencies:** U3, U4.
 
 ## U6. Update discovery
 
 **Objective:** Select a compatible update for the current installation.
 
-**Implementation status:** Complete for metadata-only discovery. The registry
-index selects the highest newer non-yanked release whose checksum, target, and
+**Implementation status:** Complete for metadata-only discovery. The origin
+selects the highest newer non-yanked release whose checksum, target, and
 Aura toolchain bounds validate; revoked, unsupported, and no-update outcomes
 are stable and explainable. Signed-index verification is available through the
 explicit trusted-key API; payload activation remains U7.
@@ -163,8 +161,8 @@ and cross-host native execution remain outside this host-bound slice.
 **Objective:** Prove registry, publishing, updating, and target artifacts work
 together.
 **Implementation status:** Implemented for the native Linux acceptance target.
-The focused registry fixture publishes a deterministic U5 source archive over a
-local HTTP registry, verifies and installs the acknowledged bytes into an
+The focused origin fixture materializes a deterministic source archive at a
+local repository, verifies and installs the bytes into an
 isolated cache, discovers a compatible Linux update, activates a checksum-
 verified native executable, restores the retained rollback artifact, and runs
 both release versions. The test emits a stable JSON evidence record containing
@@ -172,13 +170,14 @@ package/version/checksum, target, host, and outcome; set `AURA_U8_REPORT` to
 persist that record. macOS native execution still requires a native host run.
 **Checklist:**
 
-- [x] Publish a deterministic fixture release to a local registry.
+- [x] Exercise deterministic fixture publication to a local origin.
+- [ ] Rehearse origin tag publication on the public GitHub setup.
 - [x] Install and verify it, discover/activate an update, roll back, and
       execute both artifacts on Linux.
 - [x] Record checksums, versions, target, host, and outcome in the acceptance
       evidence JSON.
       **Acceptance:** The release workflow is reproducible from a clean installation.
       **Verification:** Run `cargo test -p aura-cli
-  u8_local_registry_release_acceptance -- --nocapture`; use a native macOS
+u8_local_origin_release_acceptance -- --nocapture`; use a native macOS
       host before making a macOS execution claim.
       **Dependencies:** U5, U7, P8.

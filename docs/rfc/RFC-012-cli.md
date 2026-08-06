@@ -8,7 +8,7 @@
 | **Layer**    | Toolchain                          |
 | **Authors**  |                                    |
 | **Created**  | 2026-07-15                         |
-| **Updated**  | 2026-07-28                         |
+| **Updated**  | 2026-08-06                         |
 | **Estimate** | 20–30 pages                        |
 | **Depends**  | RFC-005, RFC-008, RFC-011, RFC-013 |
 | **Blocks**   | —                                  |
@@ -19,7 +19,7 @@
 
 This RFC defines the unified **`aura` CLI** (implemented in **Rust**): the single entrypoint for create, build, run, test, check, format, package, and toolchain management. Subcommands delegate to compiler, package manager, build, and test subsystems while presenting a consistent UX, exit codes, and machine-readable output modes.
 
-**Toolchain today (2026-07-28, S2/C22):** shipped subcommands — `new`, `init`, `version`, `check`, `build`, `run`, `test`, `race`, `fmt`, and `emit-c` — on files or package dirs (`aura.toml`). `run`/`test`/`race` forward args after `--`; `test` supports substring filters and structured JSON reports. Programs read argv via `std.io.args()`. Pretty diagnostics include path, line/column, source context, and notes; structured diagnostic models/JSON are available to tooling. Locked registry dependencies are consumed by the package commands. Not yet: `add`, live credentialed publish/update, a complete `aura http serve` path, or a full `aura toolchain` manager.
+**Toolchain today (2026-08-06, S2/C22):** shipped subcommands — `new`, `init`, `version`, `check`, `build`, `run`, `test`, `race`, `fmt`, and `emit-c` — on files or package dirs (`aura.toml`). `run`/`test`/`race` forward args after `--`; `test` supports substring filters and structured JSON reports. Programs read argv via `std.io.args()`. Pretty diagnostics include path, line/column, source context, and notes; structured diagnostic models/JSON are available to tooling. Locked origin dependencies are consumed by the package commands. `aura publish --dry-run` and local origin fixtures exist; real Git-tag publication, `add`, live credentialed update, an optional proxy, and a checksum database remain deferred.
 
 ## 2. Motivation
 
@@ -118,7 +118,7 @@ invalid channel state or element operations. Each code includes an actionable no
 ### 6.4 Configuration
 
 - Project: `aura.toml`
-- User: `~/.aura/config.toml` (proxy, registry, defaults)
+- User: `~/.aura/config.toml` (origin overrides, optional future proxy, defaults)
 - Env: `AURA_*` overrides documented
 
 ### 6.5 Formatting (`aura fmt`)
@@ -176,7 +176,7 @@ Cargo-like flat verbs optimize for daily memory. Single binary matches product s
 
 ## 10. Security & safety considerations
 
-- `publish` requires explicit auth.
+- `publish` requires explicit Git repository auth when origin tag publication is implemented; it must not imply a registry upload service.
 - Commands that execute project code (`run`, `test`) are trusted-project operations.
 - Config file permissions documented on multi-user systems.
 

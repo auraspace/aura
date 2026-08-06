@@ -76,14 +76,16 @@ known unsupported target.
 **Objective:** Freeze user-visible behavior for commands and external
 integration boundaries.
 
-**Contract:** Public registry reads use HTTPS and immutable version metadata;
-private reads and publish use `GITHUB_TOKEN`/`gh` credentials. Every downloaded
-archive is verified against its declared SHA-256 before extraction or cache
-publication, and transient transport failures retry with bounded backoff.
-Authentication, HTTP status, transport, checksum, and manifest failures have
-distinct stable error classes. `aura publish --dry-run` performs all manifest,
-version, contents, and dependency checks without network mutation; a real
-publish uploads the archive and index metadata only after those checks pass.
+**Contract:** Public package reads use HTTPS and immutable origin metadata;
+private reads use configured GitHub credentials. Every downloaded archive is
+verified against its declared SHA-256 before extraction or cache publication,
+and transient transport failures retry with bounded backoff. Authentication,
+transport, checksum, origin, and manifest failures have distinct stable error
+classes. `aura publish --dry-run` performs all manifest, version, contents, and
+dependency checks without network mutation. The target real publication flow
+creates and pushes an immutable origin tag; GitHub Release assets are optional
+and no index or registry upload endpoint is required. A proxy/checksum database
+is not part of the alpha contract.
 
 Self-update downloads to isolated temporary storage, verifies checksum and
 signature before activation, atomically replaces the active version, and keeps
@@ -111,8 +113,8 @@ behavior during implementation.
 **Checklist:**
 
 - [x] Specify commands, flags, exit codes, structured output, and error classes.
-- [x] Specify registry authentication, upload, download, checksum, and retry
-      behavior.
+- [x] Specify origin authentication, download, checksum, and retry behavior.
+- [ ] Specify origin tag publication and optional proxy/checksum contracts.
 - [x] Specify self-update failure and rollback behavior.
 - [x] Specify supported FFI types, ownership, callbacks, and ABI errors.
 - [x] Specify HTTP server commands/examples and explicit non-goals.

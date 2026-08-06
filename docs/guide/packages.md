@@ -157,18 +157,25 @@ monorepo/path-dependency workflow. If a lockfile exists, declared paths and
 registry requirements must match it; mismatches fail the load instead of being
 silently rewritten.
 
-**Registry schema v0** may appear as structured entries (`version` / `source` / `checksum` form). Locked registry consumption now supports HTTPS metadata/archive fetch, semver pinning, SHA-256 verification, cache extraction, and offline locked inputs. A credentialed upload path exists in the CLI, but a stable public registry publication service, `git=`/`github=` sources, and workspaces remain deferred.
+Locked origin consumption supports Git tag resolution, source/archive fetch,
+semver pinning, SHA-256 verification, cache extraction, and offline locked
+inputs. The public design follows Go: a public Git repository plus an immutable
+`vX.Y.Z` tag is enough to publish. A proxy and checksum database are optional
+later layers; `git=`/`github=` sources and workspaces remain deferred.
 
-The current registry backend uses HTTPS metadata and archive downloads with
-semver pinning, checksum verification, and cache extraction. The planned GitHub
-index/Release `.crate` backend and direct `github = "owner/repo"` dependencies
-remain design context in [RFC-005](../rfc/RFC-005-package-manager.md) §6.5–6.6.
+The current client uses origin metadata/archive downloads with semver pinning,
+checksum verification, and cache extraction. The planned client resolves Git
+tags directly; a future proxy may expose Go-shaped read objects (`@v/list`,
+`.info`, `.mod`, and `.zip`). See [RFC-005](../rfc/RFC-005-package-manager.md)
+§6.6.
 
 ## Publish and registry limits
 
 - `aura publish --dry-run` is available for local validation and preview
-- Registry upload is implemented behind an explicit registry URL and token;
-  it is still a bounded alpha workflow rather than a public package service
+- The former HTTP upload path has been removed; publication is origin-based
+- Public publication is a Git operation: create and push an immutable origin tag
+- GitHub Releases are optional for packages and reserved primarily for binaries
+- A proxy/cache and checksum database are deliberately deferred
 - No `git=` / `github=` sources or workspaces
 - Prefer monorepo-local or sibling `path = "…"` deps
 

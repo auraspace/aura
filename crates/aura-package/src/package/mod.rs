@@ -27,8 +27,7 @@ pub use fetch::{
 pub use load::{
     load_package, load_package_default, load_package_read_only, load_package_read_only_with_std,
 };
-pub use publish::{publish_dry_run, publish_package};
-pub use registry::PublishErrorKind;
+pub use publish::publish_dry_run;
 pub use registry::{activate_update, current_target, RegistryIndex, UpdateDecision};
 #[cfg(test)]
 pub use registry::{

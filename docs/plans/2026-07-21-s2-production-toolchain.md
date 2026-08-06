@@ -319,8 +319,8 @@ production ship decision from one source of truth.
 
 ## Open questions
 
-- The HTTPS registry endpoint and authentication policy must be confirmed before
-  implementing `aura publish`; publishing is not an S2 blocker without that
-  external contract.
+- The origin read/publication contract and authentication policy must be confirmed
+  before implementing public `aura publish`; origin publication is not an S2
+  blocker and a proxy remains out of scope until the origin contract settles.
 - A native macOS amd64 acceptance runner may be needed for runtime execution;
   cross-build validation alone is insufficient for full confidence.

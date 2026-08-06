@@ -23,21 +23,21 @@ cargo run -p aura-cli -- <command> [args]
 
 ## Commands (0.1.1-alpha.5)
 
-| Command                   | Purpose                                        |
-| ------------------------- | ---------------------------------------------- |
-| `new <path>`              | Scaffold a package directory                   |
-| `init [name]`             | Scaffold in the current directory              |
-| `check <file\|dir>`       | Parse + typecheck                              |
-| `build <file\|dir>`       | Emit native binary (`-o` for output path)      |
-| `run <file\|dir>`         | Build and execute                              |
-| `test <file\|dir>`        | Run `@test` functions                          |
-| `race <file\|dir>`        | Run tests with the runtime race detector       |
-| `fmt [--check] <path>`    | Format/check a source file, package, or folder |
-| `lsp` / `language-server` | Run the stdio Aura language server (`auralsp`) |
-| `emit-c <file\|dir>`      | Emit C (advanced / debugging)                  |
-| `publish [path]`          | Validate locally or upload to a registry       |
-| `update`                  | Check, or activate, a toolchain update         |
-| `version`                 | Print the installed CLI version                |
+| Command                   | Purpose                                           |
+| ------------------------- | ------------------------------------------------- |
+| `new <path>`              | Scaffold a package directory                      |
+| `init [name]`             | Scaffold in the current directory                 |
+| `check <file\|dir>`       | Parse + typecheck                                 |
+| `build <file\|dir>`       | Emit native binary (`-o` for output path)         |
+| `run <file\|dir>`         | Build and execute                                 |
+| `test <file\|dir>`        | Run `@test` functions                             |
+| `race <file\|dir>`        | Run tests with the runtime race detector          |
+| `fmt [--check] <path>`    | Format/check a source file, package, or folder    |
+| `lsp` / `language-server` | Run the stdio Aura language server (`auralsp`)    |
+| `emit-c <file\|dir>`      | Emit C (advanced / debugging)                     |
+| `publish [path]`          | Validate locally; later publish to package origin |
+| `update`                  | Check, or activate, a toolchain update            |
+| `version`                 | Print the installed CLI version                   |
 
 Examples:
 
@@ -51,8 +51,7 @@ aura test path --test-name filter --format json
 aura race path --format json
 aura fmt path/src/main.aura
 aura publish --dry-run path
-# upload requires a registry URL and AURA_REGISTRY_TOKEN
-aura publish --registry https://registry.example path
+# Public origin publication is not shipped yet.
 aura update --package aura --current 0.1.1-alpha.5
 auralsp
 # or: aura lsp
@@ -121,8 +120,9 @@ Hyphens in the path become underscores in the package name (`my-app` → package
 ## Registry and update commands
 
 `publish --dry-run` validates and previews a package without network access.
-Upload requires `--registry <url>` (or `AURA_REGISTRY_URL`) and
-`AURA_REGISTRY_TOKEN`. `update` checks a toolchain registry; `--activate`
+The former registry upload path has been removed. The target publication flow
+creates and pushes an immutable origin tag; GitHub Releases are optional for
+packages. A proxy and checksum database are intentionally deferred. `update` checks a toolchain registry; `--activate`
 downloads and atomically switches the active executable, with `--json` for
 machine-readable output. These are bounded alpha workflows, not a complete
 package UX.

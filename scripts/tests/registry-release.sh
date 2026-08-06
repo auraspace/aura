@@ -13,7 +13,7 @@ if bash scripts/validate-registry-acceptance.sh --report "$tmp/production-claim.
   printf 'registry/release acceptance script: validator accepted a production claim from an offline fixture\n' >&2
   exit 1
 fi
-sed 's/"protocol":"rfc005-sparse-index-plus-api-v1"/"protocol":"unknown"/' "$report" >"$tmp/protocol-drift.json"
+sed 's/"protocol":"rfc005-go-style-origin-v1"/"protocol":"unknown"/' "$report" >"$tmp/protocol-drift.json"
 if bash scripts/validate-registry-acceptance.sh --report "$tmp/protocol-drift.json" >/dev/null 2>&1; then
   printf 'registry/release acceptance script: validator accepted protocol drift\n' >&2
   exit 1

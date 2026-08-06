@@ -75,16 +75,19 @@ commits, RFCs, or release notes instead of appending progress for every change.
 - Next step: run the full matrix on supported clean hosts and retain the host,
   target, and sanitizer configuration with the release evidence.
 
-### RELEASE-001 release and registry publication (2026-07-31)
+### RELEASE-001 release and registry publication (2026-08-06)
 
-- Area: packaging, registry, signing, and cross-target release
-- Symptom: publish/authentication, alternate dependency sources, production
-  signing, upload, and clean-host installer rehearsal are not complete.
-- Why deferred: they require an external registry contract, credentials, release
-  assets, and supported target hosts. The bounded local self-update and rollback
-  contract is covered by U7/U8 evidence.
-- Next step: define the registry/signing protocol, then run the frozen-release
-  installer and checksum matrix on every supported host.
+- Area: package origin, publication, signing, proxy, and cross-target release
+- Symptom: origin publication/authentication, alternate dependency sources,
+  production signing, and clean-host installer rehearsal are not complete; the
+  proxy layer has not started.
+- Why deferred: the direct-origin contract must stabilize before adding a cache
+  or mirror. Publication requires Git credentials and supported target hosts.
+  The bounded local self-update and
+  rollback contract is covered by U7/U8 evidence.
+- Next step: implement the Go-compatible origin tag/source contract,
+  then run the frozen-release installer and checksum matrix on every supported
+  host; add a proxy only after the origin contract is proven.
 
 ## Resolved History
 

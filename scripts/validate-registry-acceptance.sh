@@ -30,15 +30,15 @@ try:
 except (OSError, json.JSONDecodeError) as exc:
     raise SystemExit(f"invalid registry acceptance report: {exc}") from exc
 
-if record.get("schema_version") != 2:
+if record.get("schema_version") != 3:
     raise SystemExit("unsupported registry acceptance report schema")
 if record.get("network") is not False or record.get("production_claim") is not False:
     raise SystemExit("offline fixture report must not claim production network acceptance")
 if record.get("outcome") != "pass":
     raise SystemExit("registry acceptance did not pass")
-if record.get("protocol") != "rfc005-sparse-index-plus-api-v1":
+if record.get("protocol") != "rfc005-go-style-origin-v1":
     raise SystemExit("registry acceptance protocol evidence is incomplete")
-if record.get("registry_fixture") != "u8_local_registry_release_acceptance":
+if record.get("registry_fixture") != "u8_local_origin_release_acceptance":
     raise SystemExit("registry acceptance fixture identity is incomplete")
 if record.get("cross_host") != "artifact-file-acceptance":
     raise SystemExit("registry acceptance cross-host limitation is incomplete")
@@ -49,12 +49,12 @@ if not isinstance(host, str) or "-" not in host or not all(host.split("-", 1)):
 publish = record.get("publish")
 if not isinstance(publish, dict):
     raise SystemExit("registry acceptance is missing publish evidence")
-if publish.get("http_status") != 201:
-    raise SystemExit("publish receipt evidence must be HTTP 201")
-if publish.get("receipt") != "verified-local-fixture":
-    raise SystemExit("publish receipt was not verified by the local fixture")
+if publish.get("origin") != "verified-local-fixture":
+    raise SystemExit("origin publication evidence was not verified by the local fixture")
+if publish.get("archive") != "materialized-at-origin":
+    raise SystemExit("origin archive materialization evidence is incomplete")
 if publish.get("identity") != "package/version/checksum":
-    raise SystemExit("publish receipt identity contract is incomplete")
+    raise SystemExit("origin publication identity contract is incomplete")
 
 update = record.get("update")
 if not isinstance(update, dict):

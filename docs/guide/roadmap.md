@@ -29,7 +29,7 @@ Aura is **spec-first**: RFCs lock design; the compiler and runtime land vertical
 | [002](/rfc/002) | Type system                | Accepted   | **Partial**                                      | Null flow, generics, bounds, Result, fun types; deeper rules ongoing                                                                                                                                   |
 | [003](/rfc/003) | Memory & concurrency       | Accepted   | **Partial**                                      | GC mark/sweep, task frames, channels, bounded await and frame scans; general scheduler/ownership limited                                                                                               |
 | [004](/rfc/004) | Compiler architecture      | Accepted   | **IR boundary shipped; native backends partial** | Checked IR/MIR/state-machine contracts are backend-neutral; C remains alpha and LLVM/Cranelift are next native implementations                                                                         |
-| [005](/rfc/005) | Package manager            | Accepted   | **Partial**                                      | Path deps + verified HTTPS/nested locked registry consumption; publish/upload and public registry UX remain bounded                                                                                    |
+| [005](/rfc/005) | Package manager            | Accepted   | **Partial**                                      | Path deps + verified HTTPS/nested locked origin consumption; origin publication is deferred and proxy is intentionally out of scope                                                                    |
 | [006](/rfc/006) | Runtime                    | Accepted   | **Partial**                                      | `runtime.c`, GC, exceptions/causes, task frames/channels, file I/O, FFI pins; full async I/O remains open                                                                                              |
 | [007](/rfc/007) | Standard library           | Accepted   | **Partial**                                      | `std.io` / `assert` / Map·Set·HashMap<K,V> + Hashable + HOF + deterministic collection snapshots                                                                                                       |
 | [008](/rfc/008) | Build system               | Accepted   | **Partial**                                      | `aura.toml`, profiles/cache APIs, package build/run/test; cross-host evidence remains open                                                                                                             |
@@ -64,7 +64,7 @@ coverage are backend-neutral even while the C runtime/backend remains alpha.
 **C13**, S2, and the bounded v0.1.1-alpha.5 release scope are closed.
 
 **Next:** post-release follow-up covers general async lowering/captures, richer
-async I/O and HTTP handles, live registry publication, FFI boundary gaps, and
+async I/O and HTTP handles, live package-origin publication, FFI boundary gaps, and
 tier-2/native evidence. See the [contract matrix](https://github.com/auraspace/aura/blob/main/docs/plans/v0.1.1-alpha/contract-matrix.tsv) and residual [debts](https://github.com/auraspace/aura/blob/main/agents/debts.md).
 
 Exact bullet lists live in the root [README](https://github.com/auraspace/aura) and repo [`docs/roadmap.md`](https://github.com/auraspace/aura/blob/main/docs/roadmap.md).

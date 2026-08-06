@@ -14,7 +14,7 @@ use aura_lsp::run_stdio_with_std_root;
 use aura_package as package;
 use package::{
     activate_update, current_target, load_package, load_package_default, publish_dry_run,
-    publish_package, LoadedPackage, RegistryIndex, UpdateDecision, ENV_REGISTRY_TOKEN,
+    LoadedPackage, RegistryIndex, UpdateDecision,
 };
 use std::env;
 use std::fs;
@@ -74,8 +74,8 @@ fn eprint_usage() {
            aura test [path] [--test-name <pattern>] [--format json] [-- args...]\n  \
            aura bench [path] [--test-name <pattern>] [-- args...]\n  \
            aura race [path] [--format json] [-- args...]\n  \
-           aura publish --dry-run [path]    Validate and preview without upload\n  \
-           aura publish --registry <url> [path]  Validate and upload package\n  \
+           aura publish --dry-run [path]    Validate and preview origin publication\n  \
+           aura publish [path]              Origin publication (not yet available)\n  \
            aura update ... --activate           Verify and atomically activate update\n  \
            aura fmt [--check] <path>          Format/check `.aura` files, project, or folder\n  \
            aura emit-c [path]                Print generated C (debug)\n  \
@@ -243,19 +243,11 @@ fn cmd_update(args: &[String]) -> ExitCode {
 fn cmd_publish(args: &[String]) -> ExitCode {
     let mut dry_run = false;
     let mut path = None;
-    let mut registry = None;
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
         if arg == "--dry-run" {
             dry_run = true;
-        } else if arg == "--registry" {
-            i += 1;
-            let Some(value) = args.get(i) else {
-                eprintln!("error: --registry requires a URL");
-                return ExitCode::from(2);
-            };
-            registry = Some(value.clone());
         } else if arg.starts_with('-') {
             eprintln!("error: unknown publish option `{arg}`");
             return ExitCode::from(2);
@@ -267,10 +259,6 @@ fn cmd_publish(args: &[String]) -> ExitCode {
     }
     let path = path.unwrap_or_else(|| PathBuf::from("aura.toml"));
     if dry_run {
-        if registry.is_some() {
-            eprintln!("error: --registry cannot be combined with --dry-run");
-            return ExitCode::from(2);
-        }
         return match publish_dry_run(path) {
             Ok(preview) => {
                 println!("{}", preview.render());
@@ -282,29 +270,10 @@ fn cmd_publish(args: &[String]) -> ExitCode {
             }
         };
     }
-    let registry = registry.or_else(|| std::env::var("AURA_REGISTRY_URL").ok());
-    let Some(registry) = registry else {
-        eprintln!("error: publish upload requires --registry <url> or AURA_REGISTRY_URL");
-        return ExitCode::from(2);
-    };
-    match publish_package(
-        path,
-        &registry,
-        std::env::var(ENV_REGISTRY_TOKEN).ok().as_deref(),
-    ) {
-        Ok(receipt) => {
-            println!("{}", receipt.render_json());
-            ExitCode::SUCCESS
-        }
-        Err(error) => {
-            eprintln!("{}", error.render_json());
-            if error.kind == package::PublishErrorKind::Indeterminate {
-                ExitCode::from(3)
-            } else {
-                ExitCode::from(1)
-            }
-        }
-    }
+    eprintln!(
+        "error: origin publication is not implemented; use `aura publish --dry-run` to validate the release"
+    );
+    ExitCode::from(2)
 }
 
 fn cmd_fmt(args: &[String]) -> ExitCode {

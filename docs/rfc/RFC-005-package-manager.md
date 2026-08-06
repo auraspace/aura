@@ -8,7 +8,7 @@
 | **Layer**    | Toolchain                 |
 | **Authors**  |                           |
 | **Created**  | 2026-07-15                |
-| **Updated**  | 2026-07-28                |
+| **Updated**  | 2026-08-06                |
 | **Estimate** | 20–40 pages               |
 | **Depends**  | RFC-000                   |
 | **Blocks**   | RFC-008, RFC-012, RFC-013 |
@@ -17,9 +17,9 @@
 
 ## 1. Abstract
 
-This RFC defines the **Aura package manager**: manifest format (`aura.toml`), lockfile, dependency resolver, registry client, workspaces, and publish flow. The **default registry is GitHub-backed** (index repository + Release crate artifacts; optional direct `github =` deps). Implemented in **Rust** as part of the `aura` CLI, it ensures **reproducible** dependency graphs for libraries and binaries.
+This RFC defines the **Aura package manager**: manifest format (`aura.toml`), lockfile, dependency resolver, origin/module protocol, workspaces, and publication flow. The default public package origin is a Git repository, normally hosted on GitHub. A package is published by pushing an immutable `vX.Y.Z` tag; a proxy is an optional read-through cache layered on direct VCS access. Implemented in **Rust** as part of the `aura` CLI, the package manager ensures **reproducible** dependency graphs for libraries and binaries.
 
-**Toolchain today (2026-08-01, S2 + v0.1.1-alpha follow-up):** multi-file packages with minimal `aura.toml`, path dependencies, and `aura.lock` write/verify including nested/transitive entries. Locked registry dependencies are consumed through HTTPS metadata and archive downloads with semver pinning, SHA-256 verification, cache extraction, and atomic cache publication. Root procedural macro executables are also pinned by package-relative path and SHA-256 in the lockfile. Offline publish/update receipts, rollback, and signature fixtures exist; live registry publishing/authentication, `git=`/`github=` sources, and workspaces remain deferred — see [roadmap](../roadmap.md) and `agents/debts.md`.
+**Toolchain today (2026-08-06, S2 + v0.1.1-alpha follow-up):** multi-file packages with minimal `aura.toml`, path dependencies, and `aura.lock` write/verify including nested/transitive entries. Locked registry dependencies are consumed through HTTPS metadata and archive downloads with semver pinning, SHA-256 verification, cache extraction, and atomic cache publication. Root procedural macro executables are also pinned by package-relative path and SHA-256 in the lockfile. Local origin fixtures, offline update evidence, rollback, and signature fixtures exist. The public origin protocol, GitHub publication workflow, `git=`/`github=` sources, and workspaces remain deferred; a proxy is explicitly deferred until the origin contract is stable.
 
 ## 2. Motivation
 
@@ -44,8 +44,8 @@ Build (RFC-008), CLI (RFC-012), and distribution (RFC-013) consume the package g
 - Manifest + lockfile as source of truth.
 - Semver-compatible resolver with clear conflict errors.
 - Workspaces for multi-package repos.
-- Registry protocol sufficient for public + private registries.
-- **GitHub as the default registry backend** (index + crate artifacts + publish) so the ecosystem needs no separate package host for v1.
+- A versioned module protocol sufficient for public + private origins.
+- **Git repositories as the package origin** (repository + `vX.Y.Z` tag) so the ecosystem needs no package host for v1.
 - Checksums and integrity verification.
 
 ## 4. Non-goals
@@ -90,7 +90,7 @@ description = "..."
 repository = "https://github.com/org/demo"
 
 [dependencies]
-# From the default GitHub-backed registry (index resolve + tarball fetch)
+# From the default VCS origin (tag/revision resolve + source fetch)
 http = "1.2"
 serde = { version = "1", features = ["json"] }
 
@@ -102,8 +102,7 @@ tool = { github = "org/tool", tag = "v1.0.0" }
 # Equivalent explicit git form
 tool2 = { git = "https://github.com/org/tool", rev = "abc123def" }
 
-# Non-default registry (still often a GitHub index repo)
-private = { version = "2", registry = "github:myorg/aura-index" }
+# Non-default origin/proxy configuration is selected outside the manifest.
 
 [dev-dependencies]
 assert = "1"
@@ -127,24 +126,24 @@ path = "src/lib.aura"
   local_lib = "../local_lib"
   local_lib = { path = "../local_lib", source = "path" }
 
-  # registry pin (locked HTTPS consumption)
-  http = { version = "1.2.3", checksum = "sha256:…", source = "registry" }
+  # VCS origin pin (locked direct consumption)
+  http = { version = "1.2.3", checksum = "sha256:…", source = "git+https://github.com/auraspace/http", rev = "abc123…" }
   ```
 
-- Full lock form (when GitHub registry ships) extends `source` with a **source id** and optional locator fields:
+- Full lock form uses an explicit origin source id and immutable revision:
 
   ```toml
-  # Default official index (GitHub-backed)
-  http = { version = "1.2.3", checksum = "sha256:…", source = "registry+github:auraspace/crates-index" }
+  # Default Git origin
+  http = { version = "1.2.3", checksum = "sha256:…", source = "git+https://github.com/auraspace/http", rev = "abc123…" }
 
   # Direct GitHub (resolved tag → commit)
-  tool = { version = "1.0.0", checksum = "sha256:…", source = "github:org/tool", rev = "abc123def" }
+  tool = { version = "1.0.0", checksum = "sha256:…", source = "git+https://github.com/org/tool", rev = "abc123def" }
 
   # Path
   local_lib = { path = "../local_lib", source = "path" }
   ```
 
-- Clients **must** treat `source = "registry"` (bare) as an alias for the configured default registry source id.
+- Existing bare `source = "registry"` locks are legacy and must be migrated to an explicit origin URL and `rev` before public VCS consumption.
 - `rev` (git commit SHA) is required in lock for any github/git source; floating `branch` never appears in the lock.
 
 ### 6.4 Resolver
@@ -157,104 +156,102 @@ path = "src/lib.aura"
 
 ### 6.5 Sources
 
-| Source       | Manifest form                                 | Lock `source` id                       | Use                                                                       |
-| ------------ | --------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------- |
-| **Registry** | `"1.2"` or `{ version = "1.2" }`              | `registry+github:<owner>/<index-repo>` | Default path: resolve via **GitHub-hosted index**, download crate tarball |
-| **GitHub**   | `{ github = "owner/repo", tag = "v1.0.0" }`   | `github:owner/repo` + `rev`            | Direct package repo without publishing to the index                       |
-| **Git**      | `{ git = "https://…", rev/tag/branch = "…" }` | `git+https://…` + `rev`                | Any git host; GitHub URLs normalize to the GitHub source when possible    |
-| **Path**     | `{ path = "…" }`                              | `path`                                 | Local / workspace packages                                                |
+| Source     | Manifest form                                 | Lock `source` id                            | Use                                                                    |
+| ---------- | --------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------- |
+| **Origin** | `"1.2"` or `{ version = "1.2" }`              | `git+https://…` + `rev`                     | Resolve semver tags from the package repository and fetch source       |
+| **GitHub** | `{ github = "owner/repo", tag = "v1.0.0" }`   | `git+https://github.com/owner/repo` + `rev` | Explicit direct origin; same VCS contract                              |
+| **Git**    | `{ git = "https://…", rev/tag/branch = "…" }` | `git+https://…` + `rev`                     | Any git host; GitHub URLs normalize to the GitHub source when possible |
+| **Path**   | `{ path = "…" }`                              | `path`                                      | Local / workspace packages                                             |
 
 Priority when a name appears in multiple forms is an error unless `[patch]` replaces it.
 
-### 6.6 Registry (GitHub-backed default)
+### 6.6 Package origin and Go module protocol
 
-The **default Aura registry is GitHub-backed**. There is no separate crates.io-style SaaS required for v1. Custom HTTP registries remain allowed later; GitHub is the specified default backend.
+Aura follows the Go module publication model. The authoritative source is a
+version-controlled repository; for public packages this is normally GitHub.
+There is no package registry database, package upload endpoint, mandatory
+GitHub Release, or index repository in the v1 contract.
 
-#### 6.6.1 Components
+#### 6.6.1 Origin contract
 
-| Piece         | Default location / mechanism                                                                 |
-| ------------- | -------------------------------------------------------------------------------------------- |
-| **Index**     | Git repo `github.com/auraspace/crates-index` (name may track org rename; configurable)       |
-| **Metadata**  | Per-package documents in the index (versions, yank flags, **sha256**, download URL template) |
-| **Artifacts** | Crate tarballs attached as **GitHub Release** assets on the package’s `repository`           |
-| **Auth**      | Unauthenticated HTTPS for public read; `GITHUB_TOKEN` / `gh` auth for private read + publish |
-| **Publish**   | `aura publish` → build crate → create git tag + Release asset → update index entry           |
+| Piece           | Contract                                                                                          |
+| --------------- | ------------------------------------------------------------------------------------------------- |
+| Module identity | Stable module path, normally the repository path                                                  |
+| Source of truth | Public Git repository and its refs                                                                |
+| Version         | Immutable semver tag `vX.Y.Z`                                                                     |
+| Artifact        | Source tree at the tagged revision; a deterministic archive may be generated by a client or proxy |
+| Publication     | Maintainer pushes the tag to the origin repository                                                |
+| GitHub Release  | Optional convenience for humans or binary/toolchain distribution; not package discovery           |
+| Proxy           | Optional cache/mirror added later; it must not change the origin semantics                        |
 
-Toolchain install (RFC-013) already uses GitHub Releases; package artifacts reuse the same hosting model, with a **separate index repo** so package discovery is not coupled to the compiler monorepo.
-
-#### 6.6.2 Index layout
-
-Sparse, filesystem-friendly layout (Cargo sparse-inspired, GitHub-raw friendly):
-
-```text
-crates-index/
-  config.json                 # dl template, api base, min aura version
-  packages/
-    he/
-      ll/
-        hello/
-          versions.json       # or one line per version (append-only preferred)
-  yanks/
-    hello.json                # optional side file; may live inside versions.json
-```
-
-`config.json` (conceptual):
-
-```json
-{
-  "dl": "https://github.com/{owner}/{repo}/releases/download/v{version}/{name}-{version}.crate",
-  "api": "https://github.com/auraspace/crates-index",
-  "github_api": "https://api.github.com"
-}
-```
-
-Each version record includes at least:
-
-| Field        | Meaning                                         |
-| ------------ | ----------------------------------------------- |
-| `name`       | Package name (flat namespace)                   |
-| `vers`       | Semver string                                   |
-| `cksum`      | sha256 of the `.crate` tarball                  |
-| `yanked`     | bool                                            |
-| `repository` | `owner/repo` used to fill the download template |
-| `features`   | optional feature map (when features ship)       |
-
-**Read path:** clone or shallow-fetch the index (git protocol), or HTTP GET of individual sparse paths via `raw.githubusercontent.com` / Contents API. Implementations may cache the index under `~/.aura/registry/index/`.
-
-**Write path (publish):** authenticated push or **pull request** to the index repo (bots may auto-merge signed publish commits). Community packages start via PR; official packages may use a token with direct push.
-
-#### 6.6.3 Fetch protocol (client)
-
-1. Parse `aura.toml` deps → query index for matching versions (semver).
-2. Resolve unified graph → write/update `aura.lock` with version + checksum + source id.
-3. For each registry pin missing from cache:
-   - Expand `dl` template → HTTPS download of `.crate`.
-   - Verify **sha256** against lock/index; mismatch → abort (supply-chain).
-   - Extract into `~/.aura/registry/src/<name>-<version>/` (or content-addressed cache).
-4. Build consumes the cache path as if it were a path dep (RFC-008).
-
-Direct **GitHub** deps skip the index: resolve `tag`/`branch` → commit SHA via GitHub API or git ls-remote; download `https://codeload.github.com/<owner>/<repo>/tar.gz/<rev>` (or git fetch); checksum the archive; pin `rev` in the lock.
-
-#### 6.6.4 Names, yank, private
-
-- **Names:** flat; reserve `std` / `aura` prefixes; reverse-DNS encouraged for public uniqueness (`com.example.foo` OK as a name string).
-- **Yank:** set `yanked = true` in the index; new resolves must not select yanked versions; existing locks still fetch if the Release asset remains available.
-- **Private:** private package repo + optional private index repo under a GitHub org; token needs `contents:read` (fetch) and publish scopes as documented in the CLI.
-- **Alternate registries:** `[registries.myorg]` in user/project config pointing at another `github:owner/index-repo` or, later, a generic HTTP index URL.
-
-#### 6.6.5 `aura publish` (GitHub)
+The required package files live in the tagged source tree:
 
 ```text
-aura publish
-  → validate aura.toml (name, version, license, repository)
-  → package sources into name-version.crate
-  → sha256
-  → git tag v{version} on package repository (if clean & matches)
-  → upload Release asset via GitHub API
-  → append version record to crates-index (PR or push)
+<module-repository>/
+  aura.toml
+  src/
+  ...
 ```
 
-Idempotency: re-publishing the same version with a different checksum is an error; yank + new version for fixes.
+#### 6.6.2 Read protocol
+
+The initial client reads the origin directly, using Git or the hosting
+provider's source archive endpoint. A future proxy may expose the equivalent
+Go-shaped objects:
+
+```text
+<module>/@v/list
+<module>/@v/<version>.info
+<module>/@v/<version>.mod
+<module>/@v/<version>.zip
+```
+
+These are proxy/cache representations, not additional publication records. The
+origin remains the repository and tag. The client must resolve a version to an
+immutable commit, fetch the tagged source, calculate/verify its checksum, and
+pin `version`, `rev`, `source`, and `checksum` in `aura.lock`.
+
+#### 6.6.3 Fetch and version selection
+
+1. Parse `aura.toml` dependencies and resolve the module path to its origin.
+2. List semver tags from the origin; ignore malformed tags.
+3. Select the highest compatible version and resolve it to a commit SHA.
+4. Fetch the tagged source tree directly, or through a future proxy.
+5. Verify the archive/source checksum and extract it into the Aura cache.
+6. Write the immutable version, source URL, revision, and checksum to `aura.lock`.
+
+Private origins use the user's Git credential/SSH setup or an environment token;
+credentials never enter manifests or lockfiles. A future checksum database may
+provide Go-like transparency and global verification, but it is not required
+for the first direct-origin implementation.
+
+#### 6.6.4 Publication
+
+Publishing a package is a Git operation, not an Aura registry API:
+
+```text
+validate aura.toml
+  → commit package sources
+  → create immutable tag v{version}
+  → git push origin v{version}
+```
+
+Equivalent commands are:
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+`gh release create` is reserved for Aura toolchains and binary distributions
+(RFC-013). It is optional for packages and must not be used as the package
+source of truth. Aura may later provide a helper that validates and pushes a
+tag, but the protocol must remain usable with ordinary Git commands.
+
+Idempotency: an existing tag is immutable; publishing the same version with a
+different commit is an error. Fixes require a new version. Yank/revoke policy
+is future metadata/proxy work; the direct client never silently rewrites an
+existing lock.
 
 ### 6.7 Workspaces
 
@@ -268,15 +265,15 @@ members = ["crates/*"]
 
 ### 6.8 Commands (see also RFC-012)
 
-| Command                      | Action                                               |
-| ---------------------------- | ---------------------------------------------------- |
-| `aura init` / `new`          | Scaffold                                             |
-| `aura add <pkg>`             | Edit manifest + resolve (default registry)           |
-| `aura add github:owner/repo` | Add direct GitHub dep (tag latest semver tag if any) |
-| `aura update`                | Refresh within constraints                           |
-| `aura publish`               | Package + GitHub Release + index update              |
-| `aura tree`                  | Show graph                                           |
-| `aura login`                 | Store GitHub token for publish/private (optional)    |
+| Command                      | Action                                        |
+| ---------------------------- | --------------------------------------------- |
+| `aura init` / `new`          | Scaffold                                      |
+| `aura add <pkg>`             | Edit manifest + resolve the module origin     |
+| `aura add github:owner/repo` | Add direct GitHub dep (resolve a semver tag)  |
+| `aura update`                | Refresh within constraints                    |
+| `aura publish`               | Validate and optionally create/push a Git tag |
+| `aura tree`                  | Show graph                                    |
+| `aura login`                 | Configure Git/GitHub credentials (optional)   |
 
 ### 6.9 Examples
 
@@ -304,67 +301,73 @@ aura-metrics = { github = "acme/aura-metrics", tag = "v0.3.1" }
 
 ### 6.10 Error model / edge cases
 
-| Case                         | Behavior                                             |
-| ---------------------------- | ---------------------------------------------------- |
-| Conflict                     | Error with candidate paths                           |
-| Hash mismatch                | Abort fetch; possible mirror / Release-tamper attack |
-| Yanked used by lock          | Warn; allow with flag                                |
-| Transitive prerelease        | Only if explicitly allowed                           |
-| Missing GitHub Release asset | Clear error with package name, version, expected URL |
-| Rate limit (API)             | Retry/backoff; prefer git/raw index paths over API   |
-| Private without token        | Error pointing at `aura login` / `GITHUB_TOKEN`      |
-| Ambiguous git tag semver     | Require explicit `tag` or `rev`                      |
+| Case                     | Behavior                                             |
+| ------------------------ | ---------------------------------------------------- |
+| Conflict                 | Error with candidate paths                           |
+| Hash mismatch            | Abort fetch; possible mirror / Release-tamper attack |
+| Yanked used by lock      | Warn; allow with flag                                |
+| Transitive prerelease    | Only if explicitly allowed                           |
+| Missing tagged source    | Clear error with module path, version, and origin    |
+| Rate limit (VCS/API)     | Retry/backoff; use a future proxy when available     |
+| Private without token    | Error pointing at `aura login` / `GITHUB_TOKEN`      |
+| Ambiguous git tag semver | Require explicit `tag` or `rev`                      |
 
 ### 6.11 Compatibility & migration
 
 - Manifest format version field.
 - Resolver changes must not churn locks without `update`.
-- Bare `source = "registry"` in existing C8k locks remains valid = default GitHub index.
-- Future self-hosted/generic HTTP registries use distinct source ids; migration is config + re-resolve, not silent remap of checksums.
-- Toolchain GitHub Releases (RFC-013) stay independent of the package index repo.
+- Bare `source = "registry"` in existing C8k locks is legacy and requires migration to an explicit VCS source and `rev`.
+- Future proxies/checksum services must preserve the origin URL, tag, commit, and checksum; migration must not silently remap locks.
+- Toolchain GitHub Releases (RFC-013) stay independent of package source publication.
 
 ## 7. Open questions
 
-| #   | Question                              | Options       | Owner   | Status                                                                                         |
-| --- | ------------------------------------- | ------------- | ------- | ---------------------------------------------------------------------------------------------- |
-| 1   | Default registry hosting              |               | Project | **Resolved** — **GitHub-backed**: index repo + Release assets; no separate package SaaS for v1 |
-| 2   | Lockfile for pure libraries required? | always commit | Pkg     | **Resolved**                                                                                   |
-| 3   | Namespace policy                      |               | Project | **Resolved** — flat names; reserve `std`/`aura`; reverse-DNS encouraged public                 |
-| 4   | Index update mechanism on publish     | PR vs push    | Pkg     | **Resolved** — PR default for community; token push allowed for official/automation            |
-| 5   | Index repo final name                 |               | Project | Open — default design name `auraspace/crates-index` until created                              |
+| #   | Question                              | Options       | Owner   | Status                                                                              |
+| --- | ------------------------------------- | ------------- | ------- | ----------------------------------------------------------------------------------- |
+| 1   | Default package hosting               |               | Project | **Resolved** — direct Git origin with immutable semver tags; no package SaaS for v1 |
+| 2   | Lockfile for pure libraries required? | always commit | Pkg     | **Resolved**                                                                        |
+| 3   | Namespace policy                      |               | Project | **Resolved** — flat names; reserve `std`/`aura`; reverse-DNS encouraged public      |
+| 4   | Package publication mechanism         | Git tag push  | Pkg     | **Resolved** — ordinary Git tag/push; no package index update                       |
+| 5   | Proxy/checksum service                | later         | Project | **Deferred** — direct origin first; proxy and checksum database follow later        |
 
 ## 8. Rationale & trade-offs
 
 Cargo-like design is proven for compiled languages with features and workspaces. Strict hashes beat “works on my machine.” Cost: users learn TOML manifest; acceptable.
 
-**Why GitHub as registry:** Aura already ships toolchains via GitHub Releases (RFC-013). Reusing GitHub for package index + artifacts removes day-one ops (CDN, registry service, storage) and matches how most early libraries already live (public repos + tags). Trade-offs accepted: GitHub rate limits and availability become part of the supply chain; mitigated by lockfile checksums, local caches, and a later mirror protocol. Direct `github = "owner/repo"` covers packages before they join the index, similar to Go/Swift.
+**Why direct Git origins:** Go modules establish that a public repository and
+immutable semver tags are enough to publish a package. This removes a package
+database, upload service, and index maintenance from Aura's first release.
+Trade-offs accepted: clients initially depend on VCS hosting availability and
+tag discovery; local caches, immutable lock revisions, and a future proxy or
+checksum database address those concerns without changing the origin contract.
 
 ## 9. Unresolved / future work
 
-- Mirror protocol / offline vendor bundles of the GitHub index
+- Proxy/mirror protocol and offline vendor bundles
 - Vendor mode (`aura vendor`)
 - Binary dependencies / toolchains as packages
-- Generic non-GitHub HTTP registry adapter (protocol-compatible index)
-- Provenance (attestations on Release assets)
+- Generic non-Git HTTP origin adapter
+- Provenance and checksum database
 
 ## 10. Security & safety considerations
 
-- Always verify **sha256** of crate tarballs against the lock (and index at resolve time).
-- HTTPS by default; prefer immutable Release assets + commit SHAs.
-- `aura publish` requires auth; org 2FA / branch protection on the index repo.
+- Always verify **sha256** of source archives against the lock and resolved commit.
+- HTTPS/SSH by default; always pin immutable commit SHAs.
+- Publication requires repository write auth; protect the default branch and tags.
 - Git/GitHub deps: **commit SHAs in lock**, never floating branches.
-- Treat index commits and Release uploads as trusted only after checksum match; document token least privilege (`contents` on package repo + index).
+- Treat origin tags and source archives as trusted only after checksum and commit identity match; document token least privilege on the package repository.
 - Do not execute install scripts from packages (no build.rs MVP — RFC-008).
 
 ## 11. Implementation plan (optional)
 
-| Phase | Scope                                        | Exit criteria                           | Status                                                                  |
-| ----- | -------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
-| K0    | Path deps + lock                             | Multi-package build                     | **Done** (incl. nested path lock C4j)                                   |
-| K0b   | Lock schema v0 (`registry` pins)             | Parse/verify without fetch              | **Done** (C8k)                                                          |
-| K1    | GitHub index client + tarball fetch + semver | Locked registry consumption and fixture | **Partial** — read/verify/cache path landed; live compatibility remains |
-| K1b   | Direct `github =` / `git =` deps             | Lock pins rev + checksum                | Deferred                                                                |
-| K2    | `aura publish` (Release + index PR/push)     | Round-trip public package               | Deferred                                                                |
+| Phase | Scope                             | Exit criteria                            | Status                                                                        |
+| ----- | --------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------- |
+| K0    | Path deps + lock                  | Multi-package build                      | **Done** (incl. nested path lock C4j)                                         |
+| K0b   | Lock schema v0 (`registry` pins)  | Parse/verify without fetch               | **Done** (C8k)                                                                |
+| K1    | Direct origin fetch + semver tags | Locked origin consumption and fixture    | **Partial** — read/verify/cache path landed; public VCS compatibility remains |
+| K1b   | Direct `github =` / `git =` deps  | Lock pins rev + checksum                 | Deferred                                                                      |
+| K2    | Origin publication (tag push)     | Round-trip public package                | Deferred                                                                      |
+| K3    | Optional proxy/cache              | Same read objects served through a cache | Explicitly deferred until K1/K2 contract is stable                            |
 
 ## 12. References
 
@@ -379,7 +382,7 @@ Cargo-like design is proven for compiled languages with features and workspaces.
 
 | Date       | Author | Change                                                                                      |
 | ---------- | ------ | ------------------------------------------------------------------------------------------- |
-| 2026-07-21 |        | **GitHub as default registry**: index repo, Release artifacts, `github =` source, publish   |
+| 2026-08-06 |        | **Go-style origin**: repository + immutable semver tag; proxy/checksum DB deferred          |
 | 2026-07-16 |        | Lock registry hosting model + flat namespace with reserved prefixes                         |
 | 2026-07-16 |        | Status → **Accepted** — Review: aura.toml + path lockfile locked; registry deferred cleanly |
 | 2026-07-16 |        | Note path deps + lock MVP vs registry                                                       |
