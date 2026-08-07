@@ -37,7 +37,7 @@ Aura is **spec-first**: RFCs lock design; the compiler and runtime land vertical
 | [010](/rfc/010) | Plugins / macros           | Accepted   | **Deferred / limited**                           | Not required for hello                                                                                                                                                                                 |
 | [011](/rfc/011) | Testing framework          | Accepted   | **Partial**                                      | `aura test` + `@test`, substring filters, race mode, and JSON reports; parallel/async/coverage remain open                                                                                             |
 | [012](/rfc/012) | CLI                        | Accepted   | **Partial**                                      | `new` / `init` / `version` / `check` / `build` / `run` / `test` / `race` / `fmt` / `emit-c` / `update`; package UX remains bounded                                                                     |
-| [013](/rfc/013) | Binary distribution        | Accepted   | **Partial**                                      | Prepared `v0.1.1-alpha.6` tarballs + installer; tier-2 targets and broader native evidence remain open                                                                                                 |
+| [013](/rfc/013) | Binary distribution        | Accepted   | **Partial**                                      | Prepared `v0.1.1-alpha.7` tarballs + installer; tier-2 targets and broader native evidence remain open                                                                                                 |
 | [014](/rfc/014) | Language server            | Draft      | **MVP shipped**                                  | `auralsp`/`aura lsp` stdio server with sync, diagnostics, formatting, symbols, completion, hover, navigation, references, rename, and safe code actions; deeper package/binding precision remains open |
 
 ## Compiler milestone band
@@ -60,8 +60,8 @@ coverage are backend-neutral even while the C runtime/backend remains alpha.
 | C13a–t | **Done:** method-on-temp, `Int.toString`, String array free, Fun/`var` String capture, registry K1 offline, eprint/tryWrite, signing note                      |
 | C20c–j | **Done:** mutable class/Array/Fun captures, snapshot and invalidation-checked live iterators, `Array<Interface>`, and HashMap entry mutation                   |
 
-**Shipped:** tags `v0.1.0-alpha` and `v0.1.1-alpha.6` + multi-OS tarballs; C12,
-**C13**, S2, and the bounded v0.1.1-alpha.6 release scope are closed.
+**Shipped:** tags `v0.1.0-alpha` and `v0.1.1-alpha.7` + multi-OS tarballs; C12,
+**C13**, S2, and the bounded v0.1.1-alpha.7 release scope are closed.
 
 **Next:** post-release follow-up covers general async lowering/captures, richer
 async I/O and HTTP handles, FFI boundary gaps, and tier-2/native evidence. The

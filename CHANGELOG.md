@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1-alpha.7 (2026-08-07)
+
+Release `0.1.1-alpha.7`.
+
+Full notes: [`docs/releases/0.1.1-alpha.7.md`](docs/releases/0.1.1-alpha.7.md).
+
+### Changes
+
+- feat(tls): enhance TLS connection handling with binary I/O and timeouts
+
 ## 0.1.1-alpha.6 (2026-08-06)
 
 Release `0.1.1-alpha.6`.

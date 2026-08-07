@@ -21,7 +21,7 @@ From this monorepo without a global install:
 cargo run -p aura-cli -- <command> [args]
 ```
 
-## Commands (0.1.1-alpha.6)
+## Commands (0.1.1-alpha.7)
 
 | Command                   | Purpose                                        |
 | ------------------------- | ---------------------------------------------- |
@@ -49,7 +49,7 @@ aura test path
 aura test path --test-name filter --format json
 aura race path --format json
 aura fmt path/src/main.aura
-aura update --package aura --current 0.1.1-alpha.6
+aura update --package aura --current 0.1.1-alpha.7
 auralsp
 # or: aura lsp
 aura version
