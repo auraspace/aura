@@ -4021,6 +4021,89 @@ fun main() {
     }
 
     #[test]
+    fn builds_and_runs_nullable_string_null_return() {
+        let file = aura_parser::parse_file(
+            r#"package nullable_string
+fun empty(): String? { return null }
+fun main() {
+  val value = empty()
+  if (value == null) { println("null") }
+  else { println("not-null") }
+}
+"#,
+        )
+        .expect("parse nullable String null return fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-nullable-string-null-return-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile nullable String null return fixture");
+        let output = Command::new(&bin)
+            .output()
+            .expect("run nullable String null return fixture");
+        assert!(
+            output.status.success(),
+            "nullable String null return failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "null\n");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
+    fn builds_async_class_errors_and_enum_awaits() {
+        let file = aura_parser::parse_file(
+            r#"package async_class_error_enum_await
+class Failure(val message: String) {}
+enum Status { case Ready }
+async fun first(): Unit { throw Failure("first") }
+async fun second(): Unit { throw Failure("second") }
+async fun recover(): String {
+  try {
+    await first()
+    return "unexpected"
+  } catch (error: Failure) {
+    return error.message
+  }
+}
+async fun makeFailure(): Failure { return Failure("value") }
+async fun localClass(): String {
+  try {
+    val value = await makeFailure()
+    return value.message
+  } catch (error: String) {
+    return error
+  }
+}
+async fun status(): Status { return Ready() }
+async fun useStatus(): Status {
+  val value = await status()
+  return value
+}
+fun main() {}
+"#,
+        )
+        .expect("parse async class error/enum await fixture");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|path| path.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir();
+        let stem = format!("aura-async-class-error-enum-await-{}", std::process::id());
+        let bin = dir.join(&stem);
+        let generated_c = dir.join(format!("{stem}.aura.c"));
+        build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+            .expect("compile async class error/enum await fixture");
+        let _ = fs::remove_file(bin);
+        let _ = fs::remove_file(generated_c);
+    }
+
+    #[test]
     fn builds_and_runs_std_json_recursive_generic_class_decode() {
         let file = aura_parser::parse_file(
             r#"package std.json

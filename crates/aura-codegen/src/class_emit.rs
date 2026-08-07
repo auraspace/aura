@@ -305,6 +305,7 @@ pub(crate) fn emit_class_forwards(
         let _ = writeln!(out, "void {cty}_drop({cty} *value);");
         let _ = writeln!(out, "void {cty}_mark(const {cty} *value);");
     } else {
+        let _ = writeln!(out, "static void {}(void *p);", c_dtor_name(&mono));
         let _ = writeln!(
             out,
             "static void {}(void *p);",

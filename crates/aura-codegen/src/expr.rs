@@ -2525,6 +2525,11 @@ fn emit_await(a: &AwaitExpr, ctx: &mut EmitCtx<'_>) -> String {
             ));
         } else if matches!(inner.as_str(), "Int" | "Bool" | "Opt_Int" | "Opt_Bool") {
             out.push_str(&format!("if (__await_result.data != NULL) __await_value = *(({cty} *)__await_result.data); "));
+        } else if is_enum_mono(&inner, ctx.checked)
+            || is_value_struct_mono(&inner, ctx.checked)
+            || is_iface_type_key(&inner, ctx.checked)
+        {
+            out.push_str(&format!("if (__await_result.data != NULL) __await_value = {cty}_clone(({cty} *)__await_result.data); "));
         } else {
             let clone = c_method_name(&inner, "clone");
             out.push_str(&format!("if (__await_result.data != NULL) __await_value = {clone}(({cty} *)__await_result.data); "));

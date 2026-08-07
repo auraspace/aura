@@ -1544,7 +1544,7 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                             };
                         let val = coerce_expr(e, &expected, ctx);
                         let val = if expected == "String"
-                            && !matches!(e, Expr::Ident(_))
+                            && !matches!(e, Expr::Ident(_) | Expr::Null(_))
                             && !string_expr_is_owned_temp(e, ctx)
                         {
                             // String returns are owned at the ABI boundary; copy borrowed
@@ -1696,9 +1696,23 @@ pub(crate) fn emit_try(out: &mut String, t: &TryStmt, indent: usize, ctx: &mut E
     let _ = writeln!(out, "{p}  int {state} = 0;");
     let _ = writeln!(out, "{p}  if (setjmp({jb}) == 0) {{");
     let _ = writeln!(out, "{p}    aura_try_enter(&{jb});");
+    // Keep try-local ownership separate from the enclosing function scope so
+    // fallback cleanup cannot reference C locals after their block ends.
+    ctx.push_scope();
     for stmt in &t.try_block.stmts {
         emit_stmt(out, stmt, indent + 2, ctx);
     }
+    emit_remove_array_gc_roots(out, indent + 2, &ctx.array_gc_roots_current());
+    emit_remove_gc_roots(out, indent + 2, &ctx.gc_roots_current());
+    emit_free_array_owners(out, indent + 2, ctx, &ctx.array_owners_current());
+    emit_free_fun_owners(out, indent + 2, ctx, &ctx.fun_owners_current());
+    emit_free_string_owners(out, indent + 2, &ctx.string_owners_current());
+    emit_destroy_channel_owners(out, indent + 2, &ctx.channel_owners_current());
+    emit_free_task_result_owners(out, indent + 2, ctx, &ctx.task_result_owners_current());
+    emit_free_shared_outcome_owners(out, indent + 2, ctx);
+    emit_release_task_handle_owners(out, indent + 2, ctx, &ctx.task_handle_owners_current());
+    emit_release_box_locals(out, indent + 2, ctx, &ctx.box_owners_current());
+    ctx.pop_scope();
     let _ = writeln!(out, "{p}    aura_try_leave();");
     let _ = writeln!(out, "{p}  }} else {{");
     if let Some(c) = &t.catch {

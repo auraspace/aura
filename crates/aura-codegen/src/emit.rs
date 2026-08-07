@@ -1646,6 +1646,23 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
             );
         }
     }
+    // Function typedefs can return enum values.  Emit enum tag/typedef
+    // forwards before those function pointers so C sees the return type even
+    // though complete enum layouts are emitted later in this translation unit.
+    for e in &checked.ast.enums {
+        if e.type_params.is_empty() {
+            let mono = type_mono(&enum_decl_package(e, checked), &e.name.name, &[]);
+            let cty = c_enum_type(&mono);
+            let _ = writeln!(out, "struct {cty}; typedef struct {cty} {cty};");
+        }
+    }
+    for (name, args) in &checked.mono_enums {
+        if let Some(e) = checked.ast.enums.iter().find(|e| e.name.name == *name) {
+            let mono = type_mono(&enum_decl_package(e, checked), &e.name.name, args);
+            let cty = c_enum_type(&mono);
+            let _ = writeln!(out, "struct {cty}; typedef struct {cty} {cty};");
+        }
+    }
     // Function-valued class fields need their fat-pointer typedef before the
     // complete class layout is emitted.
     emit_fun_typedefs(&mut out, checked);
@@ -6061,14 +6078,14 @@ fn emit_async_fun_cfg_int(
         "static void {destroy_error}(void *data, size_t size) {{ (void)size; free(data); }}\n"
     );
     for mono in &thrown_class_keys {
-        let Some(base) = mono_base_name(mono, checked) else {
+        let Some(class_base) = mono_base_name(mono, checked) else {
             continue;
         };
         let Some(class) = checked
             .ast
             .classes
             .iter()
-            .find(|class| class.name.name == base && class.type_params.is_empty())
+            .find(|class| class.name.name == class_base && class.type_params.is_empty())
         else {
             continue;
         };
@@ -6614,7 +6631,7 @@ fn emit_async_fun_cfg_int(
                 }
                 other if async_cfg_throw_class_supported(other, checked) => {
                     let mono = full_type_mono(other, checked);
-                    let Some(base) = mono_base_name(&mono, checked) else {
+                    let Some(class_base) = mono_base_name(&mono, checked) else {
                         unreachable!("validated class CFG throw must have a base name")
                     };
                     let obj_cty = crate::stmt::local_key_to_c(&mono, checked);
@@ -6626,7 +6643,7 @@ fn emit_async_fun_cfg_int(
                         .ast
                         .classes
                         .iter()
-                        .find(|class| class.name.name == base && class.type_params.is_empty())
+                        .find(|class| class.name.name == class_base && class.type_params.is_empty())
                         .and_then(|class| {
                             class.fields.iter().find_map(|field| {
                                 (field.name.name == "message"
@@ -6637,10 +6654,10 @@ fn emit_async_fun_cfg_int(
                                 })
                             })
                         })
-                        .unwrap_or_else(|| format!("\"{base}\""));
+                        .unwrap_or_else(|| format!("\"{class_base}\""));
                     let _ = writeln!(
                         out,
-                        "        {obj_cty} __throw_obj = ({value}); const char *__throw_text = {message_expr}; size_t __throw_length = __throw_text == NULL ? 0 : strlen(__throw_text); char *__throw_error = (char *)malloc(__throw_length + 1); if (__throw_error == NULL) return AURA_TASK_FAILED; if (__throw_text != NULL) memcpy(__throw_error, __throw_text, __throw_length + 1); else __throw_error[0] = '\\0'; size_t __throw_payload_size = 0; void *__throw_payload = {clone}((const void *)__throw_obj, sizeof({struct_cty}), &__throw_payload_size); if (__throw_payload == NULL) {{ free(__throw_error); return AURA_TASK_FAILED; }} aura_task_frame_set_error_span_with_clone(frame, __throw_error, __throw_length + 1, {clone_error}, {destroy_error}, UINT32_C({span_start}), UINT32_C({span_start}), UINT32_C({span_end})); aura_task_frame_set_error_payload_with_clone(frame, __throw_payload, __throw_payload_size, {clone}, {destroy}); aura_task_frame_set_error_type_name(frame, \"{base}\"); return AURA_TASK_FAILED;"
+                        "        {obj_cty} __throw_obj = ({value}); const char *__throw_text = {message_expr}; size_t __throw_length = __throw_text == NULL ? 0 : strlen(__throw_text); char *__throw_error = (char *)malloc(__throw_length + 1); if (__throw_error == NULL) return AURA_TASK_FAILED; if (__throw_text != NULL) memcpy(__throw_error, __throw_text, __throw_length + 1); else __throw_error[0] = '\\0'; size_t __throw_payload_size = 0; void *__throw_payload = {clone}((const void *)__throw_obj, sizeof({struct_cty}), &__throw_payload_size); if (__throw_payload == NULL) {{ free(__throw_error); return AURA_TASK_FAILED; }} aura_task_frame_set_error_span_with_clone(frame, __throw_error, __throw_length + 1, {clone_error}, {destroy_error}, UINT32_C({span_start}), UINT32_C({span_start}), UINT32_C({span_end})); aura_task_frame_set_error_payload_with_clone(frame, __throw_payload, __throw_payload_size, {clone}, {destroy}); aura_task_frame_set_error_type_name(frame, \"{class_base}\"); return AURA_TASK_FAILED;"
                     );
                 }
                 other if async_cfg_throw_aggregate_supported(other, checked) => {
