@@ -155,6 +155,7 @@ pub(crate) fn load_single_file(path: &Path) -> Result<LoadedPackage, String> {
         macro_sources,
         macro_plugins: std::collections::BTreeMap::new(),
         native: BTreeMap::new(),
+        native_roots: BTreeMap::new(),
     })
 }
 
@@ -199,6 +200,11 @@ pub(crate) fn load_from_manifest(
 
     pkg.root = root.clone();
     pkg.native = native_config_for_target(&toml, &target);
+    pkg.native_roots = pkg
+        .native
+        .keys()
+        .map(|name| (name.clone(), root.clone()))
+        .collect();
     for (name, path) in &toml.macro_plugins {
         let plugin_path = Path::new(path);
         if plugin_path.is_absolute()
@@ -903,6 +909,13 @@ fn load_package_sources_only(root: &Path) -> Result<LoadedPackage, String> {
             ));
         };
         pkg.root = root.to_path_buf();
+        let target = std::env::var("TARGET").unwrap_or_else(|_| "native".into());
+        pkg.native = native_config_for_target(&toml, &target);
+        pkg.native_roots = pkg
+            .native
+            .keys()
+            .map(|name| (name.clone(), root.to_path_buf()))
+            .collect();
         if let Some(name) = toml.package_name {
             if name != pkg.package {
                 return Err(format!(
@@ -917,6 +930,21 @@ fn load_package_sources_only(root: &Path) -> Result<LoadedPackage, String> {
 }
 
 fn merge_package(into: &mut LoadedPackage, mut dep: LoadedPackage) -> Result<(), String> {
+    for (name, config) in &dep.native {
+        if into.native.contains_key(name) {
+            return Err(format!(
+                "error: duplicate native library `{name}` in resolved package graph"
+            ));
+        }
+        into.native.insert(name.clone(), config.clone());
+        into.native_roots.insert(
+            name.clone(),
+            dep.native_roots
+                .get(name)
+                .cloned()
+                .unwrap_or_else(|| dep.root.clone()),
+        );
+    }
     let mut existing = HashSet::new();
     for source in &into.macro_sources {
         existing.extend(
@@ -1289,6 +1317,7 @@ pub(crate) fn load_directory(
         macro_sources,
         macro_plugins: std::collections::BTreeMap::new(),
         native: BTreeMap::new(),
+        native_roots: BTreeMap::new(),
     })
 }
 

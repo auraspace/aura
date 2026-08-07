@@ -36,6 +36,8 @@ pub struct LoadedPackage {
     /// Root-package procedural macro executables declared in `[macro_plugins]`.
     pub macro_plugins: std::collections::BTreeMap<String, PathBuf>,
     pub native: std::collections::BTreeMap<String, NativeBuildConfig>,
+    /// Package root for each native library, because dependencies keep their own paths.
+    pub native_roots: std::collections::BTreeMap<String, PathBuf>,
 }
 impl LoadedPackage {
     /// Check the package and run root-declared RFC-010 plugins for matching
@@ -155,6 +157,7 @@ impl LoadedPackage {
             macro_sources: self.macro_sources.clone(),
             macro_plugins: self.macro_plugins.clone(),
             native: self.native.clone(),
+            native_roots: self.native_roots.clone(),
         })
     }
 

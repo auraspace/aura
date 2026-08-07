@@ -1027,6 +1027,7 @@ fn runtime_c_path() -> Result<PathBuf, String> {
 fn native_sources_for(pkg: &LoadedPackage) -> Result<Vec<NativeSource>, String> {
     let mut sources = Vec::new();
     for (name, config) in &pkg.native {
+        let package_root = pkg.native_roots.get(name).unwrap_or(&pkg.root);
         let include_dirs = config
             .include_dirs
             .iter()
@@ -1041,7 +1042,7 @@ fn native_sources_for(pkg: &LoadedPackage) -> Result<Vec<NativeSource>, String> 
                         "error: native package `{name}` include directory must be package-relative without `..`: {path}"
                     ));
                 }
-                Ok(pkg.root.join(relative))
+                Ok(package_root.join(relative))
             })
             .collect::<Result<Vec<_>, String>>()?;
         for source in &config.sources {
@@ -1055,7 +1056,7 @@ fn native_sources_for(pkg: &LoadedPackage) -> Result<Vec<NativeSource>, String> 
                     "error: native package `{name}` source must be package-relative without `..`: {source}"
                 ));
             }
-            let path = pkg.root.join(relative);
+            let path = package_root.join(relative);
             sources.push(NativeSource {
                 name: name.clone(),
                 source: path,

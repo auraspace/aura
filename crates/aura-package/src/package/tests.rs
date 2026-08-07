@@ -550,6 +550,53 @@ fun main() { square(2) }
     let _ = fs::remove_dir_all(&root);
 }
 
+#[test]
+fn dependency_native_config_keeps_dependency_package_root() {
+    let root = std::env::temp_dir().join(format!("aura-pkg-native-dep-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    write_tree(
+        &root,
+        &[
+            (
+                "native/aura.toml",
+                r#"[package]
+name = "demo.native"
+
+[native.demo]
+sources = ["native/demo.c"]
+include_dirs = ["native/include"]
+static = true
+"#,
+            ),
+            (
+                "native/src/lib.aura",
+                "package demo.native\npub fun demo() {}\n",
+            ),
+            ("native/native/demo.c", "void demo(void) {}\n"),
+            ("native/native/include/demo.h", "void demo(void);\n"),
+            (
+                "app/aura.toml",
+                r#"[package]
+name = "demo.app"
+
+[dependencies]
+demo.native = { path = "../native" }
+"#,
+            ),
+            (
+                "app/src/main.aura",
+                "package demo.app\nimport demo.native\nfun main() {}\n",
+            ),
+        ],
+    );
+
+    let pkg = load_package(&root.join("app/aura.toml")).expect("load app");
+    assert!(pkg.native.contains_key("demo"));
+    assert!(pkg.native_roots["demo"].join("native/demo.c").is_file());
+    assert_eq!(pkg.native["demo"].sources, vec!["native/demo.c"]);
+    let _ = fs::remove_dir_all(root);
+}
+
 // --- C13i registry index client ---
 
 fn fixture_registry_root() -> std::path::PathBuf {
