@@ -17,7 +17,7 @@ Aura’s **core** stdlib is intentionally small ([RFC-007](/rfc/007), [RFC-000](
 | `std.assert`      | `std/assert`      | Assert helpers for tests                                                                                                   |
 | `std.collections` | `std/collections` | Map/Set/List, generic hash collections, snapshot and live iterators, `Iterable`, HOFs, `join`                              |
 | `std.error`       | `std/error`       | Shared error categories, owned errors, and generic outcomes                                                                |
-| `std.bytes`       | `std/bytes`       | Owned byte strings and bounded mutable byte buffers                                                                        |
+| `std.bytes`       | `std/bytes`       | Validated `Byte`, binary `Buffer` operations, and network-order integer helpers                                            |
 | `std.encoding`    | `std/encoding`    | UTF-8, hexadecimal, base64, and percent encoding                                                                           |
 | `std.json`        | `std/json`        | Bounded JSON validation, parsing, escaping, root classification, and typed generic decoding                                |
 | `std.mime`        | `std/mime`        | Media-type validation and upload filename sanitization                                                                     |
@@ -35,9 +35,9 @@ Aura’s **core** stdlib is intentionally small ([RFC-007](/rfc/007), [RFC-000](
 | `std.log`         | `std/log`         | Bounded level-based and structured text logging                                                                            |
 | `std.metrics`     | `std/metrics`     | Sequentially consistent counters and Prometheus samples                                                                    |
 | `std.test`        | `std/test`        | Deterministic assertion helpers for native and corpus tests                                                                |
-| `std.crypto`      | `std/crypto`      | Bounded hash, HMAC, randomness; TLS remains provider-backed                                                                |
+| `std.crypto`      | `std/crypto`      | Runtime-backed MD5/SHA-256, HMAC, PBKDF2, secure randomness, and TLS foundations                                           |
 | `std.reflect`     | `std/reflect`     | Bounded compiler-backed type/member metadata                                                                               |
-| `std.tls`         | `std/tls`         | OpenSSL-backed verified certificate/config/async TLS client                                                                |
+| `std.tls`         | `std/tls`         | OpenSSL-backed verified TLS client with String and binary stream adapters                                                  |
 | `std.udp`         | `std/udp`         | Runtime-backed bounded endpoint/datagram transport on POSIX                                                                |
 | `std.websocket`   | `std/websocket`   | Runtime-backed bounded WebSocket client framing                                                                            |
 | `std.compress`    | `std/compress`    | Bounded gzip/deflate text round-trip with hex-safe compressed output                                                       |
@@ -249,15 +249,21 @@ HTTP adapters.
 
 ## `std.bytes`
 
-| API                           | Contract                                                        |
-| ----------------------------- | --------------------------------------------------------------- |
-| `copy` / `concat` / `equals`  | Owned byte-string copy, concatenation, and exact comparison     |
-| `slice(value, start, length)` | Bounded owned slice; returns null for invalid bounds            |
-| `Buffer`                      | Mutable owned byte buffer; `length`, `get`, `push`, and `clone` |
-| `newBuffer()`                 | Empty `Buffer` factory                                          |
+| API                                     | Contract                                                               |
+| --------------------------------------- | ---------------------------------------------------------------------- |
+| `Byte` / `byte(value)`                  | Nominal unsigned byte; construction rejects values outside 0..255      |
+| `copy` / `concat` / `equals`            | Owned byte-string copy, concatenation, and exact comparison            |
+| `slice(value, start, length)`           | Bounded owned slice; returns null for invalid bounds                   |
+| `Buffer` / `newBuffer()`                | Mutable owned binary buffer and empty-buffer factory                   |
+| `Buffer.length` / `get` / `clone`       | Length, nullable integer inspection, and deep copy                     |
+| `Buffer.appendByte` / `readByte`        | Append/read validated `Byte` values without UTF-8 conversion           |
+| `Buffer.writeByte` / `slice` / `concat` | In-place write, independent bounded slice, and owned concatenation     |
+| `readInt16BE` / `readInt32BE`           | Read unsigned network-order integers; return null for invalid bounds   |
+| `writeInt16BE` / `writeInt32BE`         | Write network-order integers; return false for invalid value or bounds |
 
-`Buffer.push` accepts only values from 0 through 255. String operations are
-byte-oriented and do not perform Unicode normalization.
+The legacy `Buffer.push` and `Buffer.get` integer operations remain available
+for compatibility. Binary protocol code should use `Byte` and the explicit
+buffer methods so payloads never pass through UTF-8 `String` conversion.
 
 ## `std.encoding`
 
@@ -329,17 +335,20 @@ interfaces or `"[::]:8080"` for IPv6. Handles are owned
 `ForeignHandle<Int>` resources and async operations preserve them across
 suspension.
 
-| API                                                 | Contract                                                                     |
-| --------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `listen(endpoint)` / `connect(endpoint, timeoutMs)` | Legacy throwing handles; `endpoint` is `PORT`, `HOST:PORT`, or `[IPv6]:PORT` |
-| `listenResult` / `connectResult`                    | Typed `Outcome` wrappers returning owned handles or `NetError`               |
-| `accept(listener)`                                  | Async accepted-stream operation                                              |
-| `closeListener` / `closeStream`                     | Idempotent terminal close operations                                         |
-| `closeListenerResult` / `closeStreamResult`         | Typed `Outcome<Bool, NetError>` compatibility wrappers                       |
-| `readStream(stream, capacity)`                      | Async single-chunk read; empty string means EOF                              |
-| `readAllStream(stream, capacity)`                   | Async read-until-EOF bounded by aggregate capacity                           |
-| `writeStream(stream, content)`                      | Async complete write; returns transferred byte count                         |
-| `readStreamResult` / `writeStreamResult`            | Shared `std.error.Outcome` wrappers                                          |
+| API                                                 | Contract                                                                           |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `listen(endpoint)` / `connect(endpoint, timeoutMs)` | Legacy throwing handles; `endpoint` is `PORT`, `HOST:PORT`, or `[IPv6]:PORT`       |
+| `listenResult` / `connectResult`                    | Typed `Outcome` wrappers returning owned handles or `NetError`                     |
+| `accept(listener)`                                  | Async accepted-stream operation                                                    |
+| `closeListener` / `closeStream`                     | Idempotent terminal close operations                                               |
+| `closeListenerResult` / `closeStreamResult`         | Typed `Outcome<Bool, NetError>` compatibility wrappers                             |
+| `readStream(stream, capacity)`                      | Async single-chunk read; empty string means EOF                                    |
+| `readAllStream(stream, capacity)`                   | Async read-until-EOF bounded by aggregate capacity                                 |
+| `writeStream(stream, content)`                      | Async complete write; returns transferred byte count                               |
+| `readExactly(stream, length)`                       | Async exact binary read into `std.bytes.Buffer`; distinguishes EOF and partial EOF |
+| `readExactlyWithTimeout` / `writeAllWithTimeout`    | Binary exact read/write with an operation deadline in milliseconds                 |
+| `writeAll(stream, bytes)`                           | Async complete binary write from `std.bytes.Buffer`; returns byte count            |
+| `readStreamResult` / `writeStreamResult`            | Shared `std.error.Outcome` wrappers                                                |
 
 ## `std.dns`
 
@@ -388,14 +397,16 @@ The bounded server accepts origin-form `GET`, `HEAD`, `POST`, `PUT`, `PATCH`,
 
 ## `std.stream`
 
-| API                     | Contract                                                 |
-| ----------------------- | -------------------------------------------------------- |
-| `Reader(stream)`        | Handler-scoped async reader over an owned network stream |
-| `Reader.read(capacity)` | Read one bounded chunk                                   |
-| `Reader.close()`        | Idempotently close the underlying stream                 |
-| `Writer(stream)`        | Handler-scoped async writer over an owned network stream |
-| `Writer.write(content)` | Write all content and return transferred bytes           |
-| `Writer.close()`        | Idempotently close the underlying stream                 |
+| API                                | Contract                                                 |
+| ---------------------------------- | -------------------------------------------------------- |
+| `Reader(stream)`                   | Handler-scoped async reader over an owned network stream |
+| `Reader.read(capacity)`            | Read one bounded String chunk                            |
+| `Reader.readBytes` / `readExactly` | Exact binary reads into `std.bytes.Buffer`               |
+| `Writer.writeBytes` / `writeAll`   | Complete binary writes from `std.bytes.Buffer`           |
+| `Reader.close()`                   | Idempotently close the underlying stream                 |
+| `Writer(stream)`                   | Handler-scoped async writer over an owned network stream |
+| `Writer.write(content)`            | Write all content and return transferred bytes           |
+| `Writer.close()`                   | Idempotently close the underlying stream                 |
 
 ## `std.time`
 
@@ -472,10 +483,29 @@ false instead of blocking an async worker.
 ## `std.crypto`
 
 The alpha contract provides `Digest`, `TlsConfig`, `TlsConnection`,
-`randomBytes`, `sha256`, `hmacSha256`, and `constantTimeEquals`. Randomness,
-SHA-256, HMAC-SHA256, and constant-time comparison are backed by the native
-runtime. `connectTls` and the `TlsConnection` methods still require a
-verified platform TLS provider.
+`randomBytes`, `randomBytesBuffer`, `md5Bytes`, `sha256`, `sha256Bytes`,
+`hmacSha256`, `hmacSha256Bytes`, `pbkdf2Sha256`, and
+`constantTimeEquals`. Binary crypto APIs accept and return
+`std.bytes.Buffer`, so NUL bytes are preserved. PBKDF2-HMAC-SHA-256 supports
+SCRAM-SHA-256 key derivation; randomness, hashes, HMAC, PBKDF2, and constant
+time comparison are backed by the native runtime.
+
+## `std.tls`
+
+| API                                     | Contract                                                             |
+| --------------------------------------- | -------------------------------------------------------------------- |
+| `config(serverName, verifyPeer)`        | Verified TLS configuration                                           |
+| `connect(endpoint, options)`            | Async OpenSSL client with hostname verification                      |
+| `wrapStream(stream, endpoint, options)` | Upgrade an existing `std.net` TCP stream without String conversion   |
+| `Connection.read` / `write`             | String compatibility stream operations                               |
+| `Connection.readBytes` / `writeBytes`   | Binary stream operations over `std.bytes.Buffer`                     |
+| `*WithTimeout` methods                  | Binary operations with a monotonic deadline in milliseconds          |
+| `Connection.close()`                    | Idempotent close; pending TLS waits are woken and resources released |
+| `loadCertificate(path)`                 | Load bounded certificate subject and issuer metadata                 |
+
+TLS async operations use the underlying TCP readiness scheduler. A cancelled
+read or write closes the TLS session and wakes the socket wait, preventing a
+cancelled task from retaining a blocked descriptor.
 
 ## `std.reflect`
 

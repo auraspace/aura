@@ -13,6 +13,7 @@ pub enum ErrorKind {
   case TimedOut
   case Cancelled
   case Disconnected
+  case PartialRead
   case LimitExceeded
   case Protocol
   case System
@@ -72,6 +73,7 @@ pub class Error(pub val kind: ErrorKind, pub val message: String, pub val code: 
       case TimedOut => { return true }
       case Cancelled => { return false }
       case Disconnected => { return true }
+      case PartialRead => { return false }
       case LimitExceeded => { return false }
       case Protocol => { return false }
       case System => { return false }
@@ -95,6 +97,9 @@ pub fun network(message: String, code: Int): Error {
 /// for timeout, cancellation, and peer-close paths; unknown text remains a
 /// generic network failure.
 pub fun transport(message: String, code: Int): Error {
+  if (message.contains("partial")) {
+    return Error(PartialRead(), message, code)
+  }
   if (message.contains("timeout") || message.contains("timed out")) {
     return timedOut(message, code)
   }

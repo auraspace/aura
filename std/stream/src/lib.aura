@@ -2,7 +2,8 @@
 
 package std.stream
 
-import std.net
+import std.net as NetApi
+import std.bytes as StreamBytes
 import std.error as StreamErrs
 
 /// Handler-scoped reader that keeps the underlying stream owned by the class.
@@ -11,6 +12,20 @@ pub class Reader(private val stream: ForeignHandle<Int>) {
     pub async fun read(capacity: Int): String {
         val chunk: String = await readStream(stream, capacity)
         return chunk
+    }
+
+    /// Read exactly `length` bytes without converting through UTF-8 String.
+    pub async fun readBytes(length: Int): StreamBytes.Buffer {
+        return await NetApi.readExactly(stream, length)
+    }
+
+    /// Read exactly `length` bytes with a single absolute deadline.
+    pub async fun readExactly(length: Int): StreamBytes.Buffer {
+        return await readExactly(stream, length)
+    }
+
+    pub async fun readExactlyWithTimeout(length: Int, timeoutMs: Int): StreamBytes.Buffer {
+        return await NetApi.readExactlyWithTimeout(stream, length, timeoutMs)
     }
 
     /// Typed read boundary for callers that handle transport failures locally.
@@ -35,6 +50,19 @@ pub class Writer(private val stream: ForeignHandle<Int>) {
     pub async fun write(content: String): Int {
         val transferred: Int = await writeStream(stream, content)
         return transferred
+    }
+
+    /// Write bytes without converting through UTF-8 String.
+    pub async fun writeBytes(bytes: StreamBytes.Buffer): Int {
+        return await NetApi.writeAll(stream, bytes)
+    }
+
+    pub async fun writeAll(bytes: StreamBytes.Buffer): Int {
+        return await writeAll(stream, bytes)
+    }
+
+    pub async fun writeAllWithTimeout(bytes: StreamBytes.Buffer, timeoutMs: Int): Int {
+        return await NetApi.writeAllWithTimeout(stream, bytes, timeoutMs)
     }
 
     /// Typed write boundary for callers that handle transport failures locally.

@@ -6,6 +6,7 @@
 package std.net
 
 import std.error as NetErrs
+import std.bytes as ByteBuf
 
 /// Bind a nonblocking TCP listener. A numeric endpoint such as `"8080"`
 /// defaults to loopback; use `"0.0.0.0:8080"` to expose all IPv4 interfaces.
@@ -84,6 +85,11 @@ pub async fun readStream(stream: ForeignHandle<Int>, capacity: Int): String {
   throw "std.net readStream intrinsic"
 }
 
+/// String compatibility read with an absolute operation timeout.
+pub async fun readStreamWithTimeout(stream: ForeignHandle<Int>, capacity: Int, timeoutMs: Int): String {
+  throw "std.net readStreamWithTimeout intrinsic"
+}
+
 /// Read until EOF or `capacity` bytes have been accumulated. This is bounded
 /// and suitable for small request/response messages; streaming consumers must
 /// use `readStream` so one peer cannot force an unbounded allocation.
@@ -108,6 +114,66 @@ pub async fun readAllStream(stream: ForeignHandle<Int>, capacity: Int): String {
 /// count. The input is copied into the task frame before the first await.
 pub async fun writeStream(stream: ForeignHandle<Int>, content: String): Int {
   throw "std.net writeStream intrinsic"
+}
+
+/// String compatibility write with an absolute operation timeout.
+pub async fun writeStreamWithTimeout(stream: ForeignHandle<Int>, content: String, timeoutMs: Int): Int {
+  throw "std.net writeStreamWithTimeout intrinsic"
+}
+
+/// Read exactly `length` binary bytes. EOF before any byte, partial EOF, and
+/// timeout are reported as distinct transport failures by the intrinsic.
+pub async fun readExactly(stream: ForeignHandle<Int>, length: Int): ByteBuf.Buffer {
+  throw "std.net readExactly intrinsic"
+}
+
+/// Binary variant with an absolute operation timeout in milliseconds.
+pub async fun readExactlyWithTimeout(stream: ForeignHandle<Int>, length: Int, timeoutMs: Int): ByteBuf.Buffer {
+  throw "std.net readExactlyWithTimeout intrinsic"
+}
+
+/// Write every byte in the owned buffer without converting it to String.
+pub async fun writeAll(stream: ForeignHandle<Int>, bytes: ByteBuf.Buffer): Int {
+  throw "std.net writeAll intrinsic"
+}
+
+/// Binary variant with an absolute operation timeout in milliseconds.
+pub async fun writeAllWithTimeout(stream: ForeignHandle<Int>, bytes: ByteBuf.Buffer, timeoutMs: Int): Int {
+  throw "std.net writeAllWithTimeout intrinsic"
+}
+
+/// Typed exact-read result preserving EOF, partial EOF, timeout, and close
+/// classification in `NetError.kind`.
+pub async fun readExactlyResult(stream: ForeignHandle<Int>, length: Int): NetErrs.Outcome<ByteBuf.Buffer, NetErrs.NetError> {
+  try {
+    return NetErrs.success(await readExactly(stream, length))
+  } catch (error: String) {
+    return NetErrs.failure(NetErrs.asNetError(NetErrs.transport(error, 0)))
+  }
+}
+
+pub async fun readExactlyWithTimeoutResult(stream: ForeignHandle<Int>, length: Int, timeoutMs: Int): NetErrs.Outcome<ByteBuf.Buffer, NetErrs.NetError> {
+  try {
+    return NetErrs.success(await readExactlyWithTimeout(stream, length, timeoutMs))
+  } catch (error: String) {
+    return NetErrs.failure(NetErrs.asNetError(NetErrs.transport(error, 0)))
+  }
+}
+
+pub async fun writeAllResult(stream: ForeignHandle<Int>, bytes: ByteBuf.Buffer): NetErrs.Outcome<Int, NetErrs.NetError> {
+  try {
+    return NetErrs.success(await writeAll(stream, bytes))
+  } catch (error: String) {
+    return NetErrs.failure(NetErrs.asNetError(NetErrs.transport(error, 0)))
+  }
+}
+
+pub async fun writeAllWithTimeoutResult(stream: ForeignHandle<Int>, bytes: ByteBuf.Buffer, timeoutMs: Int): NetErrs.Outcome<Int, NetErrs.NetError> {
+  try {
+    return NetErrs.success(await writeAllWithTimeout(stream, bytes, timeoutMs))
+  } catch (error: String) {
+    return NetErrs.failure(NetErrs.asNetError(NetErrs.transport(error, 0)))
+  }
 }
 
 /// Non-throwing read wrapper. `OutcomeOk` contains the owned chunk (or the

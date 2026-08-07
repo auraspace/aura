@@ -1,0 +1,19 @@
+package demo.stdtransport.binary
+
+import std.bytes as Bytes
+import std.net as Net
+import std.stream as Stream
+import std.tls as Tls
+
+async fun transportSurface(stream: ForeignHandle<Int>, tls: Tls.Connection): Int {
+  val reader: Stream.Reader = Stream.Reader(stream)
+  val bytes: Bytes.Buffer = await reader.readExactlyWithTimeout(1, 10)
+  val writer: Stream.Writer = Stream.Writer(stream)
+  val sent = await writer.writeAllWithTimeout(bytes, 10)
+  val tlsBytes: Bytes.Buffer = await tls.readBytesWithTimeout(1, 10)
+  val tlsSent = await tls.writeBytesWithTimeout(tlsBytes, 10)
+  val text = await Net.readStreamWithTimeout(stream, 1, 10)
+  return sent + tlsSent + text.len
+}
+
+fun main() {}

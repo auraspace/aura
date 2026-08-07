@@ -1092,6 +1092,7 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str("#include <stdint.h>\n");
     out.push_str("#include <stdbool.h>\n");
     out.push_str("#include <stddef.h>\n");
+    out.push_str("#include <limits.h>\n");
     out.push_str("#include <stdlib.h>\n");
     out.push_str("#include <stdio.h>\n");
     out.push_str("#include <string.h>\n");
@@ -1180,14 +1181,29 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     );
     out.push_str("_Bool aura_bytes_equals(const char *left, const char *right);\n");
     out.push_str("const char *aura_crypto_random_bytes(int64_t length);\n");
+    out.push_str("_Bool aura_crypto_random_bytes_raw(uint8_t *out, size_t length);\n");
+    out.push_str(
+        "_Bool aura_crypto_md5_bytes(const uint8_t *value, size_t length, uint8_t out[16]);\n",
+    );
+    out.push_str(
+        "_Bool aura_crypto_sha256_bytes(const uint8_t *value, size_t length, uint8_t out[32]);\n",
+    );
+    out.push_str("_Bool aura_crypto_hmac_sha256_bytes(const uint8_t *key, size_t key_length, const uint8_t *value, size_t value_length, uint8_t out[32]);\n");
+    out.push_str("_Bool aura_crypto_pbkdf2_sha256(const uint8_t *password, size_t password_length, const uint8_t *salt, size_t salt_length, uint32_t iterations, uint8_t *out, size_t length);\n");
     out.push_str("const char *aura_crypto_sha256(const char *value);\n");
     out.push_str("const char *aura_crypto_hmac_sha256(const char *key, const char *value);\n");
     out.push_str("_Bool aura_crypto_constant_time_equals(const char *left, const char *right);\n");
     out.push_str(
         "int aura_tls_connect(const char *endpoint, const char *server_name, int verify_peer);\n",
     );
+    out.push_str("struct AuraTcpStream;\n");
+    out.push_str("int aura_tls_wrap_stream(const char *endpoint, struct AuraTcpStream *stream, AuraFfiOpaqueHandle *owner, const char *server_name, int verify_peer);\n");
+    out.push_str("struct AuraTcpStream *aura_tls_stream(const char *endpoint);\n");
+    out.push_str("short aura_tls_pending_events(const char *endpoint);\n");
     out.push_str("const char *aura_tls_read(const char *endpoint, int64_t capacity);\n");
     out.push_str("int64_t aura_tls_write(const char *endpoint, const char *content);\n");
+    out.push_str("int aura_tls_read_bytes(const char *endpoint, void *output, size_t capacity, size_t *out_bytes, int timeout_ms);\n");
+    out.push_str("int aura_tls_write_bytes(const char *endpoint, const void *input, size_t length, size_t *out_bytes, int timeout_ms);\n");
     out.push_str("int aura_tls_close(const char *endpoint);\n");
     out.push_str("const char *aura_tls_last_error(void);\n");
     out.push_str("const char *aura_tls_certificate_subject(const char *path);\n");
@@ -1462,6 +1478,7 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str("int aura_task_frame_wait_file(AuraTaskFrame *frame, const AuraFile *file, short events);\n");
     out.push_str("int aura_task_frame_wait_tcp_listener(AuraTaskFrame *frame, const AuraTcpListener *listener, short events);\n");
     out.push_str("int aura_task_frame_wait_tcp_stream(AuraTaskFrame *frame, const AuraTcpStream *stream, short events);\n");
+    out.push_str("int aura_task_frame_wait_tcp_stream_timeout(AuraTaskFrame *frame, const AuraTcpStream *stream, short events, int timeout_ms);\n");
     out.push_str("int aura_task_frame_wait_on(AuraTaskFrame *frame, AuraTaskFrame *target);\n");
     out.push_str(
         "int aura_task_executor_wake_waiting(AuraTaskExecutor *executor, AuraTaskFrame *frame);\n",
@@ -1471,6 +1488,8 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     );
     out.push_str("uint32_t aura_task_frame_resume_state(const AuraTaskFrame *frame);\n");
     out.push_str("void aura_task_frame_set_resume_state(AuraTaskFrame *frame, uint32_t state);\n");
+    out.push_str("typedef void (*AuraTaskCleanupFn)(void *data);\n");
+    out.push_str("void aura_task_frame_set_cleanup(AuraTaskFrame *frame, void *data, AuraTaskCleanupFn cleanup);\n");
     out.push_str("void aura_task_frame_set_result(AuraTaskFrame *frame, void *data, size_t size, AuraTaskResultDestroyFn destroy);\n");
     out.push_str("AuraTaskResult aura_task_frame_result(const AuraTaskFrame *frame);\n");
     out.push_str("AuraTaskExecutor *aura_task_executor_new(void);\n");
@@ -2126,8 +2145,19 @@ pub(crate) fn emit_async_fun_decl(
             && emit_async_fun_std_net_accept(out, lowered, checked))
             || (lowered.name.name == "readStream"
                 && emit_async_fun_std_net_stream(out, lowered, checked, true))
+            || (lowered.name.name == "readStreamWithTimeout"
+                && emit_async_fun_std_net_stream(out, lowered, checked, true))
             || (lowered.name.name == "writeStream"
-                && emit_async_fun_std_net_stream(out, lowered, checked, false)));
+                && emit_async_fun_std_net_stream(out, lowered, checked, false))
+            || (lowered.name.name == "writeStreamWithTimeout"
+                && emit_async_fun_std_net_stream(out, lowered, checked, false))
+            || (matches!(
+                lowered.name.name.as_str(),
+                "readExactly" | "readExactlyWithTimeout" | "writeAll" | "writeAllWithTimeout"
+            ) && emit_async_fun_std_net_binary(out, lowered, checked)));
+    let emitted_std_tls = (async_fun_decl_package(lowered, checked) == "std.tls"
+        || async_fun_decl_package(lowered, checked) == "std.crypto")
+        && emit_async_fun_std_tls(out, lowered, checked);
     let is_std_udp_method = c_async_fun_signature(lowered, checked).contains("std_udp_Socket");
     let emitted_std_udp = is_std_udp_method && emit_async_fun_std_udp(out, lowered, checked);
     let emitted_std_http = async_fun_decl_package(lowered, checked) == "std.http"
@@ -2141,6 +2171,7 @@ pub(crate) fn emit_async_fun_decl(
         && emit_async_fun_std_time_sleep(out, lowered, checked);
     if !emitted_std_io
         && !emitted_std_net
+        && !emitted_std_tls
         && !emitted_std_udp
         && !emitted_std_http
         && !emitted_std_time
@@ -11421,8 +11452,16 @@ fn emit_async_fun_std_net_stream(
     checked: &CheckedFile,
     is_read: bool,
 ) -> bool {
+    let has_timeout = f.name.name.ends_with("WithTimeout");
+    let expected_params = if has_timeout { 3 } else { 2 };
+    if f.params.len() != expected_params {
+        return false;
+    }
     let second_key = type_ref_local_key_expand(&f.params[1].ty, &[], &[], checked);
     if (is_read && second_key != "Int") || (!is_read && second_key != "String") {
+        return false;
+    }
+    if has_timeout && type_ref_local_key_expand(&f.params[2].ty, &[], &[], checked) != "Int" {
         return false;
     }
     let base = c_fun_name("std.net", &f.name.name, &[]);
@@ -11437,12 +11476,13 @@ fn emit_async_fun_std_net_stream(
     ));
     let _ = writeln!(
         out,
-        "typedef struct {data_ty} {{ AuraFfiOpaqueHandle *handle; AuraFfiHandlePin pin; bool pinned; uint64_t capacity; uint64_t length; uint64_t offset; char *buffer; }} {data_ty};"
+        "typedef struct {data_ty} {{ AuraFfiOpaqueHandle *handle; AuraFfiHandlePin pin; bool pinned; bool close_on_cleanup; uint64_t capacity; uint64_t length; uint64_t offset; int64_t deadline_ms; char *buffer; }} {data_ty};"
     );
     let _ = writeln!(
         out,
         "static void {destroy_data}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data != NULL) {{ if (data->buffer != NULL) free(data->buffer); if (data->pinned) (void)aura_ffi_handle_unpin(&data->pin); }} }}"
     );
+    let _ = writeln!(out, "static void {destroy_data}_cleanup(void *raw) {{ {data_ty} *data = ({data_ty} *)raw; if (data != NULL && data->close_on_cleanup && data->pinned && data->pin.resource != NULL) (void)aura_tcp_stream_close((AuraTcpStream *)data->pin.resource); }}");
     if is_read {
         let _ = writeln!(out, "static void {destroy_result}(void *data, size_t size) {{ (void)size; if (data != NULL) {{ char **value = (char **)data; free(*value); free(value); }} }}");
     } else {
@@ -11463,13 +11503,17 @@ fn emit_async_fun_std_net_stream(
         out,
         "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame);"
     );
-    out.push_str("  if (aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;\n  switch (aura_task_frame_resume_state(frame)) {\n    case 0:\n");
+    out.push_str("  if (data == NULL) return AURA_TASK_FAILED; if (aura_task_frame_cancel_requested(frame)) { data->close_on_cleanup = true; return AURA_TASK_CANCELLED; }\n");
+    if has_timeout {
+        let _ = writeln!(out, "  if (aura_task_frame_take_fd_wait_timeout(frame) || (data->deadline_ms > 0 && aura_time_monotonic_millis() >= data->deadline_ms)) {{ const char *__message = \"{description} timeout\"; size_t __length = strlen(__message) + 1; char *__copy = (char *)malloc(__length); if (__copy != NULL) {{ memcpy(__copy, __message, __length); aura_task_frame_set_error_at(frame, __copy, __length, {destroy_error}, UINT32_C(0)); }} return AURA_TASK_FAILED; }}");
+    }
+    out.push_str("  switch (aura_task_frame_resume_state(frame)) {\n    case 0:\n");
     if is_read {
-        out.push_str("      if (data == NULL || data->handle == NULL || data->capacity > SIZE_MAX - 1) return AURA_TASK_FAILED;\n      if (aura_ffi_handle_pin_for_boundary(data->handle, AURA_FFI_BOUNDARY_TASK, &data->pin) != AURA_FFI_OK) return AURA_TASK_FAILED; data->pinned = true;\n      data->buffer = (char *)malloc((size_t)data->capacity + 1); if (data->buffer == NULL) return AURA_TASK_FAILED;\n      aura_task_frame_set_resume_state(frame, 1);\n    case 1: {\n      size_t count = 0; AuraTcpStatus status = aura_tcp_stream_read((AuraTcpStream *)data->pin.resource, data->buffer, (size_t)data->capacity, &count, 0);\n      if (status == AURA_TCP_PENDING || status == AURA_TCP_TIMEOUT) { if (!aura_task_frame_wait_tcp_stream(frame, (const AuraTcpStream *)data->pin.resource, 1)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n      if (status != AURA_TCP_OK && status != AURA_TCP_EOF) { const char *message = \"readStream failed\"; size_t length = strlen(message) + 1; char *error = (char *)malloc(length); if (error == NULL) return AURA_TASK_FAILED; memcpy(error, message, length); aura_task_frame_set_error_at(frame, error, length, ");
+        out.push_str("      if (data == NULL || data->handle == NULL || data->capacity > SIZE_MAX - 1) return AURA_TASK_FAILED;\n      if (aura_ffi_handle_pin_for_boundary(data->handle, AURA_FFI_BOUNDARY_TASK, &data->pin) != AURA_FFI_OK) return AURA_TASK_FAILED; data->pinned = true;\n      data->buffer = (char *)malloc((size_t)data->capacity + 1); if (data->buffer == NULL) return AURA_TASK_FAILED;\n      aura_task_frame_set_resume_state(frame, 1);\n    case 1: {\n      size_t count = 0; AuraTcpStatus status = aura_tcp_stream_read((AuraTcpStream *)data->pin.resource, data->buffer, (size_t)data->capacity, &count, 0);\n      if (status == AURA_TCP_PENDING || status == AURA_TCP_TIMEOUT) { int __wait = -1; if (data->deadline_ms > 0) { int64_t __left = data->deadline_ms - aura_time_monotonic_millis(); if (__left <= 0) return AURA_TASK_FAILED; __wait = __left > INT_MAX ? INT_MAX : (int)__left; } int __registered = __wait < 0 ? aura_task_frame_wait_tcp_stream(frame, (const AuraTcpStream *)data->pin.resource, 1) : aura_task_frame_wait_tcp_stream_timeout(frame, (const AuraTcpStream *)data->pin.resource, 1, __wait); if (!__registered) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n      if (status != AURA_TCP_OK && status != AURA_TCP_EOF) { const char *message = \"readStream failed\"; size_t length = strlen(message) + 1; char *error = (char *)malloc(length); if (error == NULL) return AURA_TASK_FAILED; memcpy(error, message, length); aura_task_frame_set_error_at(frame, error, length, ");
     } else {
         out.push_str("      if (data == NULL || data->handle == NULL || data->length > SIZE_MAX) return AURA_TASK_FAILED;\n      if (aura_ffi_handle_pin_for_boundary(data->handle, AURA_FFI_BOUNDARY_TASK, &data->pin) != AURA_FFI_OK) return AURA_TASK_FAILED; data->pinned = true;\n      data->offset = 0; if (data->length == 0) { int64_t *result = (int64_t *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = 0; aura_task_frame_set_result(frame, result, sizeof(*result), ");
         out.push_str(&destroy_result);
-        out.push_str("); return AURA_TASK_COMPLETE; }\n      aura_task_frame_set_resume_state(frame, 1);\n    case 1: {\n      size_t count = 0; AuraTcpStatus status = aura_tcp_stream_write((AuraTcpStream *)data->pin.resource, data->buffer + data->offset, (size_t)(data->length - data->offset), &count, 0);\n      if (status == AURA_TCP_PENDING || status == AURA_TCP_TIMEOUT) { if (!aura_task_frame_wait_tcp_stream(frame, (const AuraTcpStream *)data->pin.resource, 4)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n      if (status != AURA_TCP_OK || count == 0) { const char *message = \"writeStream failed\"; size_t length = strlen(message) + 1; char *error = (char *)malloc(length); if (error == NULL) return AURA_TASK_FAILED; memcpy(error, message, length); aura_task_frame_set_error_at(frame, error, length, ");
+        out.push_str("); return AURA_TASK_COMPLETE; }\n      aura_task_frame_set_resume_state(frame, 1);\n    case 1: {\n      size_t count = 0; AuraTcpStatus status = aura_tcp_stream_write((AuraTcpStream *)data->pin.resource, data->buffer + data->offset, (size_t)(data->length - data->offset), &count, 0);\n      if (status == AURA_TCP_PENDING || status == AURA_TCP_TIMEOUT) { int __wait = -1; if (data->deadline_ms > 0) { int64_t __left = data->deadline_ms - aura_time_monotonic_millis(); if (__left <= 0) return AURA_TASK_FAILED; __wait = __left > INT_MAX ? INT_MAX : (int)__left; } int __registered = __wait < 0 ? aura_task_frame_wait_tcp_stream(frame, (const AuraTcpStream *)data->pin.resource, 4) : aura_task_frame_wait_tcp_stream_timeout(frame, (const AuraTcpStream *)data->pin.resource, 4, __wait); if (!__registered) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n      if (status != AURA_TCP_OK || count == 0) { const char *message = \"writeStream failed\"; size_t length = strlen(message) + 1; char *error = (char *)malloc(length); if (error == NULL) return AURA_TASK_FAILED; memcpy(error, message, length); aura_task_frame_set_error_at(frame, error, length, ");
     }
     out.push_str(&destroy_error);
     let _ = writeln!(out, ", UINT32_C(0)); return AURA_TASK_FAILED; }}");
@@ -11480,7 +11524,7 @@ fn emit_async_fun_std_net_stream(
             "); return AURA_TASK_COMPLETE;\n    }\n    default: return AURA_TASK_FAILED;\n  }\n}\n",
         );
     } else {
-        out.push_str("\n      data->offset += count; if (data->offset < data->length) { if (!aura_task_frame_wait_tcp_stream(frame, (const AuraTcpStream *)data->pin.resource, 4)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n      int64_t *result = (int64_t *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = (int64_t)data->offset; free(data->buffer); data->buffer = NULL; aura_task_frame_set_result(frame, result, sizeof(*result), ");
+        out.push_str("\n      data->offset += count; if (data->offset < data->length) { int __wait = -1; if (data->deadline_ms > 0) { int64_t __left = data->deadline_ms - aura_time_monotonic_millis(); if (__left <= 0) return AURA_TASK_FAILED; __wait = __left > INT_MAX ? INT_MAX : (int)__left; } int __registered = __wait < 0 ? aura_task_frame_wait_tcp_stream(frame, (const AuraTcpStream *)data->pin.resource, 4) : aura_task_frame_wait_tcp_stream_timeout(frame, (const AuraTcpStream *)data->pin.resource, 4, __wait); if (!__registered) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n      int64_t *result = (int64_t *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = (int64_t)data->offset; free(data->buffer); data->buffer = NULL; aura_task_frame_set_result(frame, result, sizeof(*result), ");
         out.push_str(&destroy_result);
         out.push_str(
             "); return AURA_TASK_COMPLETE;\n    }\n    default: return AURA_TASK_FAILED;\n  }\n}\n",
@@ -11496,12 +11540,164 @@ fn emit_async_fun_std_net_stream(
     let handle = mangle_ident(&f.params[0].name.name);
     let value = mangle_ident(&f.params[1].name.name);
     if is_read {
-        let _ = writeln!(out, "  data->handle = {handle}; data->capacity = (uint64_t){value}; data->length = 0; data->offset = 0; data->pinned = false; data->buffer = NULL;");
+        let _ = writeln!(out, "  if ({value} <= 0) {{ aura_task_frame_destroy(frame); return NULL; }} data->handle = {handle}; data->capacity = (uint64_t){value}; data->length = 0; data->offset = 0; data->deadline_ms = 0; data->pinned = false; data->close_on_cleanup = false; data->buffer = NULL;");
     } else {
-        let _ = writeln!(out, "  data->handle = {handle}; data->length = {value} == NULL ? 0 : (uint64_t)strlen({value}); data->capacity = 0; data->offset = 0; data->pinned = false; data->buffer = NULL;");
+        let _ = writeln!(out, "  data->handle = {handle}; data->length = {value} == NULL ? 0 : (uint64_t)strlen({value}); data->capacity = 0; data->offset = 0; data->deadline_ms = 0; data->pinned = false; data->close_on_cleanup = false; data->buffer = NULL;");
         let _ = writeln!(out, "  if (data->length != 0) {{ data->buffer = (char *)malloc((size_t)data->length); if (data->buffer == NULL) {{ aura_task_frame_destroy(frame); return NULL; }} memcpy(data->buffer, {value}, (size_t)data->length); }}");
     }
+    if has_timeout {
+        let timeout = mangle_ident(&f.params[2].name.name);
+        let _ = writeln!(out, "  if ({timeout} < 0) {{ aura_task_frame_destroy(frame); return NULL; }} {{ int64_t __now = aura_time_monotonic_millis(); if (__now <= 0 || __now > INT64_MAX - {timeout}) {{ aura_task_frame_destroy(frame); return NULL; }} data->deadline_ms = __now + {timeout}; }}");
+    }
+    let _ = writeln!(
+        out,
+        "  aura_task_frame_set_cleanup(frame, data, {destroy_data}_cleanup);"
+    );
     out.push_str("  if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; }\n  return frame;\n}\n");
+    true
+}
+
+/// Emit binary std.net operations over the owned std.bytes.Buffer layout.
+/// The task frame copies all bytes before suspension, so the caller's GC
+/// object does not need to remain pinned across await.
+fn emit_async_fun_std_net_binary(
+    out: &mut String,
+    f: &AsyncFunDecl,
+    checked: &CheckedFile,
+) -> bool {
+    let name = f.name.name.as_str();
+    let is_read = name.starts_with("readExactly");
+    let has_timeout = name.ends_with("WithTimeout");
+    let expected_params = if is_read {
+        if has_timeout {
+            3
+        } else {
+            2
+        }
+    } else if has_timeout {
+        3
+    } else {
+        2
+    };
+    if f.params.len() != expected_params || f.return_type.is_none() {
+        return false;
+    }
+    if !type_ref_local_key_expand(&f.params[0].ty, &[], &[], checked).starts_with("ForeignHandle_")
+    {
+        return false;
+    }
+    if type_ref_local_key_expand(&f.params[1].ty, &[], &[], checked)
+        != if is_read { "Int" } else { "std_bytes_Buffer" }
+    {
+        return false;
+    }
+    if has_timeout && type_ref_local_key_expand(&f.params[2].ty, &[], &[], checked) != "Int" {
+        return false;
+    }
+    let return_key = type_ref_local_key_expand(f.return_type.as_ref().unwrap(), &[], &[], checked);
+    if (is_read && return_key != "std_bytes_Buffer") || (!is_read && return_key != "Int") {
+        return false;
+    }
+
+    let base = c_fun_name("std.net", name, &[]);
+    let data_ty = format!("aura_async_data_{base}");
+    let poll_fn = format!("aura_async_poll_{base}");
+    let destroy_data = format!("aura_async_destroy_{base}");
+    let destroy_result = format!("aura_async_result_destroy_{base}");
+    let destroy_error = format!("aura_async_error_destroy_{base}");
+    let handle = mangle_ident(&f.params[0].name.name);
+    let value = mangle_ident(&f.params[1].name.name);
+    let timeout = if has_timeout {
+        mangle_ident(&f.params[2].name.name)
+    } else {
+        "-1".to_string()
+    };
+
+    let _ = writeln!(
+        out,
+        "/* compiler-generated std.net.{name}: binary TCP operation */"
+    );
+    let _ = writeln!(out, "typedef struct {data_ty} {{ AuraFfiOpaqueHandle *handle; AuraFfiHandlePin pin; bool pinned; bool close_on_cleanup; int64_t length; int64_t offset; int64_t deadline_ms; uint8_t *buffer; }} {data_ty};");
+    let _ = writeln!(out, "static void {destroy_data}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data != NULL) {{ free(data->buffer); if (data->pinned) (void)aura_ffi_handle_unpin(&data->pin); }} }}");
+    let _ = writeln!(out, "static void {destroy_data}_cleanup(void *raw) {{ {data_ty} *data = ({data_ty} *)raw; if (data != NULL && data->close_on_cleanup && data->pinned && data->pin.resource != NULL) (void)aura_tcp_stream_close((AuraTcpStream *)data->pin.resource); }}");
+    if is_read {
+        let _ = writeln!(out, "static void {destroy_result}(void *raw, size_t size) {{ (void)size; if (raw != NULL) {{ aura_cls_std_bytes_Buffer *value = (aura_cls_std_bytes_Buffer *)raw; aura_gc_remove_root((void **)raw); free(value); }} }}");
+    } else {
+        let _ = writeln!(
+            out,
+            "static void {destroy_result}(void *raw, size_t size) {{ (void)size; free(raw); }}"
+        );
+    }
+    let _ = writeln!(
+        out,
+        "static void {destroy_error}(void *raw, size_t size) {{ (void)size; free(raw); }}"
+    );
+    let _ = writeln!(out, "static void {poll_fn}_error(AuraTaskFrame *frame, const char *message) {{ size_t length = strlen(message) + 1; char *copy = (char *)malloc(length); if (copy != NULL) {{ memcpy(copy, message, length); aura_task_frame_set_error_at(frame, copy, length, {destroy_error}, UINT32_C(0)); }} }}");
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll_fn}(AuraTaskFrame *frame) {{"
+    );
+    let _ = writeln!(out, "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data == NULL) return AURA_TASK_FAILED; if (aura_task_frame_cancel_requested(frame)) {{ data->close_on_cleanup = true; return AURA_TASK_CANCELLED; }}");
+    out.push_str("  if (aura_task_frame_take_fd_wait_timeout(frame)) { ");
+    out.push_str(&format!(
+        "{poll_fn}_error(frame, \"{name} timeout\"); return AURA_TASK_FAILED; }}\n"
+    ));
+    out.push_str(
+        "  if (data->deadline_ms > 0 && aura_time_monotonic_millis() >= data->deadline_ms) { ",
+    );
+    out.push_str(&format!(
+        "{poll_fn}_error(frame, \"{name} timeout\"); return AURA_TASK_FAILED; }}\n"
+    ));
+    out.push_str("  switch (aura_task_frame_resume_state(frame)) { case 0:\n");
+    out.push_str("    if (data->handle == NULL || data->length < 0 || data->length > SIZE_MAX) return AURA_TASK_FAILED;\n");
+    out.push_str("    if (aura_ffi_handle_pin_for_boundary(data->handle, AURA_FFI_BOUNDARY_TASK, &data->pin) != AURA_FFI_OK) return AURA_TASK_FAILED; data->pinned = true; aura_task_frame_set_resume_state(frame, 1);\n");
+    out.push_str("    case 1: {\n");
+    if is_read {
+        out.push_str("      if (data->offset == data->length) { aura_cls_Array_Int __values = aura_new_Array_Int(data->length); if (data->length > 0 && __values.data == NULL) return AURA_TASK_FAILED; for (int64_t __i = 0; __i < data->length; __i++) __values.data[__i] = data->buffer[__i]; aura_cls_std_bytes_Buffer *__result = aura_new_std_bytes_Buffer(__values); if (__result == NULL) return AURA_TASK_FAILED; aura_gc_add_root((void **)__result); aura_task_frame_set_result(frame, __result, sizeof(*__result), ");
+        out.push_str(&destroy_result);
+        out.push_str("); return AURA_TASK_COMPLETE; }\n");
+        out.push_str("      size_t __count = 0; AuraTcpStatus __status = aura_tcp_stream_read((AuraTcpStream *)data->pin.resource, data->buffer + data->offset, (size_t)(data->length - data->offset), &__count, 0); data->offset += (int64_t)__count; if (__status == AURA_TCP_EOF) { ");
+        out.push_str(&format!("{poll_fn}_error(frame, data->offset == 0 ? \"{name} EOF\" : \"{name} partial EOF\"); return AURA_TASK_FAILED; }}\n"));
+        out.push_str("      if (__status != AURA_TCP_OK && __status != AURA_TCP_PENDING && __status != AURA_TCP_TIMEOUT) { ");
+        out.push_str(&format!(
+            "{poll_fn}_error(frame, \"{name} failed\"); return AURA_TASK_FAILED; }}\n"
+        ));
+        out.push_str("      if (data->offset < data->length) { int __wait = -1; if (data->deadline_ms > 0) { int64_t __left = data->deadline_ms - aura_time_monotonic_millis(); if (__left <= 0) { ");
+        out.push_str(&format!("{poll_fn}_error(frame, \"{name} timeout\"); return AURA_TASK_FAILED; }} __wait = __left > INT_MAX ? INT_MAX : (int)__left; }} int __registered = __wait < 0 ? aura_task_frame_wait_tcp_stream(frame, (const AuraTcpStream *)data->pin.resource, POLLIN) : aura_task_frame_wait_tcp_stream_timeout(frame, (const AuraTcpStream *)data->pin.resource, POLLIN, __wait); if (!__registered) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }}\n"));
+    } else {
+        out.push_str("      if (data->offset == data->length) { int64_t *__result = (int64_t *)malloc(sizeof(*__result)); if (__result == NULL) return AURA_TASK_FAILED; *__result = data->offset; aura_task_frame_set_result(frame, __result, sizeof(*__result), ");
+        out.push_str(&destroy_result);
+        out.push_str("); return AURA_TASK_COMPLETE; }\n");
+        out.push_str("      size_t __count = 0; AuraTcpStatus __status = aura_tcp_stream_write((AuraTcpStream *)data->pin.resource, data->buffer + data->offset, (size_t)(data->length - data->offset), &__count, 0); data->offset += (int64_t)__count; if (__status != AURA_TCP_OK && __status != AURA_TCP_PENDING && __status != AURA_TCP_TIMEOUT) { ");
+        out.push_str(&format!(
+            "{poll_fn}_error(frame, \"{name} failed\"); return AURA_TASK_FAILED; }}\n"
+        ));
+        out.push_str("      if (data->offset < data->length) { int __wait = -1; if (data->deadline_ms > 0) { int64_t __left = data->deadline_ms - aura_time_monotonic_millis(); if (__left <= 0) { ");
+        out.push_str(&format!("{poll_fn}_error(frame, \"{name} timeout\"); return AURA_TASK_FAILED; }} __wait = __left > INT_MAX ? INT_MAX : (int)__left; }} int __registered = __wait < 0 ? aura_task_frame_wait_tcp_stream(frame, (const AuraTcpStream *)data->pin.resource, POLLOUT) : aura_task_frame_wait_tcp_stream_timeout(frame, (const AuraTcpStream *)data->pin.resource, POLLOUT, __wait); if (!__registered) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }}\n"));
+    }
+    out.push_str("    } default: return AURA_TASK_FAILED; }\n}\n");
+    let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
+    out.push_str("  AuraTaskFrame *frame = aura_task_frame_new(sizeof(");
+    out.push_str(&data_ty);
+    out.push_str(", ");
+    out.push_str(&poll_fn);
+    out.push_str(", ");
+    out.push_str(&destroy_data);
+    out.push_str("); if (frame == NULL) return NULL; ");
+    let _ = writeln!(out, "{data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data == NULL) {{ aura_task_frame_destroy(frame); return NULL; }} data->handle = {handle}; data->offset = 0; data->pinned = false; data->close_on_cleanup = false; data->buffer = NULL; data->deadline_ms = 0;");
+    if is_read {
+        let _ = writeln!(out, "  data->length = {value}; if (data->length < 0 || data->length > INT64_MAX - 1) {{ aura_task_frame_destroy(frame); return NULL; }} data->buffer = (uint8_t *)malloc((size_t)(data->length == 0 ? 1 : data->length)); if (data->buffer == NULL) {{ aura_task_frame_destroy(frame); return NULL; }}");
+    } else {
+        let _ = writeln!(out, "  data->length = {value} == NULL ? 0 : {value}->values.len; if (data->length < 0 || data->length > INT64_MAX - 1) {{ aura_task_frame_destroy(frame); return NULL; }} if (data->length > 0) {{ data->buffer = (uint8_t *)malloc((size_t)data->length); if (data->buffer == NULL) {{ aura_task_frame_destroy(frame); return NULL; }} for (int64_t __i = 0; __i < data->length; __i++) {{ if ({value}->values.data[__i] < 0 || {value}->values.data[__i] > 255) {{ aura_task_frame_destroy(frame); return NULL; }} data->buffer[__i] = (uint8_t){value}->values.data[__i]; }} }}");
+    }
+    if has_timeout {
+        let _ = writeln!(out, "  if ({timeout} < 0) {{ aura_task_frame_destroy(frame); return NULL; }} {{ int64_t __now = aura_time_monotonic_millis(); if (__now <= 0 || __now > INT64_MAX - {timeout}) {{ aura_task_frame_destroy(frame); return NULL; }} data->deadline_ms = __now + {timeout}; }}");
+    }
+    let _ = writeln!(
+        out,
+        "  aura_task_frame_set_cleanup(frame, data, {destroy_data}_cleanup);"
+    );
+    out.push_str("  if (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, frame)) { aura_task_frame_destroy(frame); return NULL; } return frame;\n}\n");
     true
 }
 
@@ -13757,6 +13953,113 @@ fn emit_async_fun_no_await_args(
     out.push_str("  return frame;\n}\n");
 }
 
+/// Emit TLS class methods as scheduler-owned pollers. The runtime TLS entry
+/// exposes the underlying TCP stream so WANT_READ/WANT_WRITE suspensions use
+/// the same readiness reactor and cancellation cleanup closes the session.
+fn emit_async_fun_std_tls(out: &mut String, f: &AsyncFunDecl, checked: &CheckedFile) -> bool {
+    let package = async_fun_decl_package(f, checked);
+    if package != "std.tls" && package != "std.crypto" || f.params.len() < 2 {
+        return false;
+    }
+    let receiver_key = type_ref_local_key_expand(&f.params[0].ty, &[], &[], checked);
+    if !receiver_key.contains("Connection") {
+        return false;
+    }
+    let full_name = f.name.name.as_str();
+    let name = full_name.rsplit('_').next().unwrap_or(full_name);
+    let is_read = matches!(name, "read" | "readBytes" | "readBytesWithTimeout");
+    let is_write = matches!(name, "write" | "writeBytes" | "writeBytesWithTimeout");
+    if !is_read && !is_write {
+        return false;
+    }
+    let binary = name.contains("Bytes");
+    let has_timeout = name.ends_with("WithTimeout");
+    if has_timeout && f.params.len() != 3 || !has_timeout && f.params.len() != 2 {
+        return false;
+    }
+    let second_key = type_ref_local_key_expand(&f.params[1].ty, &[], &[], checked);
+    if (is_read && second_key != "Int")
+        || (is_write && second_key != if binary { "std_bytes_Buffer" } else { "String" })
+    {
+        return false;
+    }
+    let return_key = f
+        .return_type
+        .as_ref()
+        .map(|ty| type_ref_local_key_expand(ty, &[], &[], checked))
+        .unwrap_or_default();
+    if (is_read && binary && return_key != "std_bytes_Buffer")
+        || (is_read && !binary && return_key != "String")
+        || (is_write && return_key != "Int")
+    {
+        return false;
+    }
+
+    let receiver_name = receiver_key.rsplit('_').next().unwrap_or("Connection");
+    let base = format!("{}_{}", mangle_package(&package), receiver_name);
+    let base = format!("{base}_{name}");
+    let data_ty = format!("aura_async_data_{base}");
+    let poll = format!("aura_async_poll_{base}");
+    let destroy = format!("aura_async_destroy_{base}");
+    let destroy_result = format!("aura_async_result_destroy_{base}");
+    let destroy_error = format!("aura_async_error_destroy_{base}");
+    let value = mangle_ident(&f.params[1].name.name);
+    let _ = writeln!(
+        out,
+        "/* compiler-generated cancellable TLS stream method: {name} */"
+    );
+    let _ = writeln!(out, "typedef struct {data_ty} {{ char *endpoint; bool close_on_cleanup; int64_t length; int64_t offset; int64_t deadline_ms; uint8_t *buffer; }} {data_ty};");
+    let _ = writeln!(out, "static void {destroy}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data != NULL) {{ free(data->endpoint); free(data->buffer); }} }}");
+    let _ = writeln!(out, "static void {destroy}_cleanup(void *raw) {{ {data_ty} *data = ({data_ty} *)raw; if (data != NULL && data->close_on_cleanup && data->endpoint != NULL) (void)aura_tls_close(data->endpoint); }}");
+    if is_read && binary {
+        let _ = writeln!(out, "static void {destroy_result}(void *raw, size_t size) {{ (void)size; if (raw != NULL) {{ aura_cls_std_bytes_Buffer *value = (aura_cls_std_bytes_Buffer *)raw; aura_gc_remove_root((void **)raw); free(value); }} }}");
+    } else if is_read {
+        let _ = writeln!(out, "static void {destroy_result}(void *raw, size_t size) {{ (void)size; if (raw != NULL) {{ char **value = (char **)raw; free(*value); free(value); }} }}");
+    } else {
+        let _ = writeln!(
+            out,
+            "static void {destroy_result}(void *raw, size_t size) {{ (void)size; free(raw); }}"
+        );
+    }
+    let _ = writeln!(
+        out,
+        "static void {destroy_error}(void *raw, size_t size) {{ (void)size; free(raw); }}"
+    );
+    let _ = writeln!(out, "static void {poll}_error(AuraTaskFrame *frame, const char *message) {{ size_t __length = strlen(message) + 1; char *__copy = (char *)malloc(__length); if (__copy != NULL) {{ memcpy(__copy, message, __length); aura_task_frame_set_error_at(frame, __copy, __length, {destroy_error}, UINT32_C(0)); }} }}");
+    let _ = writeln!(
+        out,
+        "static AuraTaskPollState {poll}(AuraTaskFrame *frame) {{"
+    );
+    let _ = writeln!(out, "  {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data == NULL) return AURA_TASK_FAILED; if (aura_task_frame_cancel_requested(frame)) {{ data->close_on_cleanup = true; return AURA_TASK_CANCELLED; }} if (aura_task_frame_take_fd_wait_timeout(frame)) {{ {poll}_error(frame, \"TLS operation timeout\"); return AURA_TASK_FAILED; }} if (data->deadline_ms > 0 && aura_time_monotonic_millis() >= data->deadline_ms) {{ {poll}_error(frame, \"TLS operation timeout\"); return AURA_TASK_FAILED; }} AuraTcpStream *__stream = aura_tls_stream(data->endpoint); if (__stream == NULL) {{ {poll}_error(frame, \"TLS stream is closed\"); return AURA_TASK_FAILED; }}");
+    if is_read {
+        let _ = writeln!(out, "  size_t __count = 0; int __status = aura_tls_read_bytes(data->endpoint, data->buffer, (size_t)data->length, &__count, 0); if (__status == 3) {{ int __wait = -1; if (data->deadline_ms > 0) {{ int64_t __left = data->deadline_ms - aura_time_monotonic_millis(); if (__left <= 0) {{ {poll}_error(frame, \"TLS operation timeout\"); return AURA_TASK_FAILED; }} __wait = __left > INT32_MAX ? INT32_MAX : (int)__left; }} int __registered = __wait < 0 ? aura_task_frame_wait_tcp_stream(frame, __stream, aura_tls_pending_events(data->endpoint)) : aura_task_frame_wait_tcp_stream_timeout(frame, __stream, aura_tls_pending_events(data->endpoint), __wait); if (!__registered) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }} if (__status != 0 && __status != 1) {{ {poll}_error(frame, \"TLS read failed\"); return AURA_TASK_FAILED; }}");
+        if binary {
+            out.push_str("  aura_cls_Array_Int __values = aura_new_Array_Int((int64_t)__count); if (__count > 0 && __values.data == NULL) return AURA_TASK_FAILED; for (size_t __i = 0; __i < __count; __i++) __values.data[__i] = data->buffer[__i]; aura_cls_std_bytes_Buffer *__result = aura_new_std_bytes_Buffer(__values); if (__result == NULL) return AURA_TASK_FAILED; aura_gc_add_root((void **)__result); aura_task_frame_set_result(frame, __result, sizeof(*__result), ");
+        } else {
+            out.push_str("  data->buffer[__count] = '\\0'; char **__result = (char **)malloc(sizeof(*__result)); if (__result == NULL) return AURA_TASK_FAILED; *__result = (char *)data->buffer; data->buffer = NULL; aura_task_frame_set_result(frame, __result, sizeof(*__result), ");
+        }
+        out.push_str(&destroy_result);
+        out.push_str("); return AURA_TASK_COMPLETE;\n}\n");
+    } else {
+        let _ = writeln!(out, "  if (data->offset == data->length) {{ int64_t *__result = (int64_t *)malloc(sizeof(*__result)); if (__result == NULL) return AURA_TASK_FAILED; *__result = data->offset; aura_task_frame_set_result(frame, __result, sizeof(*__result), {destroy_result}); return AURA_TASK_COMPLETE; }} size_t __count = 0; int __status = aura_tls_write_bytes(data->endpoint, data->buffer + data->offset, (size_t)(data->length - data->offset), &__count, 0); data->offset += (int64_t)__count; if (__status == 3) {{ int __wait = -1; if (data->deadline_ms > 0) {{ int64_t __left = data->deadline_ms - aura_time_monotonic_millis(); if (__left <= 0) {{ {poll}_error(frame, \"TLS operation timeout\"); return AURA_TASK_FAILED; }} __wait = __left > INT32_MAX ? INT32_MAX : (int)__left; }} int __registered = __wait < 0 ? aura_task_frame_wait_tcp_stream(frame, __stream, aura_tls_pending_events(data->endpoint)) : aura_task_frame_wait_tcp_stream_timeout(frame, __stream, aura_tls_pending_events(data->endpoint), __wait); if (!__registered) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }} if (__status != 0) {{ {poll}_error(frame, \"TLS write failed\"); return AURA_TASK_FAILED; }} if (__count == 0) {{ {poll}_error(frame, \"TLS write made no progress\"); return AURA_TASK_FAILED; }} return AURA_TASK_PENDING;\n}}\n");
+    }
+    let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
+    let _ = writeln!(out, "  AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll}, {destroy}); if (frame == NULL) return NULL; {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data == NULL || a_this == NULL || a_this->endpoint == NULL) {{ aura_task_frame_destroy(frame); return NULL; }} data->endpoint = strdup(a_this->endpoint); data->close_on_cleanup = false; data->offset = 0; data->deadline_ms = 0; data->buffer = NULL; if (data->endpoint == NULL) {{ aura_task_frame_destroy(frame); return NULL; }}");
+    if is_read {
+        let _ = writeln!(out, "  data->length = {value}; if (data->length <= 0 || data->length > INT64_MAX - 1) {{ aura_task_frame_destroy(frame); return NULL; }} data->buffer = (uint8_t *)malloc((size_t)data->length + 1); if (data->buffer == NULL) {{ aura_task_frame_destroy(frame); return NULL; }}");
+    } else if binary {
+        let _ = writeln!(out, "  data->length = {value} == NULL ? 0 : {value}->values.len; if (data->length < 0 || data->length > INT64_MAX - 1) {{ aura_task_frame_destroy(frame); return NULL; }} data->buffer = (uint8_t *)malloc((size_t)(data->length == 0 ? 1 : data->length)); if (data->buffer == NULL) {{ aura_task_frame_destroy(frame); return NULL; }} for (int64_t __i = 0; __i < data->length; __i++) {{ if ({value}->values.data[__i] < 0 || {value}->values.data[__i] > 255) {{ aura_task_frame_destroy(frame); return NULL; }} data->buffer[__i] = (uint8_t){value}->values.data[__i]; }}");
+    } else {
+        let _ = writeln!(out, "  data->length = {value} == NULL ? 0 : (int64_t)strlen({value}); data->buffer = (uint8_t *)malloc((size_t)(data->length == 0 ? 1 : data->length)); if (data->buffer == NULL) {{ aura_task_frame_destroy(frame); return NULL; }} if (data->length > 0) memcpy(data->buffer, {value}, (size_t)data->length);");
+    }
+    if has_timeout {
+        let timeout = mangle_ident(&f.params[2].name.name);
+        let _ = writeln!(out, "  if ({timeout} < 0) {{ aura_task_frame_destroy(frame); return NULL; }} {{ int64_t __now = aura_time_monotonic_millis(); if (__now <= 0 || __now > INT64_MAX - {timeout}) {{ aura_task_frame_destroy(frame); return NULL; }} data->deadline_ms = __now + {timeout}; }}");
+    }
+    let _ = writeln!(out, "  aura_task_frame_set_cleanup(frame, data, {destroy}_cleanup); if (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, frame)) {{ aura_task_frame_destroy(frame); return NULL; }} return frame;\n}}");
+    true
+}
+
 fn emit_async_body(
     out: &mut String,
     f: &AsyncFunDecl,
@@ -13862,6 +14165,35 @@ fn emit_async_body(
             let capacity = mangle_ident(&f.params[1].name.name);
             out.push_str("  /* AURA_TLS_REQUIRED */\n");
             let _ = writeln!(out, "  if (this == NULL || this->endpoint == NULL || {capacity} <= 0) {{ aura_throw_string(\"TLS read failed\"); return NULL; }} const char *__value = aura_tls_read(this->endpoint, {capacity}); if (__value == NULL) {{ char __message[320]; snprintf(__message, sizeof(__message), \"TLS read failed: %s\", aura_tls_last_error()); aura_throw_string(__message); return NULL; }} return __value;");
+            return;
+        }
+        if (f.name.name.ends_with("_readBytes") || f.name.name.ends_with("_readBytesWithTimeout"))
+            && (f.params.len() == 2 || f.params.len() == 3)
+            && cty.contains("TlsConnection")
+            && type_ref_local_key_expand(&f.params[1].ty, params, type_args, checked) == "Int"
+        {
+            let capacity = mangle_ident(&f.params[1].name.name);
+            let timeout = if f.params.len() == 3 {
+                mangle_ident(&f.params[2].name.name)
+            } else {
+                "1000".to_string()
+            };
+            let _ = writeln!(out, "  /* AURA_TLS_REQUIRED */ if (this == NULL || this->endpoint == NULL || {capacity} < 0 || {timeout} < 0 || {timeout} > INT_MAX) {{ aura_throw_string(\"TLS binary read failed\"); return NULL; }} uint8_t *__raw = (uint8_t *)malloc((size_t)({capacity} == 0 ? 1 : {capacity})); if (__raw == NULL) {{ aura_throw_string(\"TLS binary read allocation failed\"); return NULL; }} size_t __count = 0; int __status = aura_tls_read_bytes(this->endpoint, __raw, (size_t){capacity}, &__count, (int){timeout}); if (__status != 0 && __status != 1) {{ free(__raw); char __message[320]; snprintf(__message, sizeof(__message), \"TLS binary read failed: %s\", aura_tls_last_error()); aura_throw_string(__message); return NULL; }} aura_cls_Array_Int __values = aura_new_Array_Int((int64_t)__count); if (__count > 0 && __values.data == NULL) {{ free(__raw); return NULL; }} for (size_t __i = 0; __i < __count; __i++) __values.data[__i] = __raw[__i]; free(__raw); return aura_new_std_bytes_Buffer(__values);");
+            return;
+        }
+        if (f.name.name.ends_with("_writeBytes") || f.name.name.ends_with("_writeBytesWithTimeout"))
+            && (f.params.len() == 2 || f.params.len() == 3)
+            && cty.contains("TlsConnection")
+            && type_ref_local_key_expand(&f.params[1].ty, params, type_args, checked)
+                == "std_bytes_Buffer"
+        {
+            let bytes = mangle_ident(&f.params[1].name.name);
+            let timeout = if f.params.len() == 3 {
+                mangle_ident(&f.params[2].name.name)
+            } else {
+                "1000".to_string()
+            };
+            let _ = writeln!(out, "  /* AURA_TLS_REQUIRED */ if (this == NULL || this->endpoint == NULL || {bytes} == NULL || {timeout} < 0 || {timeout} > INT_MAX) {{ aura_throw_string(\"TLS binary write failed\"); return 0; }} size_t __length = (size_t){bytes}->values.len; uint8_t *__raw = (uint8_t *)malloc(__length == 0 ? 1 : __length); if (__raw == NULL) {{ aura_throw_string(\"TLS binary write allocation failed\"); return 0; }} for (size_t __i = 0; __i < __length; __i++) {{ if ({bytes}->values.data[__i] < 0 || {bytes}->values.data[__i] > 255) {{ free(__raw); aura_throw_string(\"TLS binary byte out of range\"); return 0; }} __raw[__i] = (uint8_t){bytes}->values.data[__i]; }} size_t __written = 0; int __status = aura_tls_write_bytes(this->endpoint, __raw, __length, &__written, (int){timeout}); free(__raw); if (__status != 0) {{ char __message[320]; snprintf(__message, sizeof(__message), \"TLS binary write failed: %s\", aura_tls_last_error()); aura_throw_string(__message); return 0; }} return (int64_t)__written;");
             return;
         }
         if f.name.name.ends_with("_write") && f.params.len() == 2 && cty.contains("TlsConnection") {
@@ -17544,6 +17876,41 @@ pub(crate) fn emit_fun(
                 out.push_str("}\n");
                 return;
             }
+            ("randomBytesBuffer", 1) => {
+                let length = mangle_ident(&f.params[0].name.name);
+                out.push_str("  if (");
+                let _ = writeln!(out, "{length} < 0 || {length} > INT64_MAX - 1) {{ aura_throw_string(\"random byte length is invalid\"); return NULL; }}");
+                out.push_str("  size_t __length = (size_t)");
+                out.push_str(&length);
+                out.push_str("; uint8_t *__raw = (uint8_t *)malloc(__length == 0 ? 1 : __length); if (__raw == NULL || !aura_crypto_random_bytes_raw(__raw, __length)) { free(__raw); aura_throw_string(\"secure randomness unavailable\"); return NULL; } aura_cls_Array_Int __values = aura_new_Array_Int((int64_t)__length); for (int64_t __i = 0; __i < (int64_t)__length; __i++) __values.data[__i] = __raw[__i]; free(__raw); return aura_new_std_bytes_Buffer(__values);\n}");
+                return;
+            }
+            ("md5Bytes", 1) | ("sha256Bytes", 1) => {
+                let value = mangle_ident(&f.params[0].name.name);
+                let is_md5 = f.name.name == "md5Bytes";
+                let digest_len = if is_md5 { 16 } else { 32 };
+                let digest_call = if is_md5 {
+                    "aura_crypto_md5_bytes"
+                } else {
+                    "aura_crypto_sha256_bytes"
+                };
+                let _ = writeln!(out, "  if ({value} == NULL) {{ aura_throw_string(\"binary digest input is null\"); return NULL; }} size_t __input_length = (size_t){value}->values.len; uint8_t *__input = (uint8_t *)malloc(__input_length == 0 ? 1 : __input_length); if (__input == NULL) {{ aura_throw_string(\"binary digest allocation failed\"); return NULL; }} for (size_t __i = 0; __i < __input_length; __i++) __input[__i] = (uint8_t){value}->values.data[__i]; uint8_t __digest[{digest_len}]; if (!{digest_call}(__input, __input_length, __digest)) {{ free(__input); aura_throw_string(\"binary digest failed\"); return NULL; }} free(__input); aura_cls_Array_Int __values = aura_new_Array_Int(INT64_C({digest_len})); for (int64_t __i = 0; __i < INT64_C({digest_len}); __i++) __values.data[__i] = __digest[__i]; return aura_new_std_bytes_Buffer(__values);\n}}", value = value, digest_call = digest_call, digest_len = digest_len);
+                return;
+            }
+            ("hmacSha256Bytes", 2) => {
+                let key = mangle_ident(&f.params[0].name.name);
+                let value = mangle_ident(&f.params[1].name.name);
+                let _ = writeln!(out, "  if ({key} == NULL || {value} == NULL) {{ aura_throw_string(\"binary HMAC input is null\"); return NULL; }} size_t __key_length = (size_t){key}->values.len; size_t __value_length = (size_t){value}->values.len; uint8_t *__key_bytes = (uint8_t *)malloc(__key_length == 0 ? 1 : __key_length); uint8_t *__value_bytes = (uint8_t *)malloc(__value_length == 0 ? 1 : __value_length); if (__key_bytes == NULL || __value_bytes == NULL) {{ free(__key_bytes); free(__value_bytes); aura_throw_string(\"binary HMAC allocation failed\"); return NULL; }} for (size_t __i = 0; __i < __key_length; __i++) __key_bytes[__i] = (uint8_t){key}->values.data[__i]; for (size_t __i = 0; __i < __value_length; __i++) __value_bytes[__i] = (uint8_t){value}->values.data[__i]; uint8_t __digest[32]; if (!aura_crypto_hmac_sha256_bytes(__key_bytes, __key_length, __value_bytes, __value_length, __digest)) {{ free(__key_bytes); free(__value_bytes); aura_throw_string(\"binary HMAC failed\"); return NULL; }} free(__key_bytes); free(__value_bytes); aura_cls_Array_Int __values = aura_new_Array_Int(INT64_C(32)); for (int64_t __i = 0; __i < INT64_C(32); __i++) __values.data[__i] = __digest[__i]; return aura_new_std_bytes_Buffer(__values);\n}}", key = key, value = value);
+                return;
+            }
+            ("pbkdf2Sha256", 4) => {
+                let password = mangle_ident(&f.params[0].name.name);
+                let salt = mangle_ident(&f.params[1].name.name);
+                let iterations = mangle_ident(&f.params[2].name.name);
+                let length = mangle_ident(&f.params[3].name.name);
+                let _ = writeln!(out, "  if ({password} == NULL || {salt} == NULL || {iterations} <= 0 || {length} < 0 || {length} > INT64_MAX - 1) {{ aura_throw_string(\"invalid PBKDF2 input\"); return NULL; }} size_t __password_length = (size_t){password}->values.len; size_t __salt_length = (size_t){salt}->values.len; uint8_t *__password_bytes = (uint8_t *)malloc(__password_length == 0 ? 1 : __password_length); uint8_t *__salt_bytes = (uint8_t *)malloc(__salt_length == 0 ? 1 : __salt_length); if (__password_bytes == NULL || __salt_bytes == NULL) {{ free(__password_bytes); free(__salt_bytes); aura_throw_string(\"PBKDF2 allocation failed\"); return NULL; }} for (size_t __i = 0; __i < __password_length; __i++) __password_bytes[__i] = (uint8_t){password}->values.data[__i]; for (size_t __i = 0; __i < __salt_length; __i++) __salt_bytes[__i] = (uint8_t){salt}->values.data[__i]; size_t __length = (size_t){length}; uint8_t *__raw = (uint8_t *)malloc(__length == 0 ? 1 : __length); if (__raw == NULL || !aura_crypto_pbkdf2_sha256(__password_bytes, __password_length, __salt_bytes, __salt_length, (uint32_t){iterations}, __raw, __length)) {{ free(__password_bytes); free(__salt_bytes); free(__raw); aura_throw_string(\"PBKDF2 failed\"); return NULL; }} free(__password_bytes); free(__salt_bytes); aura_cls_Array_Int __values = aura_new_Array_Int((int64_t)__length); for (int64_t __i = 0; __i < (int64_t)__length; __i++) __values.data[__i] = __raw[__i]; free(__raw); return aura_new_std_bytes_Buffer(__values);\n}}", password = password, salt = salt, iterations = iterations, length = length);
+                return;
+            }
             ("constantTimeEquals", 2) => {
                 let left = mangle_ident(&f.params[0].name.name);
                 let right = mangle_ident(&f.params[1].name.name);
@@ -17576,12 +17943,22 @@ pub(crate) fn emit_fun(
                 let verify = mangle_ident(&f.params[1].name.name);
                 out.push_str("  return aura_new_std_crypto_TlsConfig(");
                 let _ = writeln!(out, "{server}, {verify});");
+                out.push_str("}\n");
                 return;
             }
             _ => {}
         }
     }
     if pkg == "std.tls" {
+        if f.name.name == "wrapStream" && f.params.len() == 3 {
+            let stream = mangle_ident(&f.params[0].name.name);
+            let endpoint = mangle_ident(&f.params[1].name.name);
+            let config = mangle_ident(&f.params[2].name.name);
+            out.push_str("  AuraFfiHandlePin __pin = {0};\n");
+            let _ = writeln!(out, "  if ({stream} == NULL || {endpoint} == NULL || {config} == NULL || aura_ffi_handle_pin_for_boundary({stream}, AURA_FFI_BOUNDARY_SYNC, &__pin) != AURA_FFI_OK || aura_ffi_handle_retain({stream}) != AURA_FFI_OK) {{ if (__pin.handle != NULL) (void)aura_ffi_handle_unpin(&__pin); aura_throw_string(\"TLS stream wrap failed\"); return NULL; }} if (!aura_tls_wrap_stream({endpoint}, (struct AuraTcpStream *)__pin.resource, {stream}, {config}->serverName, {config}->verifyPeer)) {{ (void)aura_ffi_handle_unpin(&__pin); char __message[320]; snprintf(__message, sizeof(__message), \"TLS stream wrap failed: %s\", aura_tls_last_error()); aura_throw_string(__message); return NULL; }} (void)aura_ffi_handle_unpin(&__pin); return aura_new_std_tls_Connection({endpoint});");
+            out.push_str("}\n");
+            return;
+        }
         if f.name.name == "config" && f.params.len() == 2 {
             let server = mangle_ident(&f.params[0].name.name);
             let verify = mangle_ident(&f.params[1].name.name);

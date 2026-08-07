@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdtransport.binary"
+
+[[bin]]
+name = "binary"
+path = "src"

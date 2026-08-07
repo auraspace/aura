@@ -18,6 +18,7 @@ typedef enum
   AURA_TCP_PENDING = 1,
   AURA_TCP_EOF = 2,
   AURA_TCP_TIMEOUT = 3,
+  AURA_TCP_PARTIAL_EOF = 4,
   AURA_TCP_ERROR = -1,
   AURA_TCP_CLOSED = -2,
   AURA_TCP_UNSUPPORTED = -3
@@ -546,6 +547,63 @@ AuraTcpStatus aura_tcp_stream_write(AuraTcpStream *stream, const void *buffer, s
   return AURA_TCP_ERROR;
 }
 
+AuraTcpStatus aura_tcp_stream_read_exactly(AuraTcpStream *stream, void *buffer,
+                                           size_t length, size_t *out_bytes,
+                                           int timeout_ms)
+{
+  if (out_bytes == NULL || (buffer == NULL && length != 0) || timeout_ms < 0)
+    return AURA_TCP_ERROR;
+  *out_bytes = 0;
+  int64_t deadline = timeout_ms == 0 ? 0 : aura_time_monotonic_millis() + timeout_ms;
+  while (*out_bytes < length)
+  {
+    int remaining = timeout_ms;
+    if (deadline != 0)
+    {
+      int64_t left = deadline - aura_time_monotonic_millis();
+      if (left <= 0) return AURA_TCP_TIMEOUT;
+      remaining = left > INT_MAX ? INT_MAX : (int)left;
+    }
+    size_t count = 0;
+    AuraTcpStatus status = aura_tcp_stream_read(stream,
+        (unsigned char *)buffer + *out_bytes, length - *out_bytes, &count, remaining);
+    *out_bytes += count;
+    if (status == AURA_TCP_OK) continue;
+    if (status == AURA_TCP_EOF)
+      return *out_bytes == 0 ? AURA_TCP_EOF : AURA_TCP_PARTIAL_EOF;
+    return status;
+  }
+  return AURA_TCP_OK;
+}
+
+AuraTcpStatus aura_tcp_stream_write_all(AuraTcpStream *stream, const void *buffer,
+                                        size_t length, size_t *out_bytes,
+                                        int timeout_ms)
+{
+  if (out_bytes == NULL || (buffer == NULL && length != 0) || timeout_ms < 0)
+    return AURA_TCP_ERROR;
+  *out_bytes = 0;
+  int64_t deadline = timeout_ms == 0 ? 0 : aura_time_monotonic_millis() + timeout_ms;
+  while (*out_bytes < length)
+  {
+    int remaining = timeout_ms;
+    if (deadline != 0)
+    {
+      int64_t left = deadline - aura_time_monotonic_millis();
+      if (left <= 0) return AURA_TCP_TIMEOUT;
+      remaining = left > INT_MAX ? INT_MAX : (int)left;
+    }
+    size_t count = 0;
+    AuraTcpStatus status = aura_tcp_stream_write(stream,
+        (const unsigned char *)buffer + *out_bytes, length - *out_bytes, &count, remaining);
+    *out_bytes += count;
+    if (status == AURA_TCP_OK) continue;
+    if (status == AURA_TCP_CLOSED) return AURA_TCP_CLOSED;
+    return status;
+  }
+  return AURA_TCP_OK;
+}
+
 int aura_tcp_listener_close(AuraTcpListener *listener)
 {
   if (listener == NULL || listener->fd < 0)
@@ -705,6 +763,24 @@ AuraTcpStatus aura_tcp_stream_write(AuraTcpStream *stream, const void *buffer, s
   return AURA_TCP_UNSUPPORTED;
 }
 
+AuraTcpStatus aura_tcp_stream_read_exactly(AuraTcpStream *stream, void *buffer,
+                                           size_t length, size_t *out_bytes,
+                                           int timeout_ms)
+{
+  (void)stream; (void)buffer; (void)length; (void)timeout_ms;
+  if (out_bytes != NULL) *out_bytes = 0;
+  return AURA_TCP_UNSUPPORTED;
+}
+
+AuraTcpStatus aura_tcp_stream_write_all(AuraTcpStream *stream, const void *buffer,
+                                        size_t length, size_t *out_bytes,
+                                        int timeout_ms)
+{
+  (void)stream; (void)buffer; (void)length; (void)timeout_ms;
+  if (out_bytes != NULL) *out_bytes = 0;
+  return AURA_TCP_UNSUPPORTED;
+}
+
 int aura_tcp_listener_close(AuraTcpListener *listener)
 {
   (void)listener;
@@ -728,4 +804,3 @@ void aura_tcp_stream_destroy(AuraTcpStream *stream)
 }
 
 #endif
-

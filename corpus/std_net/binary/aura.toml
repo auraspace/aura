@@ -1,0 +1,6 @@
+[package]
+name = "demo.stdnet.binary"
+
+[[bin]]
+name = "binary"
+path = "src"

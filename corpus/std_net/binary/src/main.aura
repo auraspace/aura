@@ -1,0 +1,16 @@
+package demo.stdnet.binary
+
+import std.bytes as Bytes
+import std.net
+
+async fun binaryRoundTrip(stream: ForeignHandle<Int>): Int {
+  val buffer = Bytes.newBuffer()
+  buffer.appendByte(Bytes.byte(0))
+  buffer.appendByte(Bytes.byte(255))
+  val received: Bytes.Buffer = await readExactlyWithTimeout(stream, 2, 10)
+  val first: Int = received.readByte(0)!!.value
+  if (first == 0) { return await writeAllWithTimeout(stream, buffer, 10) }
+  return 0
+}
+
+fun main() {}

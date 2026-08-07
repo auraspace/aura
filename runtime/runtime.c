@@ -3,6 +3,7 @@
 #include "src/core/preamble.c"
 #include "src/core/core.c"
 #include "src/core/string.c"
+#include "src/core/binary.c"
 #include "src/encoding/encoding.c"
 #include "src/encoding/json.c"
 #include "src/crypto/crypto.c"

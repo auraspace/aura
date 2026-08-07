@@ -2,6 +2,8 @@
 
 package std.tls
 
+import std.bytes as TlsBytes
+
 pub enum TlsError {
   case InvalidInput
   case HandshakeFailed
@@ -26,6 +28,22 @@ pub class Connection(pub val endpoint: String) {
     throw "std.tls write intrinsic"
   }
 
+  pub async fun readBytes(capacity: Int): TlsBytes.Buffer {
+    throw "std.tls readBytes intrinsic"
+  }
+
+  pub async fun readBytesWithTimeout(capacity: Int, timeoutMs: Int): TlsBytes.Buffer {
+    throw "std.tls readBytesWithTimeout intrinsic"
+  }
+
+  pub async fun writeBytes(bytes: TlsBytes.Buffer): Int {
+    throw "std.tls writeBytes intrinsic"
+  }
+
+  pub async fun writeBytesWithTimeout(bytes: TlsBytes.Buffer, timeoutMs: Int): Int {
+    throw "std.tls writeBytesWithTimeout intrinsic"
+  }
+
   pub fun close(): Unit {
     throw "std.tls close intrinsic"
   }
@@ -37,6 +55,12 @@ pub fun config(serverName: String, verifyPeer: Bool): Config {
 
 pub async fun connect(endpoint: String, options: Config): Connection {
   throw "std.tls connect intrinsic"
+}
+
+/// Upgrade an existing std.net TCP stream in place. `endpoint` is a unique
+/// logical key used to identify the TLS session until `close` is called.
+pub fun wrapStream(stream: ForeignHandle<Int>, endpoint: String, options: Config): Connection {
+  throw "std.tls wrapStream intrinsic"
 }
 
 pub fun loadCertificate(path: String): Certificate {

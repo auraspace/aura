@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <ctype.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <time.h>
 #include <signal.h>
 #include <sys/stat.h>
@@ -22,6 +23,9 @@
 #if defined(__unix__) || defined(__APPLE__)
 #include <unistd.h>
 #include <pthread.h>
+#endif
+#if defined(__linux__)
+#include <sys/random.h>
 #endif
 
 static volatile sig_atomic_t aura_shutdown_signal = 0;

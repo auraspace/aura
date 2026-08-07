@@ -91,13 +91,13 @@ Compiler MVP needs types to lower; users need I/O and collections for non-toy pr
 | `std.test`        | Deterministic Bool/Int/String assertion helpers                                                                    |
 | `std.collections` | `Map`, `Set`, generic `HashMap`/`HashSet`, snapshot/live iterators, `Iterable`, and HOFs                           |
 | `std.error`       | Shared `ErrorKind`, owned `Error`, and generic `Outcome<T,E>`                                                      |
-| `std.bytes`       | Owned byte strings and bounded mutable byte buffers                                                                |
+| `std.bytes`       | Validated `Byte`, binary buffers, slicing/concatenation, and network-order integer helpers                         |
 | `std.encoding`    | UTF-8, base64, hex, and RFC 3986 percent encoding                                                                  |
 | `std.json`        | Bounded validation, escaping, parsing, root classification, policy, and typed mapping surface                      |
 | `std.mime`        | Media-type validation and filename sanitization                                                                    |
 | `std.fs`          | Portable paths and bounded filesystem metadata snapshots                                                           |
 | `std.os`          | Environment, cwd, pid, and platform helpers                                                                        |
-| `std.net`         | Endpoint-aware nonblocking TCP listeners, connections, and streams                                                 |
+| `std.net`         | Endpoint-aware nonblocking TCP with exact binary I/O, deadlines, and cancellation cleanup                          |
 | `std.dns`         | Bounded numeric host resolution                                                                                    |
 | `std.url`         | Origin-form and absolute URI component validation                                                                  |
 | `std.http`        | Bounded HTTP/1.1 server and loopback client request/response API; routing frameworks, HTTP/2+, TLS remain separate |
@@ -108,9 +108,9 @@ Compiler MVP needs types to lower; users need I/O and collections for non-toy pr
 | `std.signal`      | SIGINT/SIGTERM graceful-shutdown state                                                                             |
 | `std.log`         | Level-filtered and structured text logging                                                                         |
 | `std.metrics`     | Sequentially consistent counters and Prometheus samples                                                            |
-| `std.crypto`      | Bounded runtime-backed hash, HMAC, random, and TLS foundations                                                     |
+| `std.crypto`      | Bounded runtime-backed MD5/SHA-256, HMAC, PBKDF2, secure random, and TLS foundations                               |
 | `std.reflect`     | Bounded compiler-backed opt-in reflection metadata (RFC-009)                                                       |
-| `std.tls`         | Bounded OpenSSL-backed certificate, config, and async connection surface                                           |
+| `std.tls`         | Bounded OpenSSL-backed certificate/config and String/binary async connection surface                               |
 | `std.udp`         | Bounded POSIX endpoint, datagram, and async socket surface                                                         |
 | `std.websocket`   | Bounded POSIX messages, ping/pong, close, and async connection surface                                             |
 | `std.compress`    | Bounded gzip/deflate codec options and text-safe transforms                                                        |
@@ -327,10 +327,14 @@ stored, sent, or retained by a task or channel.
 ### 6.5 I/O & net
 
 - The shipped bounded async surface includes `std.io.readFd`/`writeFd`,
-  `std.net.accept`/`readStream`/`writeStream`, and the `std.http` client/server
-  adapters. These operations preserve owned handles and inputs across await.
-- `std.net` supports endpoint strings with loopback defaults; UDP, Unix-domain sockets, TLS, and broad
-  blocking convenience APIs are separate follow-ons.
+  `std.net.accept`/`readStream`/`writeStream`, exact binary
+  `readExactly`/`writeAll`, and the `std.http` client/server adapters. These
+  operations preserve owned handles and inputs across await.
+- `std.net` supports endpoint strings with loopback defaults, monotonic
+  operation deadlines, and cancellation cleanup that closes pending streams.
+  `std.tls` upgrades TCP streams or creates verified OpenSSL connections and
+  exposes the same String/binary async adapter model. UDP, Unix-domain sockets,
+  and broad blocking convenience APIs are separate follow-ons.
 
 ### 6.6 JSON
 

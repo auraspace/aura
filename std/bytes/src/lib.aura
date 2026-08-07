@@ -2,60 +2,149 @@
 
 package std.bytes
 
+/// A validated unsigned byte. The backing Int is kept private so callers
+/// cannot accidentally pass arbitrary values as wire bytes.
+pub class Byte(pub val value: Int) {
+    pub fun toInt(): Int {
+        return value
+    }
+}
+
+/// Construct a byte; values outside [0, 255] are rejected.
+pub fun byte(value: Int): Byte {
+    if (value < 0 || value > 255) { throw "byte out of range" }
+    return Byte(value)
+}
+
+/// Read an unsigned 16-bit network-order integer from an owned buffer.
+pub fun readInt16BE(buffer: Buffer, offset: Int): Int? {
+    if (offset < 0 || offset > buffer.length() - 2) { return null }
+    return buffer.readByte(offset)!!.value * 256 + buffer.readByte(offset + 1)!!.value
+}
+
+/// Read an unsigned 32-bit network-order integer from an owned buffer.
+pub fun readInt32BE(buffer: Buffer, offset: Int): Int? {
+    if (offset < 0 || offset > buffer.length() - 4) { return null }
+    return buffer.readByte(offset)!!.value * 16777216 + buffer.readByte(offset + 1)!!.value * 65536 +
+ buffer.readByte(offset + 2)!!.value * 256 + buffer.readByte(offset + 3)!!.value
+}
+
 /// Return an independent owned copy of the byte string.
 pub fun copy(value: String): String {
-  throw "bytes intrinsic"
+    throw "bytes intrinsic"
 }
 
 /// Concatenate two owned byte strings.
 pub fun concat(left: String, right: String): String {
-  throw "bytes intrinsic"
+    throw "bytes intrinsic"
 }
 
 /// Return an owned byte slice using a start offset and length; null on bounds
 /// violations or arithmetic overflow.
 pub fun slice(value: String, start: Int, length: Int): String? {
-  throw "bytes intrinsic"
+    throw "bytes intrinsic"
 }
 
 /// Compare byte strings without locale or Unicode normalization.
 pub fun equals(left: String, right: String): Bool {
-  throw "bytes intrinsic"
+    throw "bytes intrinsic"
 }
 
 /// Owned byte buffer backed by an Aura `Array<Int>`.
 ///
 /// Values passed to `push` must be in the unsigned-byte range [0, 255].
 pub class Buffer(private val values: Array<Int>) {
-  /// Return the number of bytes currently stored in the buffer.
-  pub fun length(): Int {
-    return values.len
-  }
-
-  /// Return null for an out-of-bounds index.
-  pub fun get(index: Int): Int? {
-    if (index < 0 || index >= values.len) {
-      return null
+    /// Return the number of bytes currently stored in the buffer.
+    pub fun length(): Int {
+        return values.len
     }
-    return values.get(index)
-  }
 
-  /// Append one byte. Returns false when `value` is outside [0, 255].
-  pub fun push(value: Int): Bool {
-    if (value < 0 || value > 255) {
-      return false
+    /// Return null for an out-of-bounds index.
+    pub fun get(index: Int): Int? {
+        if (index < 0 || index >= values.len) {
+            return null
+        }
+        return values.get(index)
     }
-    values.push(value)
+
+    /// Append one byte. Returns false when `value` is outside [0, 255].
+    pub fun push(value: Int): Bool {
+        if (value < 0 || value > 255) {
+            return false
+        }
+        values.push(value)
+        return true
+    }
+
+    /// Append one validated binary byte without passing through String.
+    pub fun appendByte(value: Byte): Bool {
+        return this.push(value.value)
+    }
+
+    /// Read one byte by index; null means out of bounds.
+    pub fun readByte(index: Int): Byte? {
+        val value = this.get(index)
+        if (value == null) { return null }
+        return Byte(value!!)
+    }
+
+    /// Write one byte by index without String conversion.
+    pub fun writeByte(index: Int, value: Byte): Bool {
+        if (index < 0 || index >= values.len || value.value < 0 || value.value > 255) { return false }
+        values.set(index, value.value)
+        return true
+    }
+
+    /// Return a bounded independent byte buffer slice.
+    pub fun slice(start: Int, length: Int): Buffer? {
+        if (start < 0 || length < 0 || start > values.len || length > values.len - start) {
+            return null
+        }
+        val result = Array<Int>(0)
+        var index = 0
+        while (index < length) {
+            result.push(values.get(start + index))
+            index = index + 1
+        }
+        return Buffer(result)
+    }
+
+    /// Concatenate two owned byte buffers into a new buffer.
+    pub fun concat(other: Buffer): Buffer {
+        val result = values.clone()
+        var index = 0
+        while (index < other.values.len) {
+            result.push(other.values.get(index))
+            index = index + 1
+        }
+        return Buffer(result)
+    }
+
+    /// Deep-copy the buffer and its owned array storage.
+    pub fun clone(): Buffer {
+        return Buffer(values.clone())
+    }
+}
+
+/// Write an unsigned 16-bit integer in network byte order.
+pub fun writeInt16BE(buffer: Buffer, offset: Int, value: Int): Bool {
+    if (value < 0 || value > 65535 || offset < 0 || offset > buffer.length() - 2) { return false }
+    buffer.writeByte(offset, byte(value / 256))
+    buffer.writeByte(offset + 1, byte(value % 256))
     return true
-  }
+}
 
-  /// Deep-copy the buffer and its owned array storage.
-  pub fun clone(): Buffer {
-    return Buffer(values.clone())
-  }
+/// Write an unsigned 32-bit integer in network byte order.
+pub fun writeInt32BE(buffer: Buffer, offset: Int, value: Int): Bool {
+    if (value < 0 || value > 4294967295 || offset < 0 || offset > buffer.length() - 4) { return false }
+    buffer.writeByte(offset, byte(value / 16777216))
+    buffer.writeByte(offset + 1, byte((value / 65536) % 256))
+    buffer.writeByte(offset + 2, byte((value / 256) % 256))
+    buffer.writeByte(offset + 3, byte(value % 256))
+    return true
 }
 
 /// Construct an empty owned byte buffer.
 pub fun newBuffer(): Buffer {
-  return Buffer(Array(0))
+    return Buffer(Array(0))
 }

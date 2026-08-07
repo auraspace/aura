@@ -5,6 +5,8 @@
 
 package std.crypto
 
+import std.bytes as CryptoBuffer
+
 pub enum CryptoError {
   case InvalidInput
   case Unsupported
@@ -24,6 +26,22 @@ pub class TlsConnection(pub val endpoint: String) {
     throw "std.crypto TLS write intrinsic"
   }
 
+  pub async fun readBytes(capacity: Int): CryptoBuffer.Buffer {
+    throw "std.crypto TLS readBytes intrinsic"
+  }
+
+  pub async fun readBytesWithTimeout(capacity: Int, timeoutMs: Int): CryptoBuffer.Buffer {
+    throw "std.crypto TLS readBytesWithTimeout intrinsic"
+  }
+
+  pub async fun writeBytes(bytes: CryptoBuffer.Buffer): Int {
+    throw "std.crypto TLS writeBytes intrinsic"
+  }
+
+  pub async fun writeBytesWithTimeout(bytes: CryptoBuffer.Buffer, timeoutMs: Int): Int {
+    throw "std.crypto TLS writeBytesWithTimeout intrinsic"
+  }
+
   pub fun close(): Unit {
     throw "std.crypto TLS close intrinsic"
   }
@@ -33,12 +51,34 @@ pub fun randomBytes(length: Int): String {
   throw "std.crypto randomBytes intrinsic"
 }
 
+/// Secure random bytes with an explicit binary representation.
+pub fun randomBytesBuffer(length: Int): CryptoBuffer.Buffer {
+  throw "std.crypto randomBytesBuffer intrinsic"
+}
+
 pub fun sha256(value: String): Digest {
   throw "std.crypto sha256 intrinsic"
 }
 
 pub fun hmacSha256(key: String, value: String): Digest {
   throw "std.crypto hmacSha256 intrinsic"
+}
+
+pub fun md5Bytes(value: CryptoBuffer.Buffer): CryptoBuffer.Buffer {
+  throw "std.crypto md5Bytes intrinsic"
+}
+
+pub fun sha256Bytes(value: CryptoBuffer.Buffer): CryptoBuffer.Buffer {
+  throw "std.crypto sha256Bytes intrinsic"
+}
+
+pub fun hmacSha256Bytes(key: CryptoBuffer.Buffer, value: CryptoBuffer.Buffer): CryptoBuffer.Buffer {
+  throw "std.crypto hmacSha256Bytes intrinsic"
+}
+
+/// PBKDF2-HMAC-SHA-256, suitable for SCRAM-SHA-256 salted passwords.
+pub fun pbkdf2Sha256(password: CryptoBuffer.Buffer, salt: CryptoBuffer.Buffer, iterations: Int, length: Int): CryptoBuffer.Buffer {
+  throw "std.crypto pbkdf2Sha256 intrinsic"
 }
 
 pub fun constantTimeEquals(left: String, right: String): Bool {

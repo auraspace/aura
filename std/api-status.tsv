@@ -3,17 +3,17 @@ std.io	implemented	docs/api/std-alpha.md	console, files, stdin, argv, tasks, err
 std.assert	implemented	docs/api/std-alpha.md	assertion primitive
 std.collections	implemented	docs/api/std-alpha.md	linear and hash collections, iterators, HOFs
 std.error	implemented	docs/api/std-alpha.md	shared errors and Outcome
-std.bytes	implemented	docs/api/std-alpha.md	owned byte strings and buffers
+std.bytes	implemented	docs/api/std-alpha.md	validated Byte and owned binary Buffer operations with network-order helpers
 std.encoding	implemented	docs/api/std-alpha.md	UTF-8, hex, base64, percent encoding
 std.json	implemented	docs/api/std-alpha.md	bounded JSON validation, root values, typed decode, recursive compact aggregate encode/stringify for primitives, nested classes/structs, arrays, string-key maps, and payload enums, plus @json field names
 std.mime	implemented	docs/api/std-alpha.md	media types and filename sanitization
 std.fs	implemented	docs/api/std-alpha.md	paths and filesystem metadata
 std.os	implemented	docs/api/std-alpha.md	environment and process helpers
-std.net	implemented	docs/api/std-alpha.md	bounded TCP transport
+std.net	implemented	docs/api/std-alpha.md	bounded TCP transport with exact binary I/O, deadlines, and cancellation cleanup
 std.dns	implemented	docs/api/std-alpha.md	numeric host resolution
 std.url	implemented	docs/api/std-alpha.md	URI component helpers
 std.http	implemented	docs/api/std-alpha.md	bounded HTTP/1.1 values, server/client, and typed streaming outcomes
-std.stream	implemented	docs/api/std-alpha.md	reader/writer adapters with typed transport outcomes
+std.stream	implemented	docs/api/std-alpha.md	reader/writer adapters with binary Buffer I/O, deadlines, and typed transport outcomes
 std.time	implemented	docs/api/std-alpha.md	monotonic duration and deadlines
 std.task	implemented	docs/api/std-alpha.md	task lifecycle, cancellation, Select, spawnBlocking, and taskScope
 std.sync	implemented	docs/api/std-alpha.md	atomics, locks, gates, and Lazy
@@ -21,9 +21,9 @@ std.signal	implemented	docs/api/std-alpha.md	graceful shutdown state
 std.log	implemented	docs/api/std-alpha.md	level and structured logging
 std.metrics	implemented	docs/api/std-alpha.md	counters and Prometheus samples
 std.test	implemented	docs/api/std-alpha.md	test assertions and advanced testing hooks
-std.crypto	implemented	docs/api/std-alpha.md	hash, HMAC, randomness, and verified TLS client
+std.crypto	implemented	docs/api/std-alpha.md	MD5/SHA-256, HMAC, PBKDF2, secure randomness, and verified TLS client
 std.reflect	implemented	docs/api/std-alpha.md	compiler-backed type and member metadata
-std.tls	implemented	docs/api/std-alpha.md	verified TLS config, certificates, and bounded async connection
+std.tls	implemented	docs/api/std-alpha.md	verified TLS config, certificates, binary adapters, and deadline-aware connection I/O
 std.udp	implemented	docs/api/std-alpha.md	bounded endpoint-keyed POSIX UDP datagrams
 std.websocket	implemented	docs/api/std-alpha.md	bounded POSIX WebSocket client messages
 std.compress	implemented	docs/api/std-alpha.md	bounded gzip/deflate text round trips

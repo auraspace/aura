@@ -4,12 +4,22 @@ import std.bytes
 
 fun main() {
   val bytes = newBuffer()
-  bytes.push(65)
-  bytes.push(256)
+  bytes.appendByte(byte(0))
+  bytes.appendByte(byte(255))
   println(bytes.length().toString())
-  println(bytes.get(0)!!.toString())
+  println(bytes.readByte(0)!!.value.toString())
   if (bytes.get(9) == null) { println("bounds") }
   val copy = bytes.clone()
-  copy.push(66)
+  copy.appendByte(byte(66))
+  val part = bytes.slice(0, 1)!!
+  val joined = bytes.concat(part)
+  println(joined.length().toString())
   println(copy.length().toString())
+  val wire = newBuffer()
+  wire.appendByte(byte(0))
+  wire.appendByte(byte(0))
+  wire.appendByte(byte(0))
+  wire.appendByte(byte(0))
+  if (!writeInt16BE(wire, 0, 4660) || readInt16BE(wire, 0)!! != 4660) { throw "int16 failed" }
+  if (!writeInt32BE(wire, 0, 2309737967) || readInt32BE(wire, 0)!! != 2309737967) { throw "int32 failed" }
 }

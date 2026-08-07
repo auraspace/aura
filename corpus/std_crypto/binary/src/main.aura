@@ -1,0 +1,28 @@
+package demo.stdcrypto.binary
+
+import std.bytes as Bytes
+import std.crypto as Crypto
+
+async fun tlsBinarySurface(connection: Crypto.TlsConnection): Int {
+  val bytes: Bytes.Buffer = await connection.readBytesWithTimeout(1, 10)
+  return await connection.writeBytesWithTimeout(bytes, 10)
+}
+
+fun main() {
+  val input = Bytes.newBuffer()
+  input.appendByte(Bytes.byte(0))
+  input.appendByte(Bytes.byte(97))
+  input.appendByte(Bytes.byte(98))
+  input.appendByte(Bytes.byte(99))
+  val digest = Crypto.sha256Bytes(input)
+  if (digest.length() != 32 || digest.readByte(0)!!.value != 96) { throw "sha256 binary failed" }
+  val md5 = Crypto.md5Bytes(input)
+  if (md5.length() != 16 || md5.readByte(0)!!.value != 122) { throw "md5 binary failed" }
+  val mac = Crypto.hmacSha256Bytes(input, input)
+  if (mac.length() != 32) { throw "hmac binary failed" }
+  val derived = Crypto.pbkdf2Sha256(input, input, 1, 32)
+  if (derived.length() != 32) { throw "pbkdf2 binary failed" }
+  val nonce = Crypto.randomBytesBuffer(16)
+  if (nonce.length() != 16) { throw "nonce binary failed" }
+  println("crypto-binary-ok")
+}

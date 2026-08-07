@@ -14,6 +14,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Forward declarations shared by the TLS ABI and the optional net ABI. */
+typedef struct AuraTcpStream AuraTcpStream;
+typedef struct AuraFfiOpaqueHandle AuraFfiOpaqueHandle;
+
 #ifndef AURA_FILE_H
 #define AURA_FILE_H
 typedef struct AuraFile AuraFile;
@@ -126,13 +130,13 @@ void aura_task_channel_value_destroy_channel(void *data, size_t size);
 #if defined(AURA_FFI_DECLARE_NET) && !defined(AURA_NET_H)
 #define AURA_NET_H
 typedef struct AuraTcpListener AuraTcpListener;
-typedef struct AuraTcpStream AuraTcpStream;
 
 typedef enum AuraTcpStatus {
   AURA_TCP_OK = 0,
   AURA_TCP_PENDING = 1,
   AURA_TCP_EOF = 2,
   AURA_TCP_TIMEOUT = 3,
+  AURA_TCP_PARTIAL_EOF = 4,
   AURA_TCP_ERROR = -1,
   AURA_TCP_CLOSED = -2,
   AURA_TCP_UNSUPPORTED = -3
@@ -157,6 +161,12 @@ AuraTcpStatus aura_tcp_stream_read(AuraTcpStream *stream, void *buffer,
 AuraTcpStatus aura_tcp_stream_write(AuraTcpStream *stream, const void *buffer,
                                     size_t capacity, size_t *out_bytes,
                                     int timeout_ms);
+AuraTcpStatus aura_tcp_stream_read_exactly(AuraTcpStream *stream, void *buffer,
+                                           size_t length, size_t *out_bytes,
+                                           int timeout_ms);
+AuraTcpStatus aura_tcp_stream_write_all(AuraTcpStream *stream, const void *buffer,
+                                        size_t length, size_t *out_bytes,
+                                        int timeout_ms);
 int aura_tcp_listener_close(AuraTcpListener *listener);
 void aura_tcp_listener_destroy(AuraTcpListener *listener);
 int aura_tcp_stream_close(AuraTcpStream *stream);
@@ -165,6 +175,67 @@ const char *aura_tcp_last_error(void);
 #endif
 
 #define AURA_FFI_ABI_VERSION 1u
+
+/* Binary protocol helpers. These APIs carry explicit lengths and never
+ * interpret payload bytes as UTF-8 or NUL-terminated strings. */
+typedef struct AuraByteBuffer AuraByteBuffer;
+
+typedef enum AuraByteBufferStatus {
+  AURA_BYTE_BUFFER_OK = 0,
+  AURA_BYTE_BUFFER_EOF = 1,
+  AURA_BYTE_BUFFER_PARTIAL_EOF = 2,
+  AURA_BYTE_BUFFER_TIMEOUT = 3,
+  AURA_BYTE_BUFFER_CLOSED = 4,
+  AURA_BYTE_BUFFER_ERROR = -1,
+  AURA_BYTE_BUFFER_INVALID = -2,
+  AURA_BYTE_BUFFER_OOM = -3
+} AuraByteBufferStatus;
+
+uint8_t aura_byte_from_u8(uint64_t value, int *valid);
+AuraByteBuffer *aura_byte_buffer_new(void);
+AuraByteBuffer *aura_byte_buffer_from_bytes(const void *data, size_t length);
+void aura_byte_buffer_destroy(AuraByteBuffer *buffer);
+size_t aura_byte_buffer_length(const AuraByteBuffer *buffer);
+AuraByteBufferStatus aura_byte_buffer_append_byte(AuraByteBuffer *buffer,
+                                                  uint8_t value);
+AuraByteBufferStatus aura_byte_buffer_read_byte(const AuraByteBuffer *buffer,
+                                                size_t index, uint8_t *out);
+AuraByteBuffer *aura_byte_buffer_slice(const AuraByteBuffer *buffer,
+                                       size_t start, size_t length);
+AuraByteBuffer *aura_byte_buffer_concat(const AuraByteBuffer *left,
+                                         const AuraByteBuffer *right);
+const uint8_t *aura_byte_buffer_data(const AuraByteBuffer *buffer);
+
+uint16_t aura_read_int16_be(const uint8_t *data);
+uint32_t aura_read_int32_be(const uint8_t *data);
+void aura_write_int16_be(uint8_t *data, uint16_t value);
+void aura_write_int32_be(uint8_t *data, uint32_t value);
+
+/* TLS stream adapters. A wrapped stream retains `owner` until close. */
+int aura_tls_wrap_stream(const char *endpoint, AuraTcpStream *stream,
+                         AuraFfiOpaqueHandle *owner, const char *server_name,
+                         int verify_peer);
+AuraTcpStream *aura_tls_stream(const char *endpoint);
+short aura_tls_pending_events(const char *endpoint);
+
+/* Length-aware crypto primitives. Output buffers are caller-owned. */
+int aura_crypto_random_bytes_raw(void *output, size_t length);
+int aura_crypto_sha256_bytes(const void *input, size_t length,
+                             uint8_t output[32]);
+int aura_crypto_md5_bytes(const void *input, size_t length,
+                          uint8_t output[16]);
+int aura_crypto_hmac_sha256_bytes(const void *key, size_t key_length,
+                                  const void *input, size_t input_length,
+                                  uint8_t output[32]);
+int aura_crypto_pbkdf2_sha256(const void *password, size_t password_length,
+                              const void *salt, size_t salt_length,
+                              uint32_t iterations, void *output,
+                              size_t output_length);
+
+int aura_tls_read_bytes(const char *endpoint, void *output, size_t capacity,
+                        size_t *out_bytes, int timeout_ms);
+int aura_tls_write_bytes(const char *endpoint, const void *input, size_t length,
+                         size_t *out_bytes, int timeout_ms);
 
 /* Bounded std.dns numeric address selection. */
 const char *aura_dns_resolve_host(const char *host, int prefer_ipv6);

@@ -177,6 +177,168 @@ static void aura_sha256_bytes(const unsigned char *data,size_t length,unsigned c
 static char *aura_digest_hex(const unsigned char digest[32])
 { static const char h[]="0123456789abcdef";char *out=(char *)malloc(65u);if(!out)return NULL;for(size_t i=0;i<32;i++){out[i*2]=h[digest[i]>>4];out[i*2+1]=h[digest[i]&15u];}out[64]='\0';return out; }
 
+int aura_crypto_random_bytes_raw(void *output, size_t length)
+{
+  if (output == NULL && length != 0) return 0;
+#if defined(__linux__)
+  unsigned char *cursor = (unsigned char *)output;
+  size_t used = 0;
+  while (used < length)
+  {
+    ssize_t count = getrandom(cursor + used, length - used, 0);
+    if (count > 0) { used += (size_t)count; continue; }
+    if (count < 0 && errno == EINTR) continue;
+    break;
+  }
+  if (used == length) return 1;
+#endif
+#if defined(__unix__) || defined(__APPLE__)
+  FILE *file = fopen("/dev/urandom", "rb");
+  if (file == NULL) return 0;
+  size_t read_count = length == 0 ? 0 : fread(output, 1, length, file);
+  int close_status = fclose(file);
+  return read_count == length && close_status == 0;
+#else
+  (void)output; (void)length;
+  return 0;
+#endif
+}
+
+int aura_crypto_sha256_bytes(const void *input, size_t length, uint8_t output[32])
+{
+  if (output == NULL || (input == NULL && length != 0)) return 0;
+  aura_sha256_bytes((const unsigned char *)input, length, output);
+  return 1;
+}
+
+static uint32_t aura_md5_rotate(uint32_t value, uint32_t shift)
+{
+  return (value << shift) | (value >> (32u - shift));
+}
+
+static void aura_md5_block(uint32_t state[4], const uint8_t block[64])
+{
+  static const uint32_t shifts[64] = {
+    7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+    5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
+    4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+    6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21};
+  static const uint32_t constants[64] = {
+    0xd76aa478u, 0xe8c7b756u, 0x242070dbu, 0xc1bdceeeu, 0xf57c0fafu,
+    0x4787c62au, 0xa8304613u, 0xfd469501u, 0x698098d8u, 0x8b44f7afu,
+    0xffff5bb1u, 0x895cd7beu, 0x6b901122u, 0xfd987193u, 0xa679438eu,
+    0x49b40821u, 0xf61e2562u, 0xc040b340u, 0x265e5a51u, 0xe9b6c7aau,
+    0xd62f105du, 0x02441453u, 0xd8a1e681u, 0xe7d3fbc8u, 0x21e1cde6u,
+    0xc33707d6u, 0xf4d50d87u, 0x455a14edu, 0xa9e3e905u, 0xfcefa3f8u,
+    0x676f02d9u, 0x8d2a4c8au, 0xfffa3942u, 0x8771f681u, 0x6d9d6122u,
+    0xfde5380cu, 0xa4beea44u, 0x4bdecfa9u, 0xf6bb4b60u, 0xbebfbc70u,
+    0x289b7ec6u, 0xeaa127fau, 0xd4ef3085u, 0x04881d05u, 0xd9d4d039u,
+    0xe6db99e5u, 0x1fa27cf8u, 0xc4ac5665u, 0xf4292244u, 0x432aff97u,
+    0xab9423a7u, 0xfc93a039u, 0x655b59c3u, 0x8f0ccc92u, 0xffeff47du,
+    0x85845dd1u, 0x6fa87e4fu, 0xfe2ce6e0u, 0xa3014314u, 0x4e0811a1u,
+    0xf7537e82u, 0xbd3af235u, 0x2ad7d2bbu, 0xeb86d391u};
+  uint32_t words[16];
+  for (size_t i = 0; i < 16; i++) words[i] = (uint32_t)block[i * 4u] |
+      ((uint32_t)block[i * 4u + 1u] << 8) | ((uint32_t)block[i * 4u + 2u] << 16) |
+      ((uint32_t)block[i * 4u + 3u] << 24);
+  uint32_t a = state[0], b = state[1], c = state[2], d = state[3];
+  for (uint32_t i = 0; i < 64; i++) {
+    uint32_t function, index;
+    if (i < 16) { function = (b & c) | (~b & d); index = i; }
+    else if (i < 32) { function = (d & b) | (~d & c); index = (5u * i + 1u) & 15u; }
+    else if (i < 48) { function = b ^ c ^ d; index = (3u * i + 5u) & 15u; }
+    else { function = c ^ (b | ~d); index = (7u * i) & 15u; }
+    uint32_t next = d;
+    d = c; c = b;
+    b += aura_md5_rotate(a + function + constants[i] + words[index], shifts[i]);
+    a = next;
+  }
+  state[0] += a; state[1] += b; state[2] += c; state[3] += d;
+}
+
+int aura_crypto_md5_bytes(const void *input, size_t length, uint8_t output[16])
+{
+  if (output == NULL || (input == NULL && length != 0) || length > (UINT64_MAX - 1u) / 8u)
+    return 0;
+  size_t original_length = length;
+  uint32_t state[4] = {0x67452301u, 0xefcdab89u, 0x98badcfeu, 0x10325476u};
+  const uint8_t *bytes = (const uint8_t *)input;
+  while (length >= 64u) { aura_md5_block(state, bytes); bytes += 64u; length -= 64u; }
+  uint8_t tail[128] = {0};
+  if (length != 0) memcpy(tail, bytes, length);
+  tail[length] = 0x80u;
+  size_t tail_length = length < 56u ? 64u : 128u;
+  uint64_t bits = (uint64_t)original_length * 8u;
+  for (size_t i = 0; i < 8; i++) tail[tail_length - 8u + i] = (uint8_t)(bits >> (8u * i));
+  aura_md5_block(state, tail);
+  if (tail_length == 128u) aura_md5_block(state, tail + 64u);
+  for (size_t i = 0; i < 4; i++) for (size_t j = 0; j < 4; j++)
+    output[i * 4u + j] = (uint8_t)(state[i] >> (8u * j));
+  return 1;
+}
+
+int aura_crypto_hmac_sha256_bytes(const void *key, size_t key_length,
+                                  const void *input, size_t input_length,
+                                  uint8_t output[32])
+{
+  if (output == NULL || (key == NULL && key_length != 0) ||
+      (input == NULL && input_length != 0)) return 0;
+  unsigned char normalized[64] = {0};
+  if (key_length > sizeof(normalized)) aura_sha256_bytes(key, key_length, normalized);
+  else if (key_length != 0) memcpy(normalized, key, key_length);
+  unsigned char inner_pad[64], outer_pad[64], inner_digest[32];
+  for (size_t i = 0; i < sizeof(normalized); i++) {
+    inner_pad[i] = normalized[i] ^ 0x36u;
+    outer_pad[i] = normalized[i] ^ 0x5cu;
+  }
+  AuraSha256 context;
+  aura_sha256_init(&context);
+  aura_sha256_update(&context, inner_pad, sizeof(inner_pad));
+  aura_sha256_update(&context, input, input_length);
+  aura_sha256_final(&context, inner_digest);
+  aura_sha256_init(&context);
+  aura_sha256_update(&context, outer_pad, sizeof(outer_pad));
+  aura_sha256_update(&context, inner_digest, sizeof(inner_digest));
+  aura_sha256_final(&context, output);
+  return 1;
+}
+
+int aura_crypto_pbkdf2_sha256(const void *password, size_t password_length,
+                              const void *salt, size_t salt_length,
+                              uint32_t iterations, void *output,
+                              size_t output_length)
+{
+  if (iterations == 0 || (password == NULL && password_length != 0) ||
+      (salt == NULL && salt_length != 0) || (output == NULL && output_length != 0) ||
+      salt_length > SIZE_MAX - 4u) return 0;
+  unsigned char *result = (unsigned char *)output;
+  unsigned char *message = (unsigned char *)malloc(salt_length + 4u);
+  if (message == NULL && salt_length + 4u != 0) return 0;
+  if (salt_length != 0) memcpy(message, salt, salt_length);
+  size_t blocks = (output_length + 31u) / 32u;
+  if (blocks > UINT32_MAX) { free(message); return 0; }
+  for (size_t block = 1; block <= blocks; block++)
+  {
+    aura_write_int32_be(message + salt_length, (uint32_t)block);
+    unsigned char u[32], accumulator[32];
+    if (!aura_crypto_hmac_sha256_bytes(password, password_length, message,
+                                       salt_length + 4u, u)) { free(message); return 0; }
+    memcpy(accumulator, u, sizeof(accumulator));
+    for (uint32_t round = 1; round < iterations; round++) {
+      if (!aura_crypto_hmac_sha256_bytes(password, password_length, u, sizeof(u), u)) {
+        free(message); return 0;
+      }
+      for (size_t i = 0; i < sizeof(accumulator); i++) accumulator[i] ^= u[i];
+    }
+    size_t offset = (block - 1u) * 32u;
+    size_t copy = output_length - offset;
+    if (copy > 32u) copy = 32u;
+    memcpy(result + offset, accumulator, copy);
+  }
+  free(message);
+  return 1;
+}
+
 const char *aura_crypto_sha256(const char *value)
 { const char *source=value==NULL?"":value;unsigned char digest[32];aura_sha256_bytes((const unsigned char *)source,strlen(source),digest);return aura_digest_hex(digest); }
 const char *aura_crypto_hmac_sha256(const char *key,const char *value)
