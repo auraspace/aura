@@ -1836,6 +1836,32 @@ fun main() {}
     }
 
     #[test]
+    fn compiles_std_net_binary_operations_with_imported_buffer_key() {
+        let mut file = aura_parser::parse_file(
+            r#"package std.net
+import std.bytes as ByteBuf
+pub class Buffer(private val values: Array<Int>) {}
+async fun readExactly(stream: ForeignHandle<Int>, length: Int): ByteBuf.Buffer { throw "intrinsic" }
+async fun writeAll(stream: ForeignHandle<Int>, bytes: ByteBuf.Buffer): Int { throw "intrinsic" }
+fun main() {}
+"#,
+        )
+        .expect("parse std.net binary fixture");
+        // Model the linked std.bytes declaration while keeping this test
+        // self-contained for the codegen crate.
+        file.classes[0].origin_package = "std.bytes".into();
+        let generated = emit_c_from_ast(&file).expect("emit std.net binary fixture");
+        assert!(generated.contains("compiler-generated std.net.readExactly"));
+        assert!(generated.contains("compiler-generated std.net.writeAll"));
+        assert!(generated.contains("aura_tcp_stream_read"));
+        assert!(generated.contains("aura_tcp_stream_write"));
+        assert!(!generated.contains("std.net readExactly intrinsic"));
+        assert!(!generated.contains("std.net writeAll intrinsic"));
+        assert!(!generated.contains("POLLIN"));
+        assert!(!generated.contains("POLLOUT"));
+    }
+
+    #[test]
     fn builds_async_unit_await_with_control_flow() {
         let file = aura_parser::parse_file(
             r#"package std.io

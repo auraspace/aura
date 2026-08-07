@@ -11586,16 +11586,24 @@ fn emit_async_fun_std_net_binary(
     {
         return false;
     }
-    if type_ref_local_key_expand(&f.params[1].ty, &[], &[], checked)
-        != if is_read { "Int" } else { "std_bytes_Buffer" }
-    {
+    let value_key = type_ref_local_key_expand(&f.params[1].ty, &[], &[], checked);
+    let value_matches = if is_read {
+        value_key == "Int"
+    } else {
+        // Imported `std.bytes.Buffer` retains its local syntax name in this
+        // context, while the C type is still resolved to std_bytes_Buffer.
+        value_key == "std_bytes_Buffer" || value_key == "Buffer"
+    };
+    if !value_matches {
         return false;
     }
     if has_timeout && type_ref_local_key_expand(&f.params[2].ty, &[], &[], checked) != "Int" {
         return false;
     }
     let return_key = type_ref_local_key_expand(f.return_type.as_ref().unwrap(), &[], &[], checked);
-    if (is_read && return_key != "std_bytes_Buffer") || (!is_read && return_key != "Int") {
+    if (is_read && return_key != "std_bytes_Buffer" && return_key != "Buffer")
+        || (!is_read && return_key != "Int")
+    {
         return false;
     }
 
@@ -11663,7 +11671,7 @@ fn emit_async_fun_std_net_binary(
             "{poll_fn}_error(frame, \"{name} failed\"); return AURA_TASK_FAILED; }}\n"
         ));
         out.push_str("      if (data->offset < data->length) { int __wait = -1; if (data->deadline_ms > 0) { int64_t __left = data->deadline_ms - aura_time_monotonic_millis(); if (__left <= 0) { ");
-        out.push_str(&format!("{poll_fn}_error(frame, \"{name} timeout\"); return AURA_TASK_FAILED; }} __wait = __left > INT_MAX ? INT_MAX : (int)__left; }} int __registered = __wait < 0 ? aura_task_frame_wait_tcp_stream(frame, (const AuraTcpStream *)data->pin.resource, POLLIN) : aura_task_frame_wait_tcp_stream_timeout(frame, (const AuraTcpStream *)data->pin.resource, POLLIN, __wait); if (!__registered) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }}\n"));
+        out.push_str(&format!("{poll_fn}_error(frame, \"{name} timeout\"); return AURA_TASK_FAILED; }} __wait = __left > INT_MAX ? INT_MAX : (int)__left; }} int __registered = __wait < 0 ? aura_task_frame_wait_tcp_stream(frame, (const AuraTcpStream *)data->pin.resource, 1) : aura_task_frame_wait_tcp_stream_timeout(frame, (const AuraTcpStream *)data->pin.resource, 1, __wait); if (!__registered) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }}\n"));
     } else {
         out.push_str("      if (data->offset == data->length) { int64_t *__result = (int64_t *)malloc(sizeof(*__result)); if (__result == NULL) return AURA_TASK_FAILED; *__result = data->offset; aura_task_frame_set_result(frame, __result, sizeof(*__result), ");
         out.push_str(&destroy_result);
@@ -11673,13 +11681,13 @@ fn emit_async_fun_std_net_binary(
             "{poll_fn}_error(frame, \"{name} failed\"); return AURA_TASK_FAILED; }}\n"
         ));
         out.push_str("      if (data->offset < data->length) { int __wait = -1; if (data->deadline_ms > 0) { int64_t __left = data->deadline_ms - aura_time_monotonic_millis(); if (__left <= 0) { ");
-        out.push_str(&format!("{poll_fn}_error(frame, \"{name} timeout\"); return AURA_TASK_FAILED; }} __wait = __left > INT_MAX ? INT_MAX : (int)__left; }} int __registered = __wait < 0 ? aura_task_frame_wait_tcp_stream(frame, (const AuraTcpStream *)data->pin.resource, POLLOUT) : aura_task_frame_wait_tcp_stream_timeout(frame, (const AuraTcpStream *)data->pin.resource, POLLOUT, __wait); if (!__registered) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }}\n"));
+        out.push_str(&format!("{poll_fn}_error(frame, \"{name} timeout\"); return AURA_TASK_FAILED; }} __wait = __left > INT_MAX ? INT_MAX : (int)__left; }} int __registered = __wait < 0 ? aura_task_frame_wait_tcp_stream(frame, (const AuraTcpStream *)data->pin.resource, 4) : aura_task_frame_wait_tcp_stream_timeout(frame, (const AuraTcpStream *)data->pin.resource, 4, __wait); if (!__registered) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }}\n"));
     }
     out.push_str("    } default: return AURA_TASK_FAILED; }\n}\n");
     let _ = writeln!(out, "{} {{", c_async_fun_signature(f, checked));
     out.push_str("  AuraTaskFrame *frame = aura_task_frame_new(sizeof(");
     out.push_str(&data_ty);
-    out.push_str(", ");
+    out.push_str("), ");
     out.push_str(&poll_fn);
     out.push_str(", ");
     out.push_str(&destroy_data);
