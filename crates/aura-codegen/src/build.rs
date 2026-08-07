@@ -9,7 +9,7 @@ use aura_sema::CheckedFile;
 use crate::ctx::EmitOptions;
 use crate::driver::{Artifact, CBackend, Driver};
 use crate::error::CodegenError;
-use crate::options::CompileOptions;
+use crate::options::{CompileOptions, NativeSource};
 
 pub fn emit_c_from_ast(file: &File) -> Result<String, CodegenError> {
     Driver::new(CBackend).emit(file, EmitOptions::default())
@@ -60,6 +60,24 @@ pub fn build_from_checked(
     .map(Artifact::into_path)
 }
 
+pub fn build_from_checked_with_native(
+    checked: &CheckedFile,
+    out_bin: &Path,
+    runtime_c: &Path,
+    native_sources: Vec<NativeSource>,
+) -> Result<PathBuf, CodegenError> {
+    let mut options = CompileOptions::default();
+    options.native_sources = native_sources;
+    crate::driver::build_artifact_from_checked(
+        checked,
+        out_bin,
+        runtime_c,
+        options,
+        EmitOptions::default(),
+    )
+    .map(Artifact::into_path)
+}
+
 pub fn build_tests_from_file(
     file: &File,
     out_bin: &Path,
@@ -87,6 +105,29 @@ pub fn build_tests_from_checked(
         out_bin,
         runtime_c,
         CompileOptions::default(),
+        EmitOptions {
+            test: true,
+            ..Default::default()
+        },
+    )
+    .map(Artifact::into_path)
+}
+
+pub fn build_tests_from_checked_with_native(
+    checked: &CheckedFile,
+    out_bin: &Path,
+    runtime_c: &Path,
+    native_sources: Vec<NativeSource>,
+    sanitizer: bool,
+) -> Result<PathBuf, CodegenError> {
+    let mut options = CompileOptions::default();
+    options.native_sources = native_sources;
+    options.profile_settings.detector = sanitizer;
+    crate::driver::build_artifact_from_checked(
+        checked,
+        out_bin,
+        runtime_c,
+        options,
         EmitOptions {
             test: true,
             ..Default::default()
@@ -528,6 +569,81 @@ fun main() {
             String::from_utf8_lossy(&output.stdout),
             "42\nffi-borrowed\n7\n"
         );
+
+        for path in [bin, generated_c, object, archive] {
+            let _ = fs::remove_file(path);
+        }
+        let _ = fs::remove_dir(&dir);
+    }
+
+    #[test]
+    fn native_ffi_float_fixture_round_trips_c_double() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("workspace root");
+        let dir = std::env::temp_dir().join(format!("aura-ffi-float-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("create fixture directory");
+        let object = dir.join("ffi_float.o");
+        let archive = dir.join("libaura_ffi_float.a");
+        let bin = dir.join("program");
+        let generated_c = dir.join("program.aura.c");
+        let fixture = root.join("crates/aura-codegen/fixtures/ffi_float.c");
+
+        let compile_fixture = Command::new("cc")
+            .args(["-std=c11", "-Wall", "-Wextra", "-Werror", "-c"])
+            .arg(&fixture)
+            .arg("-o")
+            .arg(&object)
+            .status()
+            .expect("spawn float fixture compiler");
+        assert!(compile_fixture.success(), "float fixture compile failed");
+        let archive_status = Command::new("ar")
+            .args(["rcs"])
+            .arg(&archive)
+            .arg(&object)
+            .status()
+            .expect("spawn float archive tool");
+        assert!(archive_status.success(), "float fixture archive failed");
+
+        let source = r#"package demo
+@foreign(library = "aura_ffi_float", target = "native", link = "static", abi = 1, abi_id = "c")
+extern "C" fun aura_ffi_scale_float(value: Float): Float
+@foreign(library = "aura_ffi_float", target = "native", link = "static", abi = 1, abi_id = "c")
+extern "C" fun aura_ffi_offset_float(value: Float): Float
+fun main() {
+  println(aura_ffi_scale_float(2.0).toString())
+  println(aura_ffi_offset_float(9.0).toString())
+}
+"#;
+        let file = parse_file(source).expect("parse float FFI fixture");
+        let options = CompileOptions::builder()
+            .backend(Backend::C)
+            .target(Target::Native)
+            .profile(Profile::Release)
+            .runtime_abi(RuntimeAbi::AuraRtC)
+            .output(OutputKind::Executable)
+            .diagnostics(DiagnosticMode::Human)
+            .foreign_library_path(&dir)
+            .build()
+            .expect("complete float FFI options");
+        build_from_file_with(
+            &file,
+            &bin,
+            &root.join("runtime/runtime.c"),
+            options,
+            crate::ctx::EmitOptions::default(),
+        )
+        .expect("link float FFI fixture");
+        let generated = fs::read_to_string(&generated_c).expect("read generated float C");
+        assert!(generated.contains("extern double aura_ffi_scale_float(double);"));
+        assert!(generated.contains("aura_ffi_scale_float(2.0)"));
+        let output = Command::new(&bin).output().expect("run float FFI fixture");
+        assert!(
+            output.status.success(),
+            "float FFI fixture failed: {output:?}"
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "3\n8.5\n");
 
         for path in [bin, generated_c, object, archive] {
             let _ = fs::remove_file(path);

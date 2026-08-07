@@ -31,8 +31,9 @@ fn generic_method_monos(
     // A generic method may call another generic method on the same receiver.
     // Reuse method arguments discovered for sibling monos so the callee body
     // has a concrete C symbol as well (e.g. json<T> -> sendJson<T>).
-    for (_, class_args, _, method_args) in &checked.mono_methods {
-        if class_args == args
+    for (_, class_args, method_name, method_args) in &checked.mono_methods {
+        if method_name == &m.name.name
+            && class_args == args
             && !method_args.iter().any(Ty::is_open)
             && !monos.contains(method_args)
         {

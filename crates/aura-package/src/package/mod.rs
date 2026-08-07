@@ -35,4 +35,5 @@ pub use registry::{
 };
 #[cfg(test)]
 pub use semver::{parse_req, parse_version, OriginLockPin, Version, VersionReq};
+pub use toml::NativeBuildConfig;
 pub use types::LoadedPackage;

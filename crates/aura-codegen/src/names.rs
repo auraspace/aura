@@ -413,17 +413,18 @@ pub(crate) fn c_generic_method_name_with_params(
 }
 
 pub(crate) fn is_primitive_name(n: &str) -> bool {
-    matches!(n, "Int" | "Bool" | "String" | "Unit")
+    matches!(n, "Int" | "Float" | "Bool" | "String" | "Unit")
 }
 
 /// Local/type key for tagged optional primitives (`Int?` / `Bool?`).
 pub(crate) fn is_opt_prim_key(key: &str) -> bool {
-    matches!(key, "Opt_Int" | "Opt_Bool")
+    matches!(key, "Opt_Int" | "Opt_Float" | "Opt_Bool")
 }
 
 pub(crate) fn opt_prim_c_type(key: &str) -> Option<&'static str> {
     match key {
         "Opt_Int" => Some("aura_opt_i64"),
+        "Opt_Float" => Some("aura_opt_f64"),
         "Opt_Bool" => Some("aura_opt_bool"),
         _ => None,
     }
@@ -432,6 +433,7 @@ pub(crate) fn opt_prim_c_type(key: &str) -> Option<&'static str> {
 pub(crate) fn null_opt_prim(key: &str) -> String {
     match key {
         "Opt_Int" => "((aura_opt_i64){ .has = false, .value = INT64_C(0) })".into(),
+        "Opt_Float" => "((aura_opt_f64){ .has = false, .value = 0.0 })".into(),
         "Opt_Bool" => "((aura_opt_bool){ .has = false, .value = false })".into(),
         _ => "NULL".into(),
     }
@@ -440,6 +442,7 @@ pub(crate) fn null_opt_prim(key: &str) -> String {
 pub(crate) fn wrap_opt_prim(key: &str, value_code: &str) -> String {
     match key {
         "Opt_Int" => format!("((aura_opt_i64){{ .has = true, .value = ({value_code}) }})"),
+        "Opt_Float" => format!("((aura_opt_f64){{ .has = true, .value = ({value_code}) }})"),
         "Opt_Bool" => format!("((aura_opt_bool){{ .has = true, .value = ({value_code}) }})"),
         _ => value_code.to_string(),
     }
@@ -449,6 +452,7 @@ pub(crate) fn wrap_opt_prim(key: &str, value_code: &str) -> String {
 pub(crate) fn opt_key_for_prim(prim: &str) -> Option<&'static str> {
     match prim {
         "Int" => Some("Opt_Int"),
+        "Float" => Some("Opt_Float"),
         "Bool" => Some("Opt_Bool"),
         _ => None,
     }
@@ -481,6 +485,7 @@ pub(crate) fn type_ref_mono(ty: &TypeRef, params: &[String], args: &[Ty]) -> Str
 pub(crate) fn ty_to_c(t: &Ty) -> String {
     match t {
         Ty::Int => "int64_t".into(),
+        Ty::Float => "double".into(),
         Ty::Bool => "bool".into(),
         Ty::String => "const char *".into(),
         Ty::Unit => "void".into(),
@@ -488,6 +493,7 @@ pub(crate) fn ty_to_c(t: &Ty) -> String {
         // C7a: Int?/Bool? are tagged structs; other T? share T's rep (pointer-like).
         Ty::Nullable(inner) => match inner.as_ref() {
             Ty::Int => "aura_opt_i64".into(),
+            Ty::Float => "aura_opt_f64".into(),
             Ty::Bool => "aura_opt_bool".into(),
             other => ty_to_c(other),
         },
@@ -526,6 +532,7 @@ pub(crate) fn ty_to_c_array_elem(t: &Ty, checked: &CheckedFile) -> String {
         }
         Ty::Nullable(inner) => match inner.as_ref() {
             Ty::Int => "aura_opt_i64".into(),
+            Ty::Float => "aura_opt_f64".into(),
             Ty::Bool => "aura_opt_bool".into(),
             other => ty_to_c_array_elem(other, checked),
         },
@@ -546,6 +553,7 @@ pub(crate) fn ty_to_c_local(t: &Ty, checked: &CheckedFile) -> String {
         }
         Ty::Nullable(inner) => match inner.as_ref() {
             Ty::Int => "aura_opt_i64".into(),
+            Ty::Float => "aura_opt_f64".into(),
             Ty::Bool => "aura_opt_bool".into(),
             other => ty_to_c_local(other, checked),
         },
@@ -615,6 +623,7 @@ pub(crate) fn type_ref_to_ty_subst(
     let pkg = resolve_type_ref_package(ty, checked);
     let base = match ty.name.name.as_str() {
         "Int" => Ty::Int,
+        "Float" => Ty::Float,
         "Bool" => Ty::Bool,
         "String" => Ty::String,
         "Unit" => Ty::Unit,
@@ -706,6 +715,7 @@ pub(crate) fn c_type_ref_subst(
         let inner = c_type_ref_subst(&non_null, checked, params, args);
         return match inner.as_str() {
             "int64_t" => "aura_opt_i64".into(),
+            "double" => "aura_opt_f64".into(),
             "bool" => "aura_opt_bool".into(),
             _ => inner,
         };
@@ -733,6 +743,7 @@ pub(crate) fn c_type_ref_subst(
         }
         match ty.name.name.as_str() {
             "Int" => "int64_t".into(),
+            "Float" => "double".into(),
             "Bool" => "bool".into(),
             "String" => "const char *".into(),
             "Unit" => "void".into(),
@@ -921,6 +932,8 @@ pub(crate) fn c_capture_field_type(ty: &Ty, by_ref: bool, checked: &CheckedFile)
             Ty::Bool => "aura_box_bool *".into(),
             Ty::String => "aura_box_str *".into(),
             Ty::Int => "aura_box_i64 *".into(),
+            Ty::Float => "aura_box_f64 *".into(),
+            Ty::Nullable(inner) if **inner == Ty::Float => "aura_box_opt_f64 *".into(),
             _ => "aura_box_ptr *".into(),
         }
     } else {
@@ -932,6 +945,8 @@ pub(crate) fn box_retain_fn(ty_key: &str) -> &'static str {
     match ty_key {
         "Bool" => "aura_box_bool_retain",
         "String" => "aura_box_str_retain",
+        "Float" => "aura_box_f64_retain",
+        "Opt_Float" => "aura_box_opt_f64_retain",
         _ => "aura_box_i64_retain",
     }
 }
@@ -940,6 +955,8 @@ pub(crate) fn box_release_fn(ty_key: &str) -> &'static str {
     match ty_key {
         "Bool" => "aura_box_bool_release",
         "String" => "aura_box_str_release",
+        "Float" => "aura_box_f64_release",
+        "Opt_Float" => "aura_box_opt_f64_release",
         _ => "aura_box_i64_release",
     }
 }
@@ -948,11 +965,13 @@ pub(crate) fn c_type_from_ty(ty: &Ty, checked: &CheckedFile) -> String {
     match ty {
         Ty::Unit => "void".into(),
         Ty::Int => "int64_t".into(),
+        Ty::Float => "double".into(),
         Ty::Bool => "bool".into(),
         Ty::String => "const char *".into(),
         Ty::Null => "void *".into(),
         Ty::Nullable(inner) => match inner.as_ref() {
             Ty::Int => "aura_opt_i64".into(),
+            Ty::Float => "aura_opt_f64".into(),
             Ty::Bool => "aura_opt_bool".into(),
             other => c_type_from_ty(other, checked),
         },

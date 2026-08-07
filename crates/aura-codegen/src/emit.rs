@@ -1231,6 +1231,7 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str("const char *aura_os_platform(void);\n");
     out.push_str("void aura_assert(_Bool cond);\n");
     out.push_str("void aura_assert_eq_int(int64_t a, int64_t b);\n");
+    out.push_str("void aura_assert_eq_float(double a, double b);\n");
     out.push_str("void aura_assert_eq_string(const char *a, const char *b);\n");
     out.push_str("void aura_assert_eq_bool(_Bool a, _Bool b);\n");
     out.push_str("void aura_try_enter(jmp_buf *buf);\n");
@@ -1549,6 +1550,8 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     // C12m/C13f: shared mutable boxes for var Int/Bool/String captures.
     out.push_str("typedef struct aura_box_i64 { int64_t value; int32_t refs; } aura_box_i64;\n");
     out.push_str("typedef struct aura_box_bool { _Bool value; int32_t refs; } aura_box_bool;\n");
+    out.push_str("typedef struct aura_box_f64 { double value; int32_t refs; } aura_box_f64;\n");
+    out.push_str("typedef struct aura_box_opt_f64 { _Bool has; double value; int32_t refs; } aura_box_opt_f64;\n");
     out.push_str(
         "typedef struct aura_box_str { const char *value; int32_t refs; } aura_box_str;\n",
     );
@@ -1558,6 +1561,12 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str("aura_box_bool *aura_box_bool_new(_Bool v);\n");
     out.push_str("void aura_box_bool_retain(aura_box_bool *b);\n");
     out.push_str("void aura_box_bool_release(aura_box_bool *b);\n");
+    out.push_str("aura_box_f64 *aura_box_f64_new(double v);\n");
+    out.push_str("void aura_box_f64_retain(aura_box_f64 *b);\n");
+    out.push_str("void aura_box_f64_release(aura_box_f64 *b);\n");
+    out.push_str("aura_box_opt_f64 *aura_box_opt_f64_new(_Bool has, double v);\n");
+    out.push_str("void aura_box_opt_f64_retain(aura_box_opt_f64 *b);\n");
+    out.push_str("void aura_box_opt_f64_release(aura_box_opt_f64 *b);\n");
     out.push_str("aura_box_str *aura_box_str_new(const char *v);\n");
     out.push_str("void aura_box_str_retain(aura_box_str *b);\n");
     out.push_str("void aura_box_str_release(aura_box_str *b);\n");
@@ -1575,9 +1584,11 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str("int aura_main(void);\n\n");
     // C7a: tagged optional primitives (Int? / Bool?).
     out.push_str("typedef struct { _Bool has; int64_t value; } aura_opt_i64;\n");
+    out.push_str("typedef struct { _Bool has; double value; } aura_opt_f64;\n");
     out.push_str("typedef struct { _Bool has; _Bool value; } aura_opt_bool;\n");
     // C13c: Int.toString — malloc'd decimal; caller owns (like other owned strings).
     out.push_str("const char *aura_i64_to_string(int64_t v);\n\n");
+    out.push_str("const char *aura_f64_to_string(double v);\n\n");
     out.push_str("int64_t aura_hash_string(const char *s);\n\n");
 
     // Stable class tags for interface dispatch (C9a: include generic monomorphs).
@@ -4046,13 +4057,21 @@ impl<'a> AsyncCfgBuilder<'a> {
 
 fn async_cfg_value_supported(key: &str, checked: &CheckedFile) -> bool {
     if let Some(payload) = key.strip_prefix("Opt_") {
-        if !matches!(key, "Opt_Int" | "Opt_Bool") {
+        if !matches!(key, "Opt_Int" | "Opt_Float" | "Opt_Bool") {
             return async_cfg_value_supported(payload, checked);
         }
     }
     matches!(
         key,
-        "Unit" | "Int" | "Bool" | "String" | "Opt_Int" | "Opt_Bool" | "ForeignHandle"
+        "Unit"
+            | "Int"
+            | "Float"
+            | "Bool"
+            | "String"
+            | "Opt_Int"
+            | "Opt_Float"
+            | "Opt_Bool"
+            | "ForeignHandle"
     ) || key.starts_with("ForeignHandle_")
         || async_cfg_scheduler_owned_key(key)
         || is_array_type_key(key)
@@ -4694,6 +4713,7 @@ fn alpha_rename_async_block(block: &Block, inherited: &HashMap<String, String>) 
             Expr::Ident(_)
             | Expr::This(_)
             | Expr::Int(_)
+            | Expr::Float(_)
             | Expr::Bool(_)
             | Expr::String(_)
             | Expr::Null(_) => false,
@@ -4776,6 +4796,7 @@ fn alpha_rename_async_block(block: &Block, inherited: &HashMap<String, String>) 
             Expr::Ident(id) => Expr::Ident(ident(id, env)),
             Expr::This(span) => Expr::This(*span),
             Expr::Int(v) => Expr::Int(v.clone()),
+            Expr::Float(v) => Expr::Float(v.clone()),
             Expr::Bool(v) => Expr::Bool(v.clone()),
             Expr::String(v) => Expr::String(v.clone()),
             Expr::Null(span) => Expr::Null(*span),
@@ -10542,6 +10563,9 @@ fun main(handle: ForeignHandle<Int>) { native_use(handle) }\n",
         assert!(generated.contains("aura_ffi_handle_pin_for_boundary"));
         assert!(generated.contains("AURA_FFI_BOUNDARY_TASK"));
         assert!(generated.contains("aura_ffi_handle_unpin"));
+        assert!(!generated.contains(
+            "aura_ffi_handle_pin_for_boundary(__aura_ffi_handle_0, AURA_FFI_BOUNDARY_TASK, &__aura_ffi_pin_0) != AURA_FFI_OK) abort()"
+        ));
     }
 
     #[test]
@@ -14505,6 +14529,8 @@ fn emit_general_spawn_cfg(
 fn general_spawn_box_c_type(key: &str) -> &'static str {
     match key {
         "Int" => "aura_box_i64 *",
+        "Float" => "aura_box_f64 *",
+        "Opt_Float" => "aura_box_opt_f64 *",
         "Bool" => "aura_box_bool *",
         "String" => "aura_box_str *",
         _ => "aura_box_ptr *",
@@ -14514,6 +14540,8 @@ fn general_spawn_box_c_type(key: &str) -> &'static str {
 fn general_spawn_box_retain(key: &str) -> &'static str {
     match key {
         "Int" => "aura_box_i64_retain",
+        "Float" => "aura_box_f64_retain",
+        "Opt_Float" => "aura_box_opt_f64_retain",
         "Bool" => "aura_box_bool_retain",
         "String" => "aura_box_str_retain",
         _ => "aura_box_ptr_retain",
@@ -14523,6 +14551,8 @@ fn general_spawn_box_retain(key: &str) -> &'static str {
 fn general_spawn_box_release(key: &str) -> &'static str {
     match key {
         "Int" => "aura_box_i64_release",
+        "Float" => "aura_box_f64_release",
+        "Opt_Float" => "aura_box_opt_f64_release",
         "Bool" => "aura_box_bool_release",
         "String" => "aura_box_str_release",
         _ => "aura_box_ptr_release",
@@ -14659,6 +14689,8 @@ fn emit_bounded_spawn_pollers(
                     match bounded_capture_box_kind(capture) {
                         "string" => "aura_box_str *".to_string(),
                         "i64" => "aura_box_i64 *".to_string(),
+                        "f64" => "aura_box_f64 *".to_string(),
+                        "opt_f64" => "aura_box_opt_f64 *".to_string(),
                         "bool" => "aura_box_bool *".to_string(),
                         _ => "aura_box_ptr *".to_string(),
                     }
@@ -14742,6 +14774,8 @@ fn emit_bounded_spawn_pollers(
                     let release = match bounded_capture_box_kind(capture) {
                         "string" => "aura_box_str_release",
                         "i64" => "aura_box_i64_release",
+                        "f64" => "aura_box_f64_release",
+                        "opt_f64" => "aura_box_opt_f64_release",
                         "bool" => "aura_box_bool_release",
                         _ => "aura_box_ptr_release",
                     };
@@ -14931,6 +14965,8 @@ fn emit_bounded_spawn_pollers(
                     let cty = match bounded_capture_box_kind(capture) {
                         "string" => "aura_box_str *",
                         "i64" => "aura_box_i64 *",
+                        "f64" => "aura_box_f64 *",
+                        "opt_f64" => "aura_box_opt_f64 *",
                         "bool" => "aura_box_bool *",
                         _ => "aura_box_ptr *",
                     };
@@ -15277,6 +15313,8 @@ fn emit_bounded_spawn_array_return_poller(
             match bounded_capture_box_kind(capture) {
                 "string" => "aura_box_str *".to_string(),
                 "i64" => "aura_box_i64 *".to_string(),
+                "f64" => "aura_box_f64 *".to_string(),
+                "opt_f64" => "aura_box_opt_f64 *".to_string(),
                 "bool" => "aura_box_bool *".to_string(),
                 _ => "aura_box_ptr *".to_string(),
             }
@@ -15382,6 +15420,8 @@ fn emit_bounded_spawn_class_return_poller(
             match bounded_capture_box_kind(capture) {
                 "string" => "aura_box_str *".to_string(),
                 "i64" => "aura_box_i64 *".to_string(),
+                "f64" => "aura_box_f64 *".to_string(),
+                "opt_f64" => "aura_box_opt_f64 *".to_string(),
                 "bool" => "aura_box_bool *".to_string(),
                 _ => "aura_box_ptr *".to_string(),
             }
@@ -15522,6 +15562,8 @@ fn emit_bounded_spawn_foreign_handle_return_poller(
             match bounded_capture_box_kind(capture) {
                 "string" => "aura_box_str *".to_string(),
                 "i64" => "aura_box_i64 *".to_string(),
+                "f64" => "aura_box_f64 *".to_string(),
+                "opt_f64" => "aura_box_opt_f64 *".to_string(),
                 "bool" => "aura_box_bool *".to_string(),
                 _ => "aura_box_ptr *".to_string(),
             }
@@ -15618,6 +15660,8 @@ fn emit_bounded_spawn_string_return_poller(
             let cty = match bounded_capture_box_kind(capture) {
                 "string" => "aura_box_str *",
                 "i64" => "aura_box_i64 *",
+                "f64" => "aura_box_f64 *",
+                "opt_f64" => "aura_box_opt_f64 *",
                 "bool" => "aura_box_bool *",
                 _ => "aura_box_ptr *",
             };
@@ -15715,6 +15759,8 @@ fn emit_bounded_spawn_await_poller(
             let cty = match bounded_capture_box_kind(capture) {
                 "string" => "aura_box_str *",
                 "i64" => "aura_box_i64 *",
+                "f64" => "aura_box_f64 *",
+                "opt_f64" => "aura_box_opt_f64 *",
                 "bool" => "aura_box_bool *",
                 _ => "aura_box_ptr *",
             };
@@ -15775,7 +15821,7 @@ fn emit_bounded_spawn_await_poller(
         })) if id.name == await_var.name.name
     ) && (matches!(
         await_key.as_str(),
-        "Int" | "Bool" | "String" | "Opt_Int" | "Opt_Bool"
+        "Int" | "Float" | "Bool" | "String" | "Opt_Int" | "Opt_Float" | "Opt_Bool"
     ) || is_array_type_key(&await_key)
         || is_heap_class_mono(&await_key, checked)
         || crate::expr::is_enum_mono(&await_key, checked)
@@ -15869,6 +15915,8 @@ fn emit_bounded_spawn_await_poller(
                 let cty = match bounded_capture_box_kind(capture) {
                     "string" => "aura_box_str *",
                     "i64" => "aura_box_i64 *",
+                    "f64" => "aura_box_f64 *",
+                    "opt_f64" => "aura_box_opt_f64 *",
                     "bool" => "aura_box_bool *",
                     _ => "aura_box_ptr *",
                 };
@@ -16059,6 +16107,8 @@ fn emit_bounded_spawn_discard_await_poller(
             let cty = match bounded_capture_box_kind(capture) {
                 "string" => "aura_box_str *",
                 "i64" => "aura_box_i64 *",
+                "f64" => "aura_box_f64 *",
+                "opt_f64" => "aura_box_opt_f64 *",
                 "bool" => "aura_box_bool *",
                 _ => "aura_box_ptr *",
             };
@@ -16102,6 +16152,8 @@ fn emit_bounded_spawn_discard_await_poller(
             let cty = match bounded_capture_box_kind(capture) {
                 "string" => "aura_box_str *",
                 "i64" => "aura_box_i64 *",
+                "f64" => "aura_box_f64 *",
+                "opt_f64" => "aura_box_opt_f64 *",
                 "bool" => "aura_box_bool *",
                 _ => "aura_box_ptr *",
             };
@@ -16372,6 +16424,7 @@ fn collect_spawns_expr<'a>(
         Expr::Ident(_)
         | Expr::This(_)
         | Expr::Int(_)
+        | Expr::Float(_)
         | Expr::Bool(_)
         | Expr::String(_)
         | Expr::Null(_) => {}
@@ -16493,6 +16546,7 @@ fn walk_expr_lambdas<'a>(e: &'a Expr, out: &mut Vec<&'a LambdaExpr>) {
         Expr::Ident(_)
         | Expr::This(_)
         | Expr::Int(_)
+        | Expr::Float(_)
         | Expr::Bool(_)
         | Expr::String(_)
         | Expr::Null(_) => {}
@@ -16807,6 +16861,10 @@ fn emit_lambda_fns(out: &mut String, checked: &CheckedFile, detector: bool) {
                     Ty::Bool => format!("aura_box_bool_release(__e->{m});"),
                     Ty::String => format!("aura_box_str_release(__e->{m});"),
                     Ty::Int => format!("aura_box_i64_release(__e->{m});"),
+                    Ty::Float => format!("aura_box_f64_release(__e->{m});"),
+                    Ty::Nullable(inner) if **inner == Ty::Float => {
+                        format!("aura_box_opt_f64_release(__e->{m});")
+                    }
                     _ => format!("aura_box_ptr_release(__e->{m});"),
                 };
                 let _ = writeln!(out, "  {rel}");
@@ -17104,7 +17162,10 @@ fn json_encode_key_supported(key: &str, checked: &CheckedFile, depth: usize) -> 
     if depth > 32 {
         return false;
     }
-    if matches!(key, "Int" | "Bool" | "String" | "Opt_Int" | "Opt_Bool") {
+    if matches!(
+        key,
+        "Int" | "Float" | "Bool" | "String" | "Opt_Int" | "Opt_Float" | "Opt_Bool"
+    ) {
         return true;
     }
     if let Some(element) = crate::expr::array_elem_local_key(key, checked) {
@@ -19265,6 +19326,13 @@ pub(crate) fn emit_fun(
             )),
             ("assertEqBool", 2) => Some((
                 "aura_assert_eq_bool",
+                vec![
+                    mangle_ident(&f.params[0].name.name),
+                    mangle_ident(&f.params[1].name.name),
+                ],
+            )),
+            ("assertEqFloat", 2) => Some((
+                "aura_assert_eq_float",
                 vec![
                     mangle_ident(&f.params[0].name.name),
                     mangle_ident(&f.params[1].name.name),

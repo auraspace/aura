@@ -43,6 +43,9 @@ pub fun assertEqString(left: String, right: String) { assert(left == right) }
 /// Fail the current test unless two boolean values are equal.
 pub fun assertEqBool(left: Bool, right: Bool) { assert(left == right) }
 
+/// Fail the current test unless two floating-point values are equal.
+pub fun assertEqFloat(left: Float, right: Float) { assert(left == right) }
+
 pub fun benchmark(name: String, body: () -> Unit): Unit {
     if (name.isEmpty()) { throw "benchmark name is empty" }
     var iterations = 1

@@ -27,7 +27,7 @@ fn contains_foreign_handle(ty: &Ty) -> bool {
 fn is_valid_foreign_handle_tree(ty: &Ty) -> bool {
     match ty {
         Ty::ForeignHandle(inner) => match inner.as_ref() {
-            Ty::Int | Ty::Bool | Ty::String | Ty::Unit => true,
+            Ty::Int | Ty::Float | Ty::Bool | Ty::String | Ty::Unit => true,
             Ty::ForeignHandle(_) => is_valid_foreign_handle_tree(inner),
             _ => false,
         },
@@ -47,7 +47,7 @@ fn task_payload_foreign_handles_supported(checker: &Checker, ty: &Ty, depth: usi
     }
     match ty {
         Ty::ForeignHandle(_) => true,
-        Ty::Unit | Ty::Int | Ty::Bool | Ty::String | Ty::Null => true,
+        Ty::Unit | Ty::Int | Ty::Float | Ty::Bool | Ty::String | Ty::Null => true,
         Ty::Nullable(inner) => task_payload_foreign_handles_supported(checker, inner, depth + 1),
         Ty::Class(name) | Ty::Enum(name) => {
             let (simple, package) = crate::ty::split_nominal(name);
@@ -244,7 +244,8 @@ impl Checker {
         // call. Compiler-generated TASK/AWAIT pin storage is still absent, so
         // async functions and scheduler-owned Task/TaskHandle/Channel values
         // remain fail-closed.
-        let supported_ty = |ty: &Ty| matches!(ty, Ty::Int | Ty::Bool | Ty::String | Ty::Unit);
+        let supported_ty =
+            |ty: &Ty| matches!(ty, Ty::Int | Ty::Float | Ty::Bool | Ty::String | Ty::Unit);
         fn foreign_handle_kind(ty: &Ty) -> Option<&'static str> {
             match ty {
                 Ty::Task(_) => Some("Task"),

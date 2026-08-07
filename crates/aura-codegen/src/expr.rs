@@ -15,9 +15,22 @@ use crate::names::*;
 pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
     match e {
         Expr::Int(_) => "Int".into(),
+        Expr::Float(_) => "Float".into(),
         Expr::Bool(_) => "Bool".into(),
         Expr::String(_) => "String".into(),
         Expr::Call(c) => {
+            // Calls through a local function value are not represented in
+            // call_instantiations. Use the semantic result type so nullable
+            // primitive returns keep their tagged representation.
+            if let Expr::Ident(id) = c.callee.as_ref() {
+                if ctx.lookup_local(&id.name).is_some_and(is_fun_type_key) {
+                    if let Some(ty) = ctx.checked.expr_tys.get(&(c.span.start, c.span.end)) {
+                        let substitutions =
+                            aura_sema::type_subst_map(&ctx.type_params, &ctx.type_args);
+                        return aura_sema::subst_ty(ty, &substitutions).mono_suffix();
+                    }
+                }
+            }
             // Channel operations stay as ordinary calls until sema. Recover
             // their typed result here for inferred locals (notably
             // Channel<Class?>.receive()).
@@ -32,6 +45,7 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                     if let Some(ty) = ctx.checked.expr_tys.get(&(c.span.start, c.span.end)) {
                         return match ty {
                             Ty::Nullable(inner) if **inner == Ty::Int => "Opt_Int".into(),
+                            Ty::Nullable(inner) if **inner == Ty::Float => "Opt_Float".into(),
                             Ty::Nullable(inner) if **inner == Ty::Bool => "Opt_Bool".into(),
                             Ty::Nullable(inner) => inner.mono_suffix(),
                             other => other.mono_suffix(),
@@ -48,8 +62,13 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                     .get(&c.span.start)
                     .is_some_and(|inst| !inst.is_static && !inst.is_constructor)
             {
+                if let Some(ty) = ctx.checked.expr_tys.get(&(c.span.start, c.span.end)) {
+                    let substitutions = aura_sema::type_subst_map(&ctx.type_params, &ctx.type_args);
+                    let ty = aura_sema::subst_ty(ty, &substitutions);
+                    return full_type_mono(&ty.mono_suffix(), ctx.checked);
+                }
                 if let Some(ty) = resolve_type_name(e, ctx) {
-                    return ty;
+                    return full_type_mono(&ty, ctx.checked);
                 }
             }
             if let (Expr::Field(fe), Some(inst)) = (
@@ -301,6 +320,15 @@ pub(crate) fn infer_type_name(e: &Expr, ctx: &EmitCtx<'_>) -> String {
                         }
                         // C13c: Int.toString() → String
                         if (mono == "Int" || base == "Int") && fe.field.name == "toString" {
+                            return "String".into();
+                        }
+                        if (mono == "Int" || base == "Int") && fe.field.name == "toFloat" {
+                            return "Float".into();
+                        }
+                        if (mono == "Float" || base == "Float") && fe.field.name == "toInt" {
+                            return "Int".into();
+                        }
+                        if (mono == "Float" || base == "Float") && fe.field.name == "toString" {
                             return "String".into();
                         }
                         if (mono == "Int" || base == "Int") && fe.field.name == "hash" {
@@ -613,7 +641,7 @@ pub(crate) fn general_spawn_captures(
 }
 
 fn mutable_capture_box_supported(key: &str, checked: &CheckedFile) -> bool {
-    matches!(key, "Int" | "Bool" | "String")
+    matches!(key, "Int" | "Float" | "Bool" | "String")
         || is_array_type_key(key)
         || is_fun_type_key(key)
         || is_heap_class_mono(key, checked)
@@ -630,6 +658,8 @@ pub(crate) fn bounded_capture_box_kind(capture: &BoundedSpawnCapture) -> &'stati
     match capture.key.as_str() {
         "String" => "string",
         "Int" => "i64",
+        "Float" => "f64",
+        "Opt_Float" => "opt_f64",
         "Bool" => "bool",
         _ => "ptr",
     }
@@ -736,8 +766,10 @@ pub(crate) fn bounded_spawn_discard_await_shape(body: &Block) -> bool {
 
 fn spawn_capture_type_supported(key: &str, checked: &CheckedFile) -> bool {
     key == "Int"
+        || key == "Float"
         || key == "Bool"
         || key == "Opt_Int"
+        || key == "Opt_Float"
         || key == "Opt_Bool"
         || key == "String"
         || key == "ForeignHandle"
@@ -790,6 +822,7 @@ fn spawn_body_contains_await(block: &Block) -> bool {
             Expr::Ident(_)
             | Expr::This(_)
             | Expr::Int(_)
+            | Expr::Float(_)
             | Expr::Bool(_)
             | Expr::String(_)
             | Expr::Null(_) => false,
@@ -882,7 +915,12 @@ fn spawn_body_capture_refs_scoped(block: &Block, captures: &mut BTreeSet<String>
                 AsyncExpr::ChannelReceive(receive) => expr_refs(&receive.channel, locals, captures),
                 AsyncExpr::ChannelClose(close) => expr_refs(&close.channel, locals, captures),
             },
-            Expr::This(_) | Expr::Int(_) | Expr::Bool(_) | Expr::String(_) | Expr::Null(_) => {}
+            Expr::This(_)
+            | Expr::Int(_)
+            | Expr::Float(_)
+            | Expr::Bool(_)
+            | Expr::String(_)
+            | Expr::Null(_) => {}
         }
     }
 
@@ -1059,6 +1097,7 @@ pub(crate) fn mutable_spawn_capture_names(block: &Block) -> HashSet<String> {
             Expr::Ident(_)
             | Expr::This(_)
             | Expr::Int(_)
+            | Expr::Float(_)
             | Expr::Bool(_)
             | Expr::String(_)
             | Expr::Null(_) => {}
@@ -1233,7 +1272,12 @@ pub(crate) fn mutable_spawn_capture_names(block: &Block) -> HashSet<String> {
                 AsyncExpr::ChannelReceive(c) => expr_capture_refs(&c.channel, captured),
                 AsyncExpr::ChannelClose(c) => expr_capture_refs(&c.channel, captured),
             },
-            Expr::This(_) | Expr::Int(_) | Expr::Bool(_) | Expr::String(_) | Expr::Null(_) => {}
+            Expr::This(_)
+            | Expr::Int(_)
+            | Expr::Float(_)
+            | Expr::Bool(_)
+            | Expr::String(_)
+            | Expr::Null(_) => {}
         }
     }
 
@@ -1280,7 +1324,12 @@ pub(crate) fn mutable_spawn_capture_names(block: &Block) -> HashSet<String> {
                 AsyncExpr::ChannelReceive(c) => expr_spawn_refs(&c.channel, spawned),
                 AsyncExpr::ChannelClose(c) => expr_spawn_refs(&c.channel, spawned),
             },
-            Expr::This(_) | Expr::Int(_) | Expr::Bool(_) | Expr::String(_) | Expr::Null(_) => {}
+            Expr::This(_)
+            | Expr::Int(_)
+            | Expr::Float(_)
+            | Expr::Bool(_)
+            | Expr::String(_)
+            | Expr::Null(_) => {}
         }
     }
 
@@ -1455,6 +1504,9 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                         crate::stmt::local_key_to_c(key, ctx.checked)
                     );
                 }
+                if key == "Opt_Float" {
+                    return format!("((aura_opt_f64){{ .has = {m}->has, .value = {m}->value }})");
+                }
                 return format!("({m})->value");
             }
             let value = ctx.local_c_name(&i.name);
@@ -1466,6 +1518,7 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
         }
         Expr::This(_) => "(*this)".into(),
         Expr::Int(n) => format!("INT64_C({})", n.value),
+        Expr::Float(n) => n.lexeme.clone(),
         Expr::Bool(b) => {
             if b.value {
                 "true".into()
@@ -1723,6 +1776,12 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
             } else {
                 emit_expr(&a.value, ctx)
             };
+            if ctx.is_box_local(dst_name) && dst_ty.as_deref() == Some("Opt_Float") {
+                let box_ptr = mangle_ident(dst_name);
+                return format!(
+                    "({{ aura_opt_f64 __v = ({rhs}); {box_ptr}->has = __v.has; {box_ptr}->value = __v.value; __v; }})"
+                );
+            }
             // C13f: String by-ref box owns a heap copy; set frees the previous value.
             if ctx.is_box_local(dst_name) && dst_ty.as_deref() == Some("String") {
                 let box_ptr = mangle_ident(dst_name);
@@ -2115,7 +2174,7 @@ pub(crate) fn async_inner_key(expr: &Expr, ctx: &EmitCtx<'_>) -> String {
 /// runtime ownership operations.
 pub(crate) fn task_payload_repr_key(key: &str) -> String {
     match key {
-        "Opt_Int" | "Opt_Bool" => key.to_string(),
+        "Opt_Int" | "Opt_Float" | "Opt_Bool" => key.to_string(),
         _ => key.strip_prefix("Opt_").unwrap_or(key).to_string(),
     }
 }
@@ -2215,6 +2274,8 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
                             let retain = match bounded_capture_box_kind(capture) {
                                 "string" => "aura_box_str_retain",
                                 "i64" => "aura_box_i64_retain",
+                                "f64" => "aura_box_f64_retain",
+                                "opt_f64" => "aura_box_opt_f64_retain",
                                 "bool" => "aura_box_bool_retain",
                                 _ => "aura_box_ptr_retain",
                             };
@@ -3150,7 +3211,8 @@ pub(crate) fn coerce_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>)
             return code;
         }
         // Wrap non-null primitive (literal, narrowed value, or expression).
-        if matches!(actual.as_str(), "Int" | "Bool") || matches!(expr, Expr::Int(_) | Expr::Bool(_))
+        if matches!(actual.as_str(), "Int" | "Float" | "Bool")
+            || matches!(expr, Expr::Int(_) | Expr::Float(_) | Expr::Bool(_))
         {
             return wrap_opt_prim(expected_ty, &code);
         }
@@ -3160,7 +3222,7 @@ pub(crate) fn coerce_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>)
         }
     }
     // Opt_* → bare primitive (e.g. println expects nothing; rare).
-    if matches!(expected_ty, "Int" | "Bool") && is_opt_prim_key(&actual) {
+    if matches!(expected_ty, "Int" | "Float" | "Bool") && is_opt_prim_key(&actual) {
         return format!("({code}).value");
     }
 
@@ -3514,6 +3576,7 @@ pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String
         Expr::Group(inner, _) => resolve_type_name(inner, ctx),
         Expr::String(_) => Some("String".into()),
         Expr::Int(_) => Some("Int".into()),
+        Expr::Float(_) => Some("Float".into()),
         Expr::Bool(_) => Some("Bool".into()),
         _ => None,
     }

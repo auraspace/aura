@@ -1,0 +1,14 @@
+// Float literal, arithmetic, comparison, and C double ABI coverage.
+package demo.types
+
+fun scale(value: Float): Float {
+    return value * 2.5
+}
+
+fun main() {
+    val value: Float = 1.25
+    val roundTrip: Float = 4.toFloat()
+    if (scale(value) == 3.125 && value < 2.0 && roundTrip.toInt() == 4 && roundTrip.toString() == "4") {
+        println("float")
+    }
+}

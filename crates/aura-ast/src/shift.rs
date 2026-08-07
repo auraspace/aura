@@ -444,6 +444,7 @@ fn shift_expr(e: &mut Expr, delta: BytePos) {
         Expr::Ident(i) => shift_ident(i, delta),
         Expr::This(s) => *s = s.shift(delta),
         Expr::Int(l) => l.span = l.span.shift(delta),
+        Expr::Float(l) => l.span = l.span.shift(delta),
         Expr::Bool(l) => l.span = l.span.shift(delta),
         Expr::String(l) => l.span = l.span.shift(delta),
         Expr::Null(s) => *s = s.shift(delta),

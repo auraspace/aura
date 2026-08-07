@@ -68,6 +68,23 @@ const char *aura_i64_to_string(int64_t v)
   out[o + dig_len] = '\0';
   return (const char *)out;
 }
+
+const char *aura_f64_to_string(double v)
+{
+  char buf[64];
+  int written = snprintf(buf, sizeof(buf), "%.17g", v);
+  if (written < 0 || (size_t)written >= sizeof(buf))
+  {
+    return NULL;
+  }
+  char *out = (char *)malloc((size_t)written + 1u);
+  if (out == NULL)
+  {
+    return NULL;
+  }
+  memcpy(out, buf, (size_t)written + 1u);
+  return out;
+}
 static char *aura_bytes_copy_n(const char *value, size_t length)
 {
   char *out = (char *)malloc(length + 1u);

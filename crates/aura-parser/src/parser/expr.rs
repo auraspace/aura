@@ -202,6 +202,20 @@ impl Parser {
                 self.bump();
                 Ok(Expr::Int(IntLit { value, span }))
             }
+            TokenKind::Float(value) => {
+                let span = self.peek().span;
+                let lexeme = value.clone();
+                let parsed = lexeme.parse::<f64>().map_err(|_| ParseError {
+                    message: format!("invalid floating-point literal `{lexeme}`"),
+                    span,
+                })?;
+                self.bump();
+                Ok(Expr::Float(FloatLit {
+                    value: parsed,
+                    lexeme,
+                    span,
+                }))
+            }
             TokenKind::String(s) => {
                 let span = self.peek().span;
                 let value = s.clone();

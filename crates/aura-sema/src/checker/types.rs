@@ -77,7 +77,7 @@ impl Checker {
         };
 
         let base = match t.name.name.as_str() {
-            "Unit" | "Int" | "Bool" | "String" if qualified_pkg.is_some() => {
+            "Unit" | "Int" | "Float" | "Bool" | "String" if qualified_pkg.is_some() => {
                 return Err(SemaError {
                     message: format!(
                         "primitive type `{}` cannot be package-qualified",
@@ -88,6 +88,7 @@ impl Checker {
             }
             "Unit" => Ty::Unit,
             "Int" => Ty::Int,
+            "Float" => Ty::Float,
             "Bool" => Ty::Bool,
             "String" => Ty::String,
             "Task" | "TaskHandle" | "Channel" | "ForeignHandle" => {

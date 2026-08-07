@@ -14,6 +14,7 @@ Normative rules: [RFC-002](/rfc/002). MVP keywords and surface: [RFC-001 §6.0](
 | Type            | Notes                                                                      |
 | --------------- | -------------------------------------------------------------------------- |
 | `Int`           | Integer (overflow policy is documented in RFCs; prefer checked ops in dev) |
+| `Float`         | IEEE-754 double; `NaN` and infinities follow the host C `double` rules     |
 | `Bool`          | `true` / `false`                                                           |
 | `String`        | Immutable C-string bytes (no embedded NUL; indices are UTF-8 **bytes**)    |
 | `Array<T>`      | Growable array — see [Arrays](./arrays.md)                                 |
@@ -27,6 +28,17 @@ Function parameters and returns use explicit types in most examples:
 fun add(a: Int, b: Int): Int {
   return a + b
 }
+```
+
+`Float` crosses the native boundary as C `double`. Arithmetic and ordering
+require matching numeric types; use `Int.toFloat()` and `Float.toInt()` for
+explicit conversion. `Float.toInt()` truncates toward zero and
+`Float.toString()` uses a locale-independent representation.
+
+```aura
+val ratio: Float = 3.0 / 2.0
+val whole: Int = ratio.toInt()
+val optional: Float? = null
 ```
 
 ### String helpers (alpha + C12)

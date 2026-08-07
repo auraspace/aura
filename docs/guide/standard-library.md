@@ -168,6 +168,7 @@ follow-up work.
 | `Set<T>`                                                                 | Generic set (linear)                                                                |
 | `map_string_int()` / `set()`                                             | Empty concrete compatibility factories                                              |
 | `HashMap<K,V>`                                                           | Generic open addressing with `K: Hashable`; `containsValue` (C19a)                  |
+| `hashMap<K,V>()`                                                         | Generic factory for typed named-parameter maps (compatibility factories remain)     |
 | `hash_map()` / `hash_map_str()` / `hash_set()`                           | Empty generic collection factories                                                  |
 | `HashSet<T>`                                                             | Generic open addressing backed by `HashMap<T,Bool>`; `containsAll(Array<T>)` (C19a) |
 | `HashMapEntryHandle` / `HashMapLiveEntry`                                | Key-based mutation handle and epoch-checked live entry view                         |

@@ -1,0 +1,47 @@
+package demo
+
+async fun ready(): Int { return 1 }
+
+fun main() {
+  val captured: Float = 1.5
+  val read: () -> Float = () => captured
+  if (read() == 1.5) { println("val-float") }
+
+  var shared: Float = 2.0
+  val observe: () -> Float = () => shared
+  shared = 3.5
+  if (observe() == 3.5) { println("var-float") }
+
+  val optional: Float? = 2.5
+  val readOptional: () -> Float? = () => optional
+  val optionalValue: Float? = readOptional()
+  if (optionalValue!! == 2.5) { println("nullable-float") }
+
+  var optionalShared: Float? = null
+  val observeOptional: () -> Float? = () => optionalShared
+  optionalShared = 4.5
+  val optionalSharedValue: Float? = observeOptional()
+  if (optionalSharedValue!! == 4.5) { println("nullable-var-float") }
+
+  var across: Float = 4.5
+  val task = spawn {
+    val marker: Int = await ready()
+    gc_collect()
+    if (across == 5.5 && marker == 1) { println("spawn-float") }
+    return
+  }
+  across = 5.5
+  gc_collect()
+  join(task)
+
+  var acrossOptional: Float? = 6.5
+  val optionalTask = spawn {
+    val marker: Int = await ready()
+    gc_collect()
+    if (acrossOptional!! == 7.5 && marker == 1) { println("spawn-nullable-float") }
+    return
+  }
+  acrossOptional = 7.5
+  gc_collect()
+  join(optionalTask)
+}

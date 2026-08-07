@@ -35,6 +35,7 @@ pub fn nominal_mono_base(key: &str) -> String {
 pub enum Ty {
     Unit,
     Int,
+    Float,
     Bool,
     String,
     Null,
@@ -82,6 +83,7 @@ impl Ty {
         match self {
             Ty::Unit => "Unit".into(),
             Ty::Int => "Int".into(),
+            Ty::Float => "Float".into(),
             Ty::Bool => "Bool".into(),
             Ty::String => "String".into(),
             Ty::Null => "Null".into(),
@@ -149,6 +151,7 @@ impl Ty {
         match self {
             Ty::Unit => "Unit".into(),
             Ty::Int => "Int".into(),
+            Ty::Float => "Float".into(),
             Ty::Bool => "Bool".into(),
             Ty::String => "String".into(),
             Ty::Null => "Null".into(),

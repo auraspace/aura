@@ -1940,7 +1940,12 @@ pub mod lowering {
                         expr_refs(&value.channel, locals, available, captures)
                     }
                 },
-                Expr::This(_) | Expr::Int(_) | Expr::Bool(_) | Expr::String(_) | Expr::Null(_) => {}
+                Expr::This(_)
+                | Expr::Int(_)
+                | Expr::Float(_)
+                | Expr::Bool(_)
+                | Expr::String(_)
+                | Expr::Null(_) => {}
             }
         }
 
@@ -2018,6 +2023,7 @@ pub mod lowering {
             Expr::Ident(_)
             | Expr::This(_)
             | Expr::Int(_)
+            | Expr::Float(_)
             | Expr::Bool(_)
             | Expr::String(_)
             | Expr::Null(_) => true,
@@ -3147,7 +3153,7 @@ pub mod ownership {
 
     pub fn plan_for_ty(ty: &Ty) -> Plan {
         match ty {
-            Ty::Unit | Ty::Int | Ty::Bool | Ty::Null => Plan {
+            Ty::Unit | Ty::Int | Ty::Float | Ty::Bool | Ty::Null => Plan {
                 storage: Storage::Copy,
                 bind: Action::Copy,
                 assign: Action::Copy,
@@ -3914,6 +3920,7 @@ pub mod generics {
             | Expr::Int(_)
             | Expr::Bool(_)
             | Expr::String(_)
+            | Expr::Float(_)
             | Expr::Null(_) => {}
         }
     }

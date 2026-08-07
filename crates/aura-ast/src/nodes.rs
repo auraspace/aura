@@ -639,6 +639,7 @@ pub enum Expr {
     Ident(Ident),
     This(Span),
     Int(IntLit),
+    Float(FloatLit),
     Bool(BoolLit),
     String(StringLit),
     Null(Span),
@@ -700,6 +701,7 @@ impl Expr {
             Expr::Ident(i) => i.span,
             Expr::This(s) => *s,
             Expr::Int(l) => l.span,
+            Expr::Float(l) => l.span,
             Expr::Bool(l) => l.span,
             Expr::String(l) => l.span,
             Expr::Null(s) => *s,
@@ -743,6 +745,14 @@ pub struct AssignExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct IntLit {
     pub value: i64,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FloatLit {
+    pub value: f64,
+    /// Original spelling keeps generated C stable and readable.
+    pub lexeme: String,
     pub span: Span,
 }
 

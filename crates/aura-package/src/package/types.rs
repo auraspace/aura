@@ -1,5 +1,6 @@
 //! Loaded package types.
 
+use super::toml::NativeBuildConfig;
 use aura_analysis::{check_file, check_file_with_sandboxed_macro};
 use aura_ast::{shift_file_spans, AttributeArg, AttributeValue, File, Span};
 use aura_sema::{CheckedFile, MacroPluginRequest, MacroSandboxConfig, SemaErrors};
@@ -34,6 +35,7 @@ pub struct LoadedPackage {
     pub(crate) macro_sources: Vec<String>,
     /// Root-package procedural macro executables declared in `[macro_plugins]`.
     pub macro_plugins: std::collections::BTreeMap<String, PathBuf>,
+    pub native: std::collections::BTreeMap<String, NativeBuildConfig>,
 }
 impl LoadedPackage {
     /// Check the package and run root-declared RFC-010 plugins for matching
@@ -152,6 +154,7 @@ impl LoadedPackage {
             ast,
             macro_sources: self.macro_sources.clone(),
             macro_plugins: self.macro_plugins.clone(),
+            native: self.native.clone(),
         })
     }
 

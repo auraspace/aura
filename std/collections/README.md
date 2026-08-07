@@ -12,7 +12,7 @@ Collections package (RFC-007).
 | `Set<T>`                                    | Linear `add` / `remove` / `contains` / `clear` / `len` / `isEmpty` / `get(i)` (C8g/C8h)         |
 | `set()`                                     | Empty `Set<String>` factory                                                                     |
 | `Hashable`                                  | `hash(): Int`; compiler-backed implementations for `Int` and `String` (C14)                     |
-| `HashMap<K,V>`                              | Generic open addressing; `K: Hashable`; `hash_map()` and `hash_map_str()` factories (C14)       |
+| `HashMap<K,V>`                              | Generic open addressing; `K: Hashable`; `hashMap<K,V>()` plus compatibility factories           |
 | `HashMapEntry<K,V>`                         | Immutable key/value snapshot returned by `entries()` and entry iterators                        |
 | `HashMapEntryHandle<K,V>`                   | Key-based update handle returned by `entry()`; survives rehashing                               |
 | `HashMapLiveEntry<K,V>`                     | Epoch-checked live view returned by `liveEntry()` and live iterators                            |

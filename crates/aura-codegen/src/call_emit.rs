@@ -707,6 +707,19 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
         {
             return format!("aura_i64_to_string({obj})");
         }
+        if (mono_raw == "Int" || matches!(obj_ty.as_deref(), Some("Int")))
+            && fe.field.name == "toFloat"
+        {
+            return format!("((double)({obj}))");
+        }
+        if mono_raw == "Float" || matches!(obj_ty.as_deref(), Some("Float")) {
+            if fe.field.name == "toInt" {
+                return format!("((int64_t)({obj}))");
+            }
+            if fe.field.name == "toString" {
+                return format!("aura_f64_to_string({obj})");
+            }
+        }
 
         // Compiler-backed Hashable implementation for Int.
         if (mono_raw == "Int" || matches!(obj_ty.as_deref(), Some("Int")))
@@ -1726,6 +1739,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 };
                 return match kind {
                     "String" => format!("aura_assert_eq_string({a_v}, {b_v})"),
+                    "Float" => format!("aura_assert_eq_float({a_v}, {b_v})"),
                     "Bool" => format!("aura_assert_eq_bool({a_v}, {b_v})"),
                     _ => format!("aura_assert_eq_int({a_v}, {b_v})"),
                 };
@@ -2058,7 +2072,9 @@ fn emit_foreign_call(foreign: &ForeignDecl, call: &CallExpr, ctx: &mut EmitCtx<'
         // C call.  A TASK pin is the ABI's checked async-capable ownership
         // class even though this call itself is synchronous; it prevents
         // release/destruction during the call and remains compatible with an
-        // async caller.  Aura does not silently pin Task, TaskHandle,
+        // async caller.  A failed pin is passed through to the C shim as the
+        // original handle so native code can return a typed closed-handle
+        // error instead of forcing a process abort. Aura does not silently pin Task, TaskHandle,
         // Channel, or any unproven value across an await.
         let ret = crate::names::c_type_from_opt(&foreign.return_type, ctx.checked, &[], &[]);
         let async_frame = ctx.async_frame.clone();
@@ -2073,14 +2089,14 @@ fn emit_foreign_call(foreign: &ForeignDecl, call: &CallExpr, ctx: &mut EmitCtx<'
                 let _ = std::fmt::Write::write_fmt(
                     &mut out,
                     format_args!(
-                        "AuraFfiOpaqueHandle *__aura_ffi_handle_{slot} = (AuraFfiOpaqueHandle *)({arg}); if (__aura_ffi_handle_{slot} != NULL && aura_task_frame_pin_foreign_handle({frame}, __aura_ffi_handle_{slot}, AURA_FFI_BOUNDARY_TASK) != AURA_FFI_OK) abort(); "
+                        "AuraFfiOpaqueHandle *__aura_ffi_handle_{slot} = (AuraFfiOpaqueHandle *)({arg}); if (__aura_ffi_handle_{slot} != NULL) (void)aura_task_frame_pin_foreign_handle({frame}, __aura_ffi_handle_{slot}, AURA_FFI_BOUNDARY_TASK); "
                     ),
                 );
             } else {
                 let _ = std::fmt::Write::write_fmt(
                     &mut out,
                     format_args!(
-                        "AuraFfiOpaqueHandle *__aura_ffi_handle_{slot} = (AuraFfiOpaqueHandle *)({arg}); AuraFfiHandlePin __aura_ffi_pin_{slot} = {{0}}; if (__aura_ffi_handle_{slot} != NULL && aura_ffi_handle_pin_for_boundary(__aura_ffi_handle_{slot}, AURA_FFI_BOUNDARY_TASK, &__aura_ffi_pin_{slot}) != AURA_FFI_OK) abort(); "
+                        "AuraFfiOpaqueHandle *__aura_ffi_handle_{slot} = (AuraFfiOpaqueHandle *)({arg}); AuraFfiHandlePin __aura_ffi_pin_{slot} = {{0}}; if (__aura_ffi_handle_{slot} != NULL) (void)aura_ffi_handle_pin_for_boundary(__aura_ffi_handle_{slot}, AURA_FFI_BOUNDARY_TASK, &__aura_ffi_pin_{slot}); "
                     ),
                 );
             }

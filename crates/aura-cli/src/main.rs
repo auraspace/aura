@@ -6,7 +6,10 @@ mod scaffold;
 mod test_report;
 
 use aura_analysis::{SemaError, SemaErrors};
-use aura_codegen::{build_from_checked, build_tests_from_checked, emit_c_from_checked};
+use aura_codegen::{
+    build_from_checked_with_native, build_tests_from_checked_with_native, emit_c_from_checked,
+    NativeSource,
+};
 use aura_diagnostics::{
     classify_async, format_async_error, format_error_with, FormatOptions, JsonDiagnostic, Severity,
 };
@@ -18,7 +21,7 @@ use package::{
 };
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::Instant;
 
@@ -979,10 +982,18 @@ fn cmd_build(args: &[String]) -> ExitCode {
     );
     println!("[build] Compiling native artifact...");
     let compile_started = Instant::now();
-    let compiled = build_from_checked(&checked, &out, &runtime).map_err(|e| match e {
-        aura_codegen::CodegenError::Sema(se) => diag_sema_errors(&pkg, se),
-        other => format!("error: {other}"),
-    });
+    let native = match native_sources_for(&pkg) {
+        Ok(native) => native,
+        Err(message) => {
+            eprintln!("{message}");
+            return ExitCode::from(1);
+        }
+    };
+    let compiled =
+        build_from_checked_with_native(&checked, &out, &runtime, native).map_err(|e| match e {
+            aura_codegen::CodegenError::Sema(se) => diag_sema_errors(&pkg, se),
+            other => format!("error: {other}"),
+        });
     match compiled {
         Ok(bin) => {
             let size = fs::metadata(&bin)
@@ -1013,15 +1024,62 @@ fn runtime_c_path() -> Result<PathBuf, String> {
     runtime_path::resolve_runtime_c()
 }
 
+fn native_sources_for(pkg: &LoadedPackage) -> Result<Vec<NativeSource>, String> {
+    let mut sources = Vec::new();
+    for (name, config) in &pkg.native {
+        let include_dirs = config
+            .include_dirs
+            .iter()
+            .map(|path| {
+                let relative = Path::new(path);
+                if relative.is_absolute()
+                    || relative
+                        .components()
+                        .any(|component| matches!(component, Component::ParentDir))
+                {
+                    return Err(format!(
+                        "error: native package `{name}` include directory must be package-relative without `..`: {path}"
+                    ));
+                }
+                Ok(pkg.root.join(relative))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        for source in &config.sources {
+            let relative = Path::new(source);
+            if relative.is_absolute()
+                || relative
+                    .components()
+                    .any(|component| matches!(component, Component::ParentDir))
+            {
+                return Err(format!(
+                    "error: native package `{name}` source must be package-relative without `..`: {source}"
+                ));
+            }
+            let path = pkg.root.join(relative);
+            sources.push(NativeSource {
+                name: name.clone(),
+                source: path,
+                include_dirs: include_dirs.clone(),
+                defines: config.defines.clone(),
+                linker_args: config.linker_args.clone(),
+                static_link: config.static_link,
+            });
+        }
+    }
+    Ok(sources)
+}
+
 fn build_package(pkg: &LoadedPackage, out: &Path) -> Result<PathBuf, String> {
     let rt = runtime_c_path()?;
     let checked = pkg
         .check_with_plugins()
         .map_err(|e| diag_sema_errors(pkg, e))?;
-    build_from_checked(&checked, out, &rt).map_err(|e| match e {
-        aura_codegen::CodegenError::Sema(se) => diag_sema_errors(pkg, se),
-        other => format!("error: {other}"),
-    })
+    build_from_checked_with_native(&checked, out, &rt, native_sources_for(pkg)?).map_err(
+        |e| match e {
+            aura_codegen::CodegenError::Sema(se) => diag_sema_errors(pkg, se),
+            other => format!("error: {other}"),
+        },
+    )
 }
 
 fn cmd_run(args: &[String]) -> ExitCode {
@@ -1114,7 +1172,7 @@ fn cmd_test(args: &[String]) -> ExitCode {
     }
     let out = PathBuf::from(format!("target/aura/test-{}", pkg.bin_name));
     let started = Instant::now();
-    match build_test_package(&test_pkg, &out) {
+    match build_test_package(&test_pkg, &out, options.race) {
         Ok(bin) => {
             let output = Command::new(&bin).args(program_args).output();
             match output {
@@ -1224,7 +1282,7 @@ fn cmd_bench(args: &[String]) -> ExitCode {
     }
     let out = PathBuf::from(format!("target/aura/bench-{}", pkg.bin_name));
     let started = Instant::now();
-    match build_test_package(&bench_pkg, &out) {
+    match build_test_package(&bench_pkg, &out, false) {
         Ok(bin) => match Command::new(&bin).args(program_args).output() {
             Ok(output) => {
                 let status = output.status.success();
@@ -1325,15 +1383,16 @@ impl TestOptions {
     }
 }
 
-fn build_test_package(pkg: &LoadedPackage, out: &Path) -> Result<PathBuf, String> {
+fn build_test_package(pkg: &LoadedPackage, out: &Path, sanitizer: bool) -> Result<PathBuf, String> {
     let rt = runtime_c_path()?;
     let checked = pkg
         .check_with_plugins()
         .map_err(|e| diag_sema_errors(pkg, e))?;
-    build_tests_from_checked(&checked, out, &rt).map_err(|e| match e {
-        aura_codegen::CodegenError::Sema(se) => diag_sema_errors(pkg, se),
-        other => format!("error: {other}"),
-    })
+    build_tests_from_checked_with_native(&checked, out, &rt, native_sources_for(pkg)?, sanitizer)
+        .map_err(|e| match e {
+            aura_codegen::CodegenError::Sema(se) => diag_sema_errors(pkg, se),
+            other => format!("error: {other}"),
+        })
 }
 
 #[cfg(test)]

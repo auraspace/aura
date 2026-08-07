@@ -187,6 +187,12 @@ typedef struct aura_box_bool
   int32_t refs;
 } aura_box_bool;
 
+typedef struct aura_box_f64
+{
+  double value;
+  int32_t refs;
+} aura_box_f64;
+
 aura_box_i64 *aura_box_i64_new(int64_t v)
 {
   aura_box_i64 *b = (aura_box_i64 *)malloc(sizeof(aura_box_i64));
@@ -243,6 +249,83 @@ void aura_box_bool_retain(aura_box_bool *b)
 }
 
 void aura_box_bool_release(aura_box_bool *b)
+{
+  if (b == NULL)
+  {
+    return;
+  }
+  b->refs--;
+  if (b->refs <= 0)
+  {
+    free(b);
+  }
+}
+
+/* Shared mutable box for `var` Float lambda captures. */
+aura_box_f64 *aura_box_f64_new(double v)
+{
+  aura_box_f64 *b = (aura_box_f64 *)malloc(sizeof(aura_box_f64));
+  if (b == NULL)
+  {
+    fprintf(stderr, "aura: out of memory (box f64)\n");
+    exit(1);
+  }
+  b->value = v;
+  b->refs = 1;
+  return b;
+}
+
+void aura_box_f64_retain(aura_box_f64 *b)
+{
+  if (b != NULL)
+  {
+    b->refs++;
+  }
+}
+
+void aura_box_f64_release(aura_box_f64 *b)
+{
+  if (b == NULL)
+  {
+    return;
+  }
+  b->refs--;
+  if (b->refs <= 0)
+  {
+    free(b);
+  }
+}
+
+typedef struct aura_box_opt_f64
+{
+  bool has;
+  double value;
+  int32_t refs;
+} aura_box_opt_f64;
+
+aura_box_opt_f64 *aura_box_opt_f64_new(bool has, double v)
+{
+  aura_box_opt_f64 *b = (aura_box_opt_f64 *)malloc(sizeof(aura_box_opt_f64));
+  if (b == NULL)
+  {
+    fprintf(stderr, "aura: out of memory (box optional f64)\n");
+    exit(1);
+  }
+  b->has = has;
+  b->value = v;
+  b->refs = 1;
+  return b;
+}
+
+void aura_box_opt_f64_retain(aura_box_opt_f64 *b)
+{
+  if (b != NULL)
+  {
+    b->refs++;
+  }
+}
+
+void aura_box_opt_f64_release(aura_box_opt_f64 *b)
 {
   if (b == NULL)
   {

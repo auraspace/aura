@@ -16,7 +16,7 @@ use super::lock::{
 use super::origin::{resolve_git, OriginResolution};
 use super::registry::VersionMeta;
 use super::semver::OriginLockPin;
-use super::toml::{parse_aura_toml, AuraToml, DepSpec};
+use super::toml::{native_config_for_target, parse_aura_toml, AuraToml, DepSpec};
 use super::types::{LoadedPackage, SourceEntry};
 use super::util::{
     check_dup_fun, check_dup_type, collect_aura_files, format_parse, last_segment,
@@ -154,6 +154,7 @@ pub(crate) fn load_single_file(path: &Path) -> Result<LoadedPackage, String> {
         ast,
         macro_sources,
         macro_plugins: std::collections::BTreeMap::new(),
+        native: BTreeMap::new(),
     })
 }
 
@@ -166,6 +167,7 @@ pub(crate) fn load_from_manifest(
         .map_err(|e| format!("error: read {}: {e}", manifest.display()))?;
     let toml = parse_aura_toml(&text).map_err(|e| format!("error: {}: {e}", manifest.display()))?;
     let root = manifest_root(manifest);
+    let target = std::env::var("TARGET").unwrap_or_else(|_| "native".into());
 
     let source_root = match &toml.bin_path {
         Some(p) => root.join(p),
@@ -196,6 +198,7 @@ pub(crate) fn load_from_manifest(
     };
 
     pkg.root = root.clone();
+    pkg.native = native_config_for_target(&toml, &target);
     for (name, path) in &toml.macro_plugins {
         let plugin_path = Path::new(path);
         if plugin_path.is_absolute()
@@ -1285,6 +1288,7 @@ pub(crate) fn load_directory(
         ast: merged,
         macro_sources,
         macro_plugins: std::collections::BTreeMap::new(),
+        native: BTreeMap::new(),
     })
 }
 

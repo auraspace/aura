@@ -1,0 +1,5 @@
+package demo.native_config
+
+fun main() {
+    println("native config")
+}

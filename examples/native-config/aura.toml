@@ -1,0 +1,9 @@
+[package]
+name = "demo.native_config"
+version = "0.1.0"
+
+[native.fixture]
+sources = ["native/fixture.c"]
+include_dirs = ["native/include"]
+defines = ["AURA_NATIVE_FIXTURE=1"]
+static = true

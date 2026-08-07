@@ -124,11 +124,38 @@ pub(crate) fn emit_return_fallback(
                 || ct.starts_with("aura_iface_")
             {
                 let _ = writeln!(out, "  return ({ct}){{0}}; /* fallback */");
+            } else if t.nullable && ct.starts_with("aura_enum_") {
+                let _ = writeln!(
+                    out,
+                    "  return ({ct}){{ .tag = -1 }}; /* nullable fallback */"
+                );
             } else {
                 let _ = writeln!(out, "  return ({ct}){{0}}; /* fallback */");
             }
         }
         _ => {}
+    }
+}
+
+// A foreign handle can be moved through a constructor before it reaches an
+// enum variant (for example Ok(Database(handle))). Keep the source owner alive
+// in the returned value instead of dropping it at the return boundary.
+fn foreign_handle_owner_ident(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String> {
+    match expr {
+        Expr::Ident(id)
+            if ctx
+                .task_handle_owners_all()
+                .iter()
+                .any(|name| name == &id.name) =>
+        {
+            Some(id.name.clone())
+        }
+        Expr::ForceUnwrap(force) => foreign_handle_owner_ident(&force.expr, ctx),
+        Expr::Call(call) => call
+            .args
+            .iter()
+            .find_map(|arg| foreign_handle_owner_ident(arg, ctx)),
+        _ => None,
     }
 }
 
@@ -740,7 +767,11 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             // moves the backing buffer, even when the source is an owning local.
             let borrow_binding = v.ty.as_ref().is_some_and(|t| t.reference);
             let needs_box = (captured_by_ref || ctx.mutable_spawn_captures.contains(&v.name.name))
-                && (ty_name == "Int" || ty_name == "Bool" || ty_name == "String");
+                && (ty_name == "Int"
+                    || ty_name == "Float"
+                    || ty_name == "Opt_Float"
+                    || ty_name == "Bool"
+                    || ty_name == "String");
             let needs_ptr_box = (captured_by_ref
                 || ctx.mutable_spawn_captures.contains(&v.name.name))
                 && (is_array_type_key(&ty_name)
@@ -901,10 +932,17 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
             if needs_box {
                 let (box_ty, new_fn) = match ty_name.as_str() {
                     "Bool" => ("aura_box_bool *", "aura_box_bool_new"),
+                    "Float" => ("aura_box_f64 *", "aura_box_f64_new"),
+                    "Opt_Float" => ("aura_box_opt_f64 *", "aura_box_opt_f64_new"),
                     "String" => ("aura_box_str *", "aura_box_str_new"),
                     _ => ("aura_box_i64 *", "aura_box_i64_new"),
                 };
-                if ty_name == "String" && string_expr_is_owned_temp(&v.init, ctx) {
+                if ty_name == "Opt_Float" {
+                    let _ = writeln!(
+                        out,
+                        "{p}{box_ty} {dst} = {new_fn}(({init}).has, ({init}).value);"
+                    );
+                } else if ty_name == "String" && string_expr_is_owned_temp(&v.init, ctx) {
                     let _ = writeln!(
                         out,
                         "{p}{box_ty} {dst} = ({{ const char *__s = ({init}); {box_ty} __b = {new_fn}(__s); free((void *)__s); __b; }});"
@@ -1480,21 +1518,43 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         }
                         _ => Vec::new(),
                     };
-                    let skip_foreign_handle = match e {
-                        Expr::Ident(id) if ret_key.starts_with("ForeignHandle_") => {
-                            Some(id.name.as_str())
+                    // Array payloads passed through an enum constructor (for
+                    // example `Ok(rows)`) transfer their backing buffer to the
+                    // returned value and must not be cleaned up as locals.
+                    let moved_arrays: Vec<String> = match e {
+                        Expr::Call(call)
+                            if matches!(call.callee.as_ref(), Expr::Ident(id) if matches!(id.name.as_str(), "Ok" | "Err" | "OutcomeOk" | "OutcomeErr"))
+                                || ctx
+                                    .checked
+                                    .call_instantiations
+                                    .get(&call.span.start)
+                                    .and_then(|inst| inst.variant.as_ref())
+                                    .is_some() =>
+                        {
+                            call.args
+                                .iter()
+                                .filter_map(|arg| match arg {
+                                    Expr::Ident(id) if ctx.is_array_owner(&id.name) => {
+                                        Some(id.name.clone())
+                                    }
+                                    _ => None,
+                                })
+                                .collect()
                         }
-                        _ => None,
+                        _ => Vec::new(),
                     };
+                    let skip_foreign_handle = foreign_handle_owner_ident(e, ctx);
                     let owners: Vec<String> = ctx
                         .array_owners_all()
                         .into_iter()
-                        .filter(|n| skip != Some(n.as_str()))
+                        .filter(|n| {
+                            skip != Some(n.as_str()) && !moved_arrays.iter().any(|m| m == n)
+                        })
                         .collect();
                     let task_handle_owners: Vec<String> = ctx
                         .task_handle_owners_all()
                         .into_iter()
-                        .filter(|n| skip_foreign_handle != Some(n.as_str()))
+                        .filter(|n| skip_foreign_handle.as_deref() != Some(n.as_str()))
                         .collect();
                     let fun_owners: Vec<String> = ctx
                         .fun_owners_all()
@@ -1542,7 +1602,13 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                             } else {
                                 None
                             };
-                        let val = coerce_expr(e, &expected, ctx);
+                        // Nullable enums use the enum's tagged representation rather than a
+                        // pointer. Encode a null expression as the invalid-tag sentinel.
+                        let val = if matches!(e, Expr::Null(_)) && c_ty.starts_with("aura_enum_") {
+                            format!("({c_ty}){{ .tag = -1 }}")
+                        } else {
+                            coerce_expr(e, &expected, ctx)
+                        };
                         let val = if expected == "String"
                             && !matches!(e, Expr::Ident(_) | Expr::Null(_))
                             && !string_expr_is_owned_temp(e, ctx)
@@ -1576,6 +1642,13 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         if let Some(lv) = move_field {
                             let _ =
                                 writeln!(out, "{p}{lv}.data = NULL; {lv}.len = 0; {lv}.cap = 0;");
+                        }
+                        for source in &moved_arrays {
+                            let source = mangle_ident(source);
+                            let _ = writeln!(
+                                out,
+                                "{p}{source}.data = NULL; {source}.len = 0; {source}.cap = 0;"
+                            );
                         }
                         // Returning a named Fun owner: zero source after copy into tmp.
                         if let Some(src) = skip_fun {
@@ -1635,10 +1708,12 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
 pub(crate) fn local_key_to_c(key: &str, checked: &CheckedFile) -> String {
     match key {
         "Int" => "int64_t".into(),
+        "Float" => "double".into(),
         "Bool" => "bool".into(),
         "String" => "const char *".into(),
         "Unit" => "void".into(),
         "Opt_Int" => "aura_opt_i64".into(),
+        "Opt_Float" => "aura_opt_f64".into(),
         "Opt_Bool" => "aura_opt_bool".into(),
         // C22: all task/handle/channel monomorphs use opaque runtime pointers.
         n if n == "Task"
@@ -1896,7 +1971,13 @@ pub(crate) fn emit_match(out: &mut String, m: &MatchStmt, indent: usize, ctx: &m
                 // Resolve package-prefixed mono (`demo_result_Result_Int_String`) via mono_split
                 // so type params (T/E) substitute correctly in arm bindings.
                 let targs: Vec<Ty> = match scrut_ty {
-                    Some(Ty::EnumApp { args, .. }) => args.clone(),
+                    Some(Ty::EnumApp { args, .. }) => {
+                        let substitutions =
+                            aura_sema::type_subst_map(&ctx.type_params, &ctx.type_args);
+                        args.iter()
+                            .map(|arg| aura_sema::subst_ty(arg, &substitutions))
+                            .collect()
+                    }
                     _ => mono_split(&scrut_key, ctx.checked)
                         .map(|(_, a)| a.to_vec())
                         .or_else(|| {

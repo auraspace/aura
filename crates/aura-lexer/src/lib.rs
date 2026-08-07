@@ -90,6 +90,7 @@ pub enum TokenKind {
 
     Ident(String),
     Int(i64),
+    Float(String),
     String(String),
 
     // Punctuation / operators
@@ -409,6 +410,33 @@ impl<'a> Lexer<'a> {
     fn number(&mut self, start: BytePos) -> Result<Token, LexError> {
         while self.pos < self.bytes.len() && self.bytes[self.pos].is_ascii_digit() {
             self.pos += 1;
+        }
+        if self.bytes.get(self.pos) == Some(&b'.')
+            && self.bytes.get(self.pos + 1).is_some_and(u8::is_ascii_digit)
+        {
+            self.pos += 1;
+            while self.pos < self.bytes.len() && self.bytes[self.pos].is_ascii_digit() {
+                self.pos += 1;
+            }
+            if matches!(self.bytes.get(self.pos), Some(b'e') | Some(b'E')) {
+                self.pos += 1;
+                if matches!(self.bytes.get(self.pos), Some(b'+') | Some(b'-')) {
+                    self.pos += 1;
+                }
+                while self.pos < self.bytes.len() && self.bytes[self.pos].is_ascii_digit() {
+                    self.pos += 1;
+                }
+            }
+            let end = self.pos as BytePos;
+            let text = self.src[start as usize..end as usize].to_string();
+            text.parse::<f64>().map_err(|_| LexError {
+                message: format!("invalid floating-point literal `{text}`"),
+                span: Span::new(start, end),
+            })?;
+            return Ok(Token {
+                kind: TokenKind::Float(text),
+                span: Span::new(start, end),
+            });
         }
         // skip underscores in middle? C0: allow 1_000
         // keep simple: only pure digits for C0 first slice

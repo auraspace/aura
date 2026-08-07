@@ -1,0 +1,9 @@
+[package]
+name = "demo.native_library"
+version = "0.1.0"
+
+[native.demo]
+sources = ["native/demo.c"]
+include_dirs = ["native/include"]
+defines = ["DEMO_ABI=1"]
+static = true

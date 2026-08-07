@@ -30,6 +30,7 @@ fn ty_ref(ty: &Ty, span: Span) -> TypeRef {
         ),
         Ty::Unit => ("Unit".into(), Vec::new(), false),
         Ty::Int => ("Int".into(), Vec::new(), false),
+        Ty::Float => ("Float".into(), Vec::new(), false),
         Ty::Bool => ("Bool".into(), Vec::new(), false),
         Ty::String => ("String".into(), Vec::new(), false),
         Ty::Task(inner) => ("Task".into(), vec![*inner.clone()], false),
@@ -161,6 +162,7 @@ fn expr(value: &mut Expr, checked: Option<&CheckedFile>, map: &HashMap<String, T
         Expr::Ident(_)
         | Expr::This(_)
         | Expr::Int(_)
+        | Expr::Float(_)
         | Expr::Bool(_)
         | Expr::String(_)
         | Expr::Null(_) => {}

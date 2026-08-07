@@ -14,6 +14,15 @@ void aura_assert_eq_int(int64_t a, int64_t b)
   }
 }
 
+void aura_assert_eq_float(double a, double b)
+{
+  if (a != b)
+  {
+    fprintf(stderr, "assert_eq failed: %g != %g\n", a, b);
+    abort();
+  }
+}
+
 void aura_assert_eq_string(const char *a, const char *b)
 {
   if (a == NULL && b == NULL)

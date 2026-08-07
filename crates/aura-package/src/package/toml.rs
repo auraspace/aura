@@ -3,6 +3,34 @@
 use aura_codegen::{Backend, Lto, OptimizationLevel, PanicStrategy, Profile, ProfileSettings};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
+/// Native sources and compiler settings owned by a package.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NativeBuildConfig {
+    pub sources: Vec<String>,
+    pub include_dirs: Vec<String>,
+    pub defines: Vec<String>,
+    pub linker_args: Vec<String>,
+    pub static_link: bool,
+}
+
+impl NativeBuildConfig {
+    fn merge(&mut self, override_: &Self) {
+        if !override_.sources.is_empty() {
+            self.sources = override_.sources.clone();
+        }
+        if !override_.include_dirs.is_empty() {
+            self.include_dirs = override_.include_dirs.clone();
+        }
+        if !override_.defines.is_empty() {
+            self.defines = override_.defines.clone();
+        }
+        if !override_.linker_args.is_empty() {
+            self.linker_args = override_.linker_args.clone();
+        }
+        self.static_link = override_.static_link;
+    }
+}
+
 /// One `[dependencies]` entry: a local path or direct VCS origin.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum DepSpec {
@@ -42,6 +70,8 @@ pub(crate) struct AuraToml {
     pub(crate) macro_plugins: BTreeMap<String, String>,
     /// Fully normalized build settings for each built-in profile.
     pub(crate) profiles: BTreeMap<Profile, ProfileSettings>,
+    pub(crate) native: BTreeMap<String, NativeBuildConfig>,
+    pub(crate) native_targets: BTreeMap<String, BTreeMap<String, NativeBuildConfig>>,
 }
 
 impl Default for AuraToml {
@@ -54,6 +84,8 @@ impl Default for AuraToml {
             dependencies: HashMap::new(),
             macro_plugins: BTreeMap::new(),
             profiles: normalized_default_profiles(),
+            native: BTreeMap::new(),
+            native_targets: BTreeMap::new(),
         }
     }
 }
@@ -88,6 +120,7 @@ pub(crate) fn parse_aura_toml(text: &str) -> Result<AuraToml, String> {
     let mut profile = None;
     let mut profile_overrides: BTreeMap<Profile, ProfileOverride> = BTreeMap::new();
     let mut profile_keys = BTreeSet::new();
+    let mut native_section: Option<(Option<String>, String)> = None;
 
     for (lineno, raw) in text.lines().enumerate() {
         let line = raw.split('#').next().unwrap_or("").trim();
@@ -99,18 +132,22 @@ pub(crate) fn parse_aura_toml(text: &str) -> Result<AuraToml, String> {
                 section = "package".into();
                 in_bin = false;
                 profile = None;
+                native_section = None;
             } else if line == "[[bin]]" {
                 section = "bin".into();
                 in_bin = true;
                 profile = None;
+                native_section = None;
             } else if line == "[dependencies]" {
                 section = "dependencies".into();
                 in_bin = false;
                 profile = None;
+                native_section = None;
             } else if line == "[macro_plugins]" {
                 section = "macro_plugins".into();
                 in_bin = false;
                 profile = None;
+                native_section = None;
             } else if let Some(name) = line
                 .strip_prefix("[profile.")
                 .and_then(|s| s.strip_suffix(']'))
@@ -130,10 +167,17 @@ pub(crate) fn parse_aura_toml(text: &str) -> Result<AuraToml, String> {
                 in_bin = false;
                 profile = Some(selected);
                 profile_overrides.entry(selected).or_default();
+                native_section = None;
+            } else if let Some(parsed) = parse_native_section(line) {
+                section = "native".into();
+                in_bin = false;
+                profile = None;
+                native_section = Some(parsed);
             } else {
                 section = "other".into();
                 in_bin = false;
                 profile = None;
+                native_section = None;
             }
             continue;
         }
@@ -143,6 +187,33 @@ pub(crate) fn parse_aura_toml(text: &str) -> Result<AuraToml, String> {
         let key = k.trim();
         let val_raw = v.trim();
         match section.as_str() {
+            "native" => {
+                let (target, name) = native_section
+                    .as_ref()
+                    .expect("native section must be parsed");
+                let config = if let Some(target) = target {
+                    out.native_targets
+                        .entry(target.clone())
+                        .or_default()
+                        .entry(name.clone())
+                        .or_default()
+                } else {
+                    out.native.entry(name.clone()).or_default()
+                };
+                match key {
+                    "sources" => config.sources = parse_string_array(val_raw, lineno)?,
+                    "include_dirs" => config.include_dirs = parse_string_array(val_raw, lineno)?,
+                    "defines" => config.defines = parse_string_array(val_raw, lineno)?,
+                    "linker_args" => config.linker_args = parse_string_array(val_raw, lineno)?,
+                    "static" => config.static_link = parse_bool(val_raw, lineno, key)?,
+                    _ => {
+                        return Err(format!(
+                            "line {}: unknown key `{key}` in native section",
+                            lineno + 1
+                        ))
+                    }
+                }
+            }
             "profile" => {
                 let selected = profile.expect("profile section must select a profile");
                 let key_id = (selected, key.to_string());
@@ -525,4 +596,81 @@ fn parse_toml_string(v: &str) -> Result<String, String> {
         return Ok(v.to_string());
     }
     Err(format!("invalid value `{v}`"))
+}
+
+fn parse_native_section(line: &str) -> Option<(Option<String>, String)> {
+    let body = line.strip_prefix('[')?.strip_suffix(']')?;
+    if let Some(name) = body.strip_prefix("native.") {
+        return (!name.is_empty()).then(|| (None, name.to_string()));
+    }
+    let body = body.strip_prefix("target.")?;
+    let (target, native) = body.split_once(".native.")?;
+    let target = target.trim_matches('"').trim_matches('\'');
+    (!target.is_empty() && !native.is_empty())
+        .then(|| (Some(target.to_string()), native.to_string()))
+}
+
+fn parse_string_array(raw: &str, lineno: usize) -> Result<Vec<String>, String> {
+    let inner = raw
+        .trim()
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .ok_or_else(|| format!("line {}: expected an array", lineno + 1))?;
+    inner
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(|item| parse_toml_string(item).map_err(|e| format!("line {}: {e}", lineno + 1)))
+        .collect()
+}
+
+pub(crate) fn native_config_for_target(
+    toml: &AuraToml,
+    target: &str,
+) -> BTreeMap<String, NativeBuildConfig> {
+    let mut result = toml.native.clone();
+    if let Some(overrides) = toml.native_targets.get(target) {
+        for (name, override_) in overrides {
+            result.entry(name.clone()).or_default().merge(override_);
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod native_tests {
+    use super::{native_config_for_target, parse_aura_toml};
+
+    #[test]
+    fn parses_native_sources_and_target_overrides() {
+        let manifest = r#"
+            [package]
+            name = "sqlite"
+
+            [native.sqlite]
+            sources = ["native/sqlite3.c", "native/shim.c"]
+            include_dirs = ["native/include"]
+            defines = ["SQLITE_THREADSAFE=1"]
+            static = true
+
+            [target."aarch64-unknown-linux-gnu".native.sqlite]
+            sources = ["native/sqlite3-arm.c"]
+            defines = ["SQLITE_THREADSAFE=0"]
+        "#;
+        let parsed = parse_aura_toml(manifest).expect("manifest");
+        let host = native_config_for_target(&parsed, "native");
+        assert_eq!(host["sqlite"].sources.len(), 2);
+        assert!(host["sqlite"].static_link);
+        let target = native_config_for_target(&parsed, "aarch64-unknown-linux-gnu");
+        assert_eq!(target["sqlite"].sources, vec!["native/sqlite3-arm.c"]);
+        assert_eq!(target["sqlite"].include_dirs, vec!["native/include"]);
+        assert_eq!(target["sqlite"].defines, vec!["SQLITE_THREADSAFE=0"]);
+    }
+
+    #[test]
+    fn rejects_native_non_array_settings() {
+        let error = parse_aura_toml("[native.sqlite]\nsources = \"native.c\"\n")
+            .expect_err("invalid sources");
+        assert!(error.contains("expected an array"), "{error}");
+    }
 }

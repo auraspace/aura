@@ -1,0 +1,18 @@
+// Nullable Float keeps zero distinct from null and supports force unwrap.
+package demo.types
+
+fun classify(value: Float?): String {
+    if (value == null) {
+        return "none"
+    }
+    if (value!! == 0.0) {
+        return "zero"
+    }
+    return "some"
+}
+
+fun main() {
+    if (classify(null) == "none" && classify(0.0) == "zero" && classify(2.5) == "some") {
+        println("opt-float")
+    }
+}

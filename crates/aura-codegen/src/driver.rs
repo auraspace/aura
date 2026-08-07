@@ -1,5 +1,6 @@
 //! Backend-neutral compilation pipeline.
 
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -12,8 +13,8 @@ use crate::ctx::EmitOptions;
 use crate::emit::emit_c_with_program;
 use crate::error::CodegenError;
 use crate::options::{
-    Backend as BackendKind, CompileOptions, Lto, OptimizationLevel, OutputKind, PanicStrategy,
-    Profile, ProfileSettings, RuntimeAbi, Target,
+    Backend as BackendKind, CompileOptions, Lto, NativeSource, OptimizationLevel, OutputKind,
+    PanicStrategy, Profile, ProfileSettings, RuntimeAbi, Target,
 };
 use crate::validation::{compiler_command, validate_build};
 
@@ -39,6 +40,7 @@ pub struct BuildIdentity {
     pub runtime_abi_identity: Option<&'static str>,
     pub output: OutputKind,
     pub features: Vec<String>,
+    pub native_sources: Vec<String>,
 }
 
 impl From<&CompileOptions> for BuildIdentity {
@@ -53,6 +55,11 @@ impl From<&CompileOptions> for BuildIdentity {
             runtime_abi_identity: options.runtime_abi.map(RuntimeAbi::identity),
             output: options.output,
             features: options.features.iter().cloned().collect(),
+            native_sources: options
+                .native_sources
+                .iter()
+                .map(native_source_identity)
+                .collect(),
         }
     }
 }
@@ -62,7 +69,7 @@ impl std::fmt::Display for BuildIdentity {
         let features = self.features.join(",");
         write!(
             f,
-            "backend={:?}, target={:?}, profile={:?}, settings={:?}, runtime_abi={:?}/{:?}/{:?}, output={:?}, features=[{}]",
+            "backend={:?}, target={:?}, profile={:?}, settings={:?}, runtime_abi={:?}/{:?}/{:?}, output={:?}, features=[{}], native_sources={:?}",
             self.backend,
             self.target,
             self.profile,
@@ -71,7 +78,8 @@ impl std::fmt::Display for BuildIdentity {
             self.runtime_abi_version,
             self.runtime_abi_identity,
             self.output,
-            features
+            features,
+            self.native_sources
         )
     }
 }
@@ -173,6 +181,7 @@ impl Artifact {
                 runtime_abi_identity: None,
                 output: options.output,
                 features: options.features.clone(),
+                native_sources: Vec::new(),
             },
         }
     }
@@ -497,6 +506,15 @@ impl Backend for CBackend {
         if options.profile_settings.detector {
             compile_flags.push("-fsanitize=address,undefined".into());
         }
+        for native in &options.native_sources {
+            for include in &native.include_dirs {
+                compile_flags.push("-I".into());
+                compile_flags.push(include.to_string_lossy().into_owned());
+            }
+            for define in &native.defines {
+                compile_flags.push(format!("-D{define}"));
+            }
+        }
         if c_src.contains("AURA_TLS_REQUIRED") {
             compile_flags.push("-DAURA_TLS_ENABLE=1".into());
             for include in ["/opt/homebrew/include", "/usr/local/include"] {
@@ -542,6 +560,39 @@ impl Backend for CBackend {
             }
         }
 
+        let mut native_objects = Vec::new();
+        for (index, native) in options.native_sources.iter().enumerate() {
+            validate_native_source(native)?;
+            let object = parent.join(format!(
+                "{}.native-{index}.o",
+                out_bin
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("out")
+            ));
+            let status = compiler_process(&compiler)
+                .args(&compile_flags)
+                .arg("-c")
+                .arg(&native.source)
+                .arg("-o")
+                .arg(&object)
+                .status()
+                .map_err(|e| {
+                    CodegenError::Compile(format!(
+                        "failed to spawn {compiler} for native source {}: {e}",
+                        native.source.display()
+                    ))
+                })?;
+            if !status.success() {
+                return Err(CodegenError::Compile(format!(
+                    "{compiler} failed compiling native source {} with status {status}; {}",
+                    native.source.display(),
+                    native_context(native)
+                )));
+            }
+            native_objects.push(object);
+        }
+
         let mut command = compiler_process(&compiler);
         if c_src.contains("AURA_TLS_REQUIRED") {
             for library in ["/opt/homebrew/lib", "/usr/local/lib"] {
@@ -562,6 +613,15 @@ impl Backend for CBackend {
         }
         let mut foreign_link_args = Vec::new();
         for foreign in program.foreign_libraries() {
+            // Package-owned native sources are already present as objects.
+            // Do not ask the system linker to find a second archive.
+            if options
+                .native_sources
+                .iter()
+                .any(|source| source.name == foreign.library)
+            {
+                continue;
+            }
             match foreign.link {
                 ForeignLinkIr::Dynamic => {
                     foreign_link_args.push(format!("-l{}", foreign.library));
@@ -588,8 +648,12 @@ impl Backend for CBackend {
         command
             .arg(&c_object)
             .arg(&runtime_object)
+            .args(&native_objects)
             .args(&foreign_link_args)
             .arg("-lz");
+        for native in &options.native_sources {
+            command.args(&native.linker_args);
+        }
         if c_src.contains("AURA_TLS_REQUIRED") {
             command.arg("-lssl").arg("-lcrypto");
         }
@@ -606,8 +670,77 @@ impl Backend for CBackend {
             )));
         }
 
+        write_native_metadata(out_bin, &options.native_sources)
+            .map_err(|e| CodegenError::Io(format!("write native build metadata: {e}")))?;
+
         Ok(Artifact::new(out_bin.to_path_buf(), options))
     }
+}
+
+fn validate_native_source(source: &NativeSource) -> Result<(), CodegenError> {
+    if !source.source.is_file() {
+        return Err(CodegenError::Configuration(format!(
+            "native source not found: {} (check [native.*].sources)",
+            source.source.display()
+        )));
+    }
+    for include in &source.include_dirs {
+        if !include.is_dir() {
+            return Err(CodegenError::Configuration(format!(
+                "native include directory not found: {} (source {})",
+                include.display(),
+                source.source.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn native_context(source: &NativeSource) -> String {
+    format!(
+        "name={}, include_dirs={:?}, defines={:?}, linker_args={:?}, static={}",
+        source.name, source.include_dirs, source.defines, source.linker_args, source.static_link
+    )
+}
+
+fn write_native_metadata(path: &Path, sources: &[NativeSource]) -> Result<(), String> {
+    if sources.is_empty() {
+        return Ok(());
+    }
+    let mut text = String::from("schema=aura-native-build-v1\n");
+    for source in sources {
+        let bytes =
+            fs::read(&source.source).map_err(|e| format!("{}: {e}", source.source.display()))?;
+        let digest = Sha256::digest(&bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        text.push_str(&format!(
+            "name={}\nsource={}\nsha256={digest}\n",
+            source.name,
+            source.source.display()
+        ));
+        for include in &source.include_dirs {
+            text.push_str(&format!("include={}\n", include.display()));
+        }
+        for define in &source.defines {
+            text.push_str(&format!("define={define}\n"));
+        }
+        text.push_str(&format!("static={}\n", source.static_link));
+    }
+    fs::write(path.with_extension("native.meta"), text).map_err(|e| e.to_string())
+}
+
+fn native_source_identity(source: &NativeSource) -> String {
+    let digest = fs::read(&source.source)
+        .map(|bytes| {
+            Sha256::digest(bytes)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        })
+        .unwrap_or_else(|_| "missing".into());
+    format!("{}:{}#{}", source.name, source.source.display(), digest)
 }
 
 #[cfg(test)]
@@ -881,7 +1014,7 @@ mod tests {
         assert_eq!(first.runtime_abi_identity, Some(crate::runtime_abi::ID));
         assert_eq!(
             first.to_string(),
-            "backend=C, target=Native, profile=Debug, settings=ProfileSettings { optimization: O0, debug: true, lto: Off, detector: true, panic: Unwind, backend: C, linker: None }, runtime_abi=Some(AuraRtC)/Some(1)/Some(\"aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1;type=1\"), output=Executable, features=[alpha,zeta]"
+            "backend=C, target=Native, profile=Debug, settings=ProfileSettings { optimization: O0, debug: true, lto: Off, detector: true, panic: Unwind, backend: C, linker: None }, runtime_abi=Some(AuraRtC)/Some(1)/Some(\"aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1;type=1\"), output=Executable, features=[alpha,zeta], native_sources=[]"
         );
     }
 

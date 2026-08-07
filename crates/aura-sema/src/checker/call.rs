@@ -862,7 +862,7 @@ impl Checker {
             // C13c: builtin Int methods.
             if obj_ty == Ty::Int {
                 match fe.field.name.as_str() {
-                    "toString" | "hash" => {
+                    "toString" | "toFloat" | "hash" => {
                         if !c.args.is_empty() {
                             return Err(SemaError {
                                 message: format!(
@@ -879,6 +879,12 @@ impl Checker {
                             } else {
                                 Ty::String
                             }
+                        } else if fe.field.name == "toFloat" {
+                            if safe_wrap {
+                                Ty::Nullable(Box::new(Ty::Float))
+                            } else {
+                                Ty::Float
+                            }
                         } else {
                             if safe_wrap {
                                 Ty::Nullable(Box::new(Ty::Int))
@@ -892,6 +898,34 @@ impl Checker {
                             message: format!("unknown method `{other}` on `Int`"),
                             span: fe.field.span,
                         });
+                    }
+                }
+            }
+
+            if obj_ty == Ty::Float {
+                match fe.field.name.as_str() {
+                    "toInt" | "toString" => {
+                        if !c.args.is_empty() {
+                            return Err(SemaError {
+                                message: format!(
+                                    "`Float.{}` expects 0 arguments, got {}",
+                                    fe.field.name,
+                                    c.args.len()
+                                ),
+                                span: c.span,
+                            });
+                        }
+                        return Ok(if fe.field.name == "toInt" {
+                            Ty::Int
+                        } else {
+                            Ty::String
+                        });
+                    }
+                    other => {
+                        return Err(SemaError {
+                            message: format!("unknown method `{other}` on `Float`"),
+                            span: fe.field.span,
+                        })
                     }
                 }
             }
@@ -980,10 +1014,10 @@ impl Checker {
                 });
             }
             match a {
-                Ty::Int | Ty::String | Ty::Bool => Ok(Ty::Unit),
+                Ty::Int | Ty::Float | Ty::String | Ty::Bool => Ok(Ty::Unit),
                 other => Err(SemaError {
                     message: format!(
-                        "`assert_eq` supports Int, String, Bool (got {})",
+                        "`assert_eq` supports Int, Float, String, Bool (got {})",
                         other.display()
                     ),
                     span: c.span,

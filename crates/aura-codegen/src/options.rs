@@ -184,6 +184,18 @@ pub enum DiagnosticMode {
     Human,
 }
 
+/// One package-owned native source and its compiler/linker settings.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeSource {
+    /// Logical `[native.<name>]` name used to match `@foreign(library = ...)`.
+    pub name: String,
+    pub source: PathBuf,
+    pub include_dirs: Vec<PathBuf>,
+    pub defines: Vec<String>,
+    pub linker_args: Vec<String>,
+    pub static_link: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompileOptions {
     pub backend: Backend,
@@ -197,6 +209,7 @@ pub struct CompileOptions {
     /// Additional search paths used by F2 foreign libraries (`-L`/`-Wl,-rpath`).
     /// Package tooling may leave this empty and use the host toolchain paths.
     pub foreign_library_paths: Vec<PathBuf>,
+    pub native_sources: Vec<NativeSource>,
 }
 
 impl Default for CompileOptions {
@@ -211,6 +224,7 @@ impl Default for CompileOptions {
             output: OutputKind::Executable,
             diagnostics: DiagnosticMode::Human,
             foreign_library_paths: Vec::new(),
+            native_sources: Vec::new(),
         }
     }
 }
@@ -234,7 +248,7 @@ impl std::fmt::Display for CompileOptions {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "backend={:?}, target={:?}, profile={:?}/{}, settings={:?}, runtime_abi={:?}, output={:?}, diagnostics={:?}, features={:?}",
+            "backend={:?}, target={:?}, profile={:?}/{}, settings={:?}, runtime_abi={:?}, output={:?}, diagnostics={:?}, features={:?}, native_sources={}",
             self.backend,
             self.target,
             self.profile,
@@ -243,7 +257,8 @@ impl std::fmt::Display for CompileOptions {
             self.runtime_abi,
             self.output,
             self.diagnostics,
-            self.features
+            self.features,
+            self.native_sources.len()
         )
     }
 }
@@ -288,6 +303,7 @@ pub struct CompileOptionsBuilder {
     output: Option<OutputKind>,
     diagnostics: Option<DiagnosticMode>,
     foreign_library_paths: Vec<PathBuf>,
+    native_sources: Vec<NativeSource>,
 }
 
 impl CompileOptionsBuilder {
@@ -336,6 +352,11 @@ impl CompileOptionsBuilder {
         self
     }
 
+    pub fn native_source(mut self, source: NativeSource) -> Self {
+        self.native_sources.push(source);
+        self
+    }
+
     pub fn build(self) -> Result<CompileOptions, OptionsError> {
         let backend = self.backend.ok_or(OptionsError::MissingBackend)?;
         let target = self.target.ok_or(OptionsError::MissingTarget)?;
@@ -352,6 +373,7 @@ impl CompileOptionsBuilder {
             output: self.output.ok_or(OptionsError::MissingOutput)?,
             diagnostics: self.diagnostics.ok_or(OptionsError::MissingDiagnostics)?,
             foreign_library_paths: self.foreign_library_paths,
+            native_sources: self.native_sources,
         };
         options.validate()?;
         Ok(options)

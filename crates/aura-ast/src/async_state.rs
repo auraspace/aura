@@ -130,6 +130,7 @@ fn collect_expr(expr: &Expr, next: &mut u32, points: &mut Vec<AsyncSuspensionPoi
         Expr::Ident(_)
         | Expr::This(_)
         | Expr::Int(_)
+        | Expr::Float(_)
         | Expr::Bool(_)
         | Expr::String(_)
         | Expr::Null(_) => {}

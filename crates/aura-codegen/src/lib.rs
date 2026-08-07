@@ -29,8 +29,9 @@ mod validation;
 
 pub use aura_ir::{CheckedIr, Effect, FunctionIr, LoweredProgram, OwnershipMode, ValueFact};
 pub use build::{
-    build_from_checked, build_from_file, build_tests_from_checked, build_tests_from_file,
-    emit_c_from_ast, emit_c_from_checked, emit_c_tests_from_ast,
+    build_from_checked, build_from_checked_with_native, build_from_file, build_tests_from_checked,
+    build_tests_from_checked_with_native, build_tests_from_file, emit_c_from_ast,
+    emit_c_from_checked, emit_c_tests_from_ast,
 };
 pub use cache::{ArtifactCache, ArtifactCacheKey, CacheError};
 pub use ctx::EmitOptions;
@@ -42,8 +43,8 @@ pub use driver::{
 pub use emit::{emit_c, emit_c_with};
 pub use error::CodegenError;
 pub use options::{
-    Backend, CompileOptions, CompileOptionsBuilder, DiagnosticMode, Lto, OptimizationLevel,
-    OptionsError, OutputKind, PanicStrategy, Profile, ProfileSettings, ProfileSettingsError,
-    RuntimeAbi, Target,
+    Backend, CompileOptions, CompileOptionsBuilder, DiagnosticMode, Lto, NativeSource,
+    OptimizationLevel, OptionsError, OutputKind, PanicStrategy, Profile, ProfileSettings,
+    ProfileSettingsError, RuntimeAbi, Target,
 };
 pub use runtime_abi::{ID as RUNTIME_ABI_ID, VERSION as RUNTIME_ABI_VERSION};

@@ -1,0 +1,12 @@
+package demo.native_library
+
+@foreign(library = "demo", target = "native", link = "static", abi = 1, abi_id = "c")
+extern "C" fun demo_abi_version(): Int
+
+@foreign(library = "demo", target = "native", link = "static", abi = 1, abi_id = "c")
+extern "C" fun demo_add(left: Int, right: Int): Int
+
+fun main() {
+    if (demo_abi_version() != 1) { throw "native ABI mismatch" }
+    println(demo_add(20, 22).toString())
+}

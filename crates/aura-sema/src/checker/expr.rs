@@ -204,6 +204,7 @@ impl Checker {
                 }
             }
             Expr::Int(_) => Ok(Ty::Int),
+            Expr::Float(_) => Ok(Ty::Float),
             Expr::Bool(_) => Ok(Ty::Bool),
             Expr::String(_) => Ok(Ty::String),
             Expr::Null(_) => Ok(Ty::Null),
@@ -427,10 +428,10 @@ impl Checker {
                         if (l == Ty::String && r == Ty::Int) || (l == Ty::Int && r == Ty::String) {
                             return Ok(Ty::String);
                         }
-                        if l != Ty::Int || r != Ty::Int {
+                        if !matches!((&l, &r), (Ty::Int, Ty::Int) | (Ty::Float, Ty::Float)) {
                             return Err(SemaError {
                                 message: format!(
-                                    "operator `+` requires Int or String operands, got {} and {}",
+                                    "operator `+` requires matching Int or Float operands, or String operands, got {} and {}",
                                     l.display(),
                                     r.display()
                                 ),
@@ -440,23 +441,23 @@ impl Checker {
                         Ok(Ty::Int)
                     }
                     BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
-                        if l != Ty::Int || r != Ty::Int {
+                        if !matches!((&l, &r), (Ty::Int, Ty::Int) | (Ty::Float, Ty::Float)) {
                             return Err(SemaError {
                                 message: format!(
-                                    "arithmetic requires Int operands, got {} and {}",
+                                    "arithmetic requires matching Int or Float operands, got {} and {}",
                                     l.display(),
                                     r.display()
                                 ),
                                 span: b.span,
                             });
                         }
-                        Ok(Ty::Int)
+                        Ok(if l == Ty::Float { Ty::Float } else { Ty::Int })
                     }
                     BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-                        if l != Ty::Int || r != Ty::Int {
+                        if !matches!((&l, &r), (Ty::Int, Ty::Int) | (Ty::Float, Ty::Float)) {
                             return Err(SemaError {
                                 message: format!(
-                                    "comparison requires Int operands, got {} and {}",
+                                    "comparison requires matching Int or Float operands, got {} and {}",
                                     l.display(),
                                     r.display()
                                 ),
