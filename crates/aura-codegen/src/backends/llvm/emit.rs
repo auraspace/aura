@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
 use aura_ast::Span;
-use aura_ir::mir::{BinaryOp, MirBody, Place, Rvalue, Statement, Terminator, UnaryOp};
+use aura_ir::mir::{BinaryOp, Intrinsic, MirBody, Place, Rvalue, Statement, Terminator, UnaryOp};
 use aura_ir::{FunctionIr, LoweredProgram};
 use aura_sema::Ty;
 
@@ -18,6 +18,11 @@ declare i64 @strlen(ptr)
 declare ptr @memcpy(ptr, ptr, i64)
 declare i32 @strcmp(ptr, ptr)
 declare i32 @puts(ptr)
+declare i32 @snprintf(ptr, i64, ptr, ...)
+declare void @abort()
+
+@.aura_int_fmt = private unnamed_addr constant [4 x i8] c"%ld\00", align 1
+@.aura_float_fmt = private unnamed_addr constant [3 x i8] c"%g\00", align 1
 
 define ptr @aura_llvm_str_alloc(i64 %len) {
 entry:
@@ -143,6 +148,40 @@ result_join:
   %value = phi i1 [ true, %equal ], [ false, %different ], [ %same, %compare ]
   ret i1 %value
 }
+
+define ptr @aura_llvm_int_to_string(i64 %value) {
+entry:
+  %buffer = alloca [64 x i8]
+  %data = getelementptr [64 x i8], ptr %buffer, i64 0, i64 0
+  %format = getelementptr [4 x i8], ptr @.aura_int_fmt, i64 0, i64 0
+  %ignored = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %data, i64 64, ptr %format, i64 %value)
+  %result = call ptr @aura_llvm_str_new(ptr %data)
+  ret ptr %result
+}
+
+define ptr @aura_llvm_float_to_string(double %value) {
+entry:
+  %buffer = alloca [64 x i8]
+  %data = getelementptr [64 x i8], ptr %buffer, i64 0, i64 0
+  %format = getelementptr [3 x i8], ptr @.aura_float_fmt, i64 0, i64 0
+  %ignored = call i32 (ptr, i64, ptr, ...) @snprintf(ptr %data, i64 64, ptr %format, double %value)
+  %result = call ptr @aura_llvm_str_new(ptr %data)
+  ret ptr %result
+}
+
+define ptr @aura_llvm_bool_to_string(i1 %value) {
+entry:
+  br i1 %value, label %true_value, label %false_value
+true_value:
+  %true = call ptr @aura_llvm_str_new(ptr getelementptr ([5 x i8], ptr @.aura_true, i64 0, i64 0))
+  ret ptr %true
+false_value:
+  %false = call ptr @aura_llvm_str_new(ptr getelementptr ([6 x i8], ptr @.aura_false, i64 0, i64 0))
+  ret ptr %false
+}
+
+@.aura_true = private unnamed_addr constant [5 x i8] c"true\00", align 1
+@.aura_false = private unnamed_addr constant [6 x i8] c"false\00", align 1
 
 "#;
 
@@ -474,6 +513,23 @@ entry:
 }
 "#;
 
+const MISC_RUNTIME: &str = r#"
+define void @aura_llvm_assert(i1 %condition) {
+entry:
+  br i1 %condition, label %done, label %failed
+failed:
+  call void @abort()
+  unreachable
+done:
+  ret void
+}
+
+define void @aura_llvm_gc_collect() {
+entry:
+  ret void
+}
+"#;
+
 #[derive(Clone)]
 struct EnumVariantInfo {
     tag: i64,
@@ -549,6 +605,7 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
     module.push_str(CLASS_RUNTIME);
     module.push_str(ARRAY_RUNTIME);
     module.push_str(CHANNEL_RUNTIME);
+    module.push_str(MISC_RUNTIME);
     emit_class_destructors(&mut module, &context.classes);
     emit_foreign_declarations(&mut module, program, &context.foreign_names)?;
     for function in program
@@ -1239,6 +1296,71 @@ fn emit_rvalue(
                 .iter()
                 .map(|place| load_place(out, *place, body))
                 .collect::<Result<Vec<_>, _>>()?;
+            if target.name == "assert" && values.len() == 1 {
+                if body.locals[args[0].local].ty != Ty::Bool {
+                    return Err(unsupported("assert condition type"));
+                }
+                writeln!(out, "  call void @aura_llvm_assert(i1 {})", values[0]).unwrap();
+                return Ok(String::new());
+            }
+            if target.name == "assert_eq" && values.len() == 2 {
+                let left_ty = &body.locals[args[0].local].ty;
+                let right_ty = &body.locals[args[1].local].ty;
+                if left_ty != right_ty {
+                    return Err(unsupported("assert_eq operand types"));
+                }
+                let equal = emit_equality(out, values[0].as_str(), values[1].as_str(), left_ty)?;
+                writeln!(out, "  call void @aura_llvm_assert(i1 {equal})").unwrap();
+                return Ok(String::new());
+            }
+            if (target.name == "toString" || target.name == "to_string") && values.len() == 1 {
+                let operand_ty = &body.locals[args[0].local].ty;
+                let value = next_temp(out);
+                match operand_ty {
+                    Ty::Int => writeln!(
+                        out,
+                        "  {value} = call ptr @aura_llvm_int_to_string(i64 {})",
+                        values[0]
+                    )
+                    .unwrap(),
+                    Ty::Float => writeln!(
+                        out,
+                        "  {value} = call ptr @aura_llvm_float_to_string(double {})",
+                        values[0]
+                    )
+                    .unwrap(),
+                    Ty::Bool => writeln!(
+                        out,
+                        "  {value} = call ptr @aura_llvm_bool_to_string(i1 {})",
+                        values[0]
+                    )
+                    .unwrap(),
+                    _ => return Err(unsupported("toString operand type")),
+                }
+                return Ok(value);
+            }
+            if target.name == "toFloat" && values.len() == 1 {
+                return match body.locals[args[0].local].ty {
+                    Ty::Int => {
+                        let value = next_temp(out);
+                        writeln!(out, "  {value} = sitofp i64 {} to double", values[0]).unwrap();
+                        Ok(value)
+                    }
+                    Ty::Float => Ok(values[0].clone()),
+                    _ => Err(unsupported("toFloat operand type")),
+                };
+            }
+            if target.name == "toInt" && values.len() == 1 {
+                return match body.locals[args[0].local].ty {
+                    Ty::Float => {
+                        let value = next_temp(out);
+                        writeln!(out, "  {value} = fptosi double {} to i64", values[0]).unwrap();
+                        Ok(value)
+                    }
+                    Ty::Int => Ok(values[0].clone()),
+                    _ => Err(unsupported("toInt operand type")),
+                };
+            }
             if let Some(variant) = &target.variant {
                 let info = context
                     .enum_variants
@@ -1591,7 +1713,12 @@ fn emit_rvalue(
                 _ => Err(unsupported("class field type")),
             }
         }
-        Rvalue::Intrinsic(_) => Err(unsupported("LLVM intrinsic")),
+        Rvalue::Intrinsic(intrinsic) => match intrinsic {
+            Intrinsic::GcCollect => {
+                writeln!(out, "  call void @aura_llvm_gc_collect()").unwrap();
+                Ok(String::new())
+            }
+        },
         Rvalue::AsyncOp(operation) => {
             emit_async_op(out, operation, body, result_ty, package, context)
         }
@@ -1859,6 +1986,37 @@ fn array_value_from_raw(out: &mut String, raw: String, ty: &Ty) -> Result<String
         }
         _ => Err(unsupported("Array element type")),
     }
+}
+
+fn emit_equality(
+    out: &mut String,
+    left: &str,
+    right: &str,
+    ty: &Ty,
+) -> Result<String, CodegenError> {
+    if is_string_type(ty) {
+        let value = next_temp(out);
+        writeln!(
+            out,
+            "  {value} = call i1 @aura_llvm_str_eq(ptr {left}, ptr {right})"
+        )
+        .unwrap();
+        return Ok(value);
+    }
+    if is_class_type(ty) || is_enum_type(ty) || matches!(ty, Ty::Nullable(_)) {
+        let value = next_temp(out);
+        writeln!(out, "  {value} = icmp eq ptr {left}, {right}").unwrap();
+        return Ok(value);
+    }
+    let llvm = llvm_type(ty)?;
+    let value = next_temp(out);
+    let operation = if matches!(ty, Ty::Float) {
+        "fcmp oeq"
+    } else {
+        "icmp eq"
+    };
+    writeln!(out, "  {value} = {operation} {llvm} {left}, {right}").unwrap();
+    Ok(value)
 }
 
 fn llvm_zero(ty: &Ty) -> Result<&'static str, CodegenError> {

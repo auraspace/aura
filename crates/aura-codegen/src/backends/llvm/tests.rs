@@ -120,6 +120,20 @@ fn emits_typed_channel_operations() {
 }
 
 #[test]
+fn emits_llvm_builtins_and_intrinsics() {
+    let file = parse_file(
+        "package demo\nfun main() {\n  gc_collect()\n  val value: Float = 4.toFloat()\n  assert(value.toInt() == 4)\n  assert_eq(value.toInt(), 4)\n  println(value.toString())\n}\n",
+    )
+    .unwrap();
+    let checked = check_file(&file).unwrap();
+    let module = LlvmBackend::emit_module(&LoweredProgram::from_checked(checked)).unwrap();
+    assert!(module.contains("@aura_llvm_gc_collect"));
+    assert!(module.contains("@aura_llvm_float_to_string"));
+    assert!(module.contains("@aura_llvm_assert"));
+    assert_llvm_compiles(&module, "builtin-module");
+}
+
+#[test]
 fn llvm_defaults_do_not_require_the_c_runtime_abi() {
     let options = crate::llvm_options();
     assert_eq!(options.backend, Backend::Llvm);
