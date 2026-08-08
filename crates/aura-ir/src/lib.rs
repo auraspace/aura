@@ -1626,6 +1626,20 @@ pub mod lowering {
             Expr::Ident(value) => match place_for_expr(expr, locals) {
                 Ok(place) => Ok(Rvalue::Use(place)),
                 Err(_) => {
+                    if let Some(constant) = checked.and_then(|file| {
+                        file.ast
+                            .consts
+                            .iter()
+                            .find(|constant| constant.name.name == value.name)
+                    }) {
+                        return lower_rvalue(
+                            &constant.value,
+                            locals_out,
+                            statements,
+                            locals,
+                            checked,
+                        );
+                    }
                     let object = place_for_expr(&Expr::This(value.span), locals)?;
                     let object_ty = locals_out[object.local].ty.clone();
                     if field_type_for_ty(&object_ty, &value.name, checked).is_some() {
@@ -3114,36 +3128,44 @@ pub mod lowering {
                     name: name.to_string(),
                 });
             };
-            let object = bindings
-                .get("this")
-                .copied()
-                .ok_or_else(|| LowerError::UnknownLocal {
-                    span: identifier.span,
-                    name: identifier.name.clone(),
-                })?;
-            let object_ty = locals[object].ty.clone();
-            let field_ty =
-                field_type_for_ty(&object_ty, &identifier.name, checked).ok_or_else(|| {
-                    LowerError::UnknownLocal {
+            if checked.is_some_and(|file| {
+                file.ast
+                    .consts
+                    .iter()
+                    .any(|constant| constant.name.name == identifier.name)
+            }) {
+                // Constants are materialized as literal MIR values below.
+            } else {
+                let object =
+                    bindings
+                        .get("this")
+                        .copied()
+                        .ok_or_else(|| LowerError::UnknownLocal {
+                            span: identifier.span,
+                            name: identifier.name.clone(),
+                        })?;
+                let object_ty = locals[object].ty.clone();
+                let field_ty = field_type_for_ty(&object_ty, &identifier.name, checked)
+                    .ok_or_else(|| LowerError::UnknownLocal {
                         span: identifier.span,
                         name: identifier.name.clone(),
-                    }
-                })?;
-            let local = locals.len();
-            let ownership = ownership::mode_for_ty(&field_ty);
-            locals.push(Local {
-                name: format!("__field_{local}"),
-                ty: field_ty,
-                ownership,
-            });
-            statements.push(Statement::Assign {
-                place: Place { local },
-                value: Rvalue::Field {
-                    object: Place { local: object },
-                    field: identifier.name.clone(),
-                },
-            });
-            return Ok(Place { local });
+                    })?;
+                let local = locals.len();
+                let ownership = ownership::mode_for_ty(&field_ty);
+                locals.push(Local {
+                    name: format!("__field_{local}"),
+                    ty: field_ty,
+                    ownership,
+                });
+                statements.push(Statement::Assign {
+                    place: Place { local },
+                    value: Rvalue::Field {
+                        object: Place { local: object },
+                        field: identifier.name.clone(),
+                    },
+                });
+                return Ok(Place { local });
+            }
         }
         if let Some(ty) = checked.and_then(|file| {
             file.expr_tys
@@ -5752,6 +5774,35 @@ mod tests {
             })
         }));
         assert!(body.validate().is_ok());
+        assert!(program.mir_is_complete());
+    }
+
+    #[test]
+    fn top_level_constants_materialize_in_control_flow_mir() {
+        let file = aura_parser::parse_file(
+            "package demo\nconst LIMIT: Int = 3\nfun check(): Bool { if (LIMIT == 3) { return true } return false }\n",
+        )
+        .expect("parse");
+        let checked = aura_sema::check_file(&file).expect("semantic check");
+        let program = LoweredProgram::from_checked(checked);
+        let body = program
+            .checked()
+            .functions
+            .iter()
+            .find(|function| function.name == "check")
+            .and_then(|function| function.body.as_ref())
+            .expect("check MIR");
+        assert!(body.blocks.iter().any(|block| {
+            block.statements.iter().any(|statement| {
+                matches!(
+                    statement,
+                    mir::Statement::Assign {
+                        value: mir::Rvalue::ConstInt(3),
+                        ..
+                    }
+                )
+            })
+        }));
         assert!(program.mir_is_complete());
     }
 
