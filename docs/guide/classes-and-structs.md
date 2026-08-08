@@ -258,7 +258,7 @@ class Child<T>(val childValue: T) : Parent<T>(childValue) {
 - No struct inheritance or struct-to-interface implementation.
 - Secondary constructors use explicit `constructor(...) : this(...)` delegation.
 - Dispatch and generic specialization follow the closed-world C backend;
-  LLVM remains future work.
+  LLVM currently accepts only the complete common MIR subset.
 
 ## Next
 

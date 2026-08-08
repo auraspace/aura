@@ -9,6 +9,7 @@ use aura_ast::File;
 use aura_ir::{mir::Terminator, ForeignLinkIr, LoweredProgram};
 use aura_sema::{check_file, CheckedFile};
 
+use crate::backends::llvm::LlvmBackend;
 use crate::ctx::EmitOptions;
 use crate::emit::emit_c_with_program;
 use crate::error::CodegenError;
@@ -290,14 +291,33 @@ pub fn build_artifact_from_checked(
     options: CompileOptions,
     opts: EmitOptions,
 ) -> Result<Artifact, CodegenError> {
-    validate_build(&options, &compiler_command(), runtime_c)?;
-    CBackend.compile(
-        &LoweredProgram::from_checked(checked.clone()),
-        out_bin,
-        runtime_c,
-        &options,
-        opts,
-    )
+    let program = LoweredProgram::from_checked(checked.clone());
+    match options.backend {
+        BackendKind::C => {
+            validate_build(&options, &compiler_command(), runtime_c)?;
+            CBackend.compile(&program, out_bin, runtime_c, &options, opts)
+        }
+        BackendKind::Llvm => {
+            options
+                .validate()
+                .map_err(|error| CodegenError::Configuration(error.to_string()))?;
+            if !program.mir_is_complete() {
+                return Err(CodegenError::Configuration(format!(
+                    "LLVM backend requires complete MIR; unsupported functions: {}",
+                    program.unlowered_mir_names().join(", ")
+                )));
+            }
+            LlvmBackend.compile_ir(
+                &program,
+                out_bin,
+                &BackendBuildOptions::from(&options),
+                opts.into(),
+            )
+        }
+        BackendKind::Cranelift => Err(CodegenError::Configuration(
+            "Cranelift backend is not implemented".into(),
+        )),
+    }
 }
 
 impl<B: Backend> Driver<B> {
@@ -351,7 +371,7 @@ impl<B: Backend> Driver<B> {
     }
 }
 
-pub struct CBackend;
+pub use crate::backends::c::CBackend;
 
 /// A backend probe that consumes only target-neutral IR.
 ///

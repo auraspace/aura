@@ -275,6 +275,7 @@ pub(crate) fn parse_aura_toml(text: &str) -> Result<AuraToml, String> {
                             .map_err(|e| format!("line {}: {e}", lineno + 1))?;
                         settings.backend = Some(match backend.as_str() {
                             "c" => Backend::C,
+                            "llvm" => Backend::Llvm,
                             _ => {
                                 return Err(format!(
                                     "line {}: unsupported backend `{backend}`",

@@ -9,7 +9,7 @@ use aura_sema::CheckedFile;
 use crate::ctx::EmitOptions;
 use crate::driver::{Artifact, CBackend, Driver};
 use crate::error::CodegenError;
-use crate::options::{CompileOptions, NativeSource};
+use crate::options::{Backend, CompileOptions, NativeSource, ProfileSettings};
 
 pub fn emit_c_from_ast(file: &File) -> Result<String, CodegenError> {
     Driver::new(CBackend).emit(file, EmitOptions::default())
@@ -66,7 +66,27 @@ pub fn build_from_checked_with_native(
     runtime_c: &Path,
     native_sources: Vec<NativeSource>,
 ) -> Result<PathBuf, CodegenError> {
-    let mut options = CompileOptions::default();
+    let options = CompileOptions {
+        native_sources,
+        ..CompileOptions::default()
+    };
+    crate::driver::build_artifact_from_checked(
+        checked,
+        out_bin,
+        runtime_c,
+        options,
+        EmitOptions::default(),
+    )
+    .map(Artifact::into_path)
+}
+
+pub fn build_from_checked_with_options(
+    checked: &CheckedFile,
+    out_bin: &Path,
+    runtime_c: &Path,
+    mut options: CompileOptions,
+    native_sources: Vec<NativeSource>,
+) -> Result<PathBuf, CodegenError> {
     options.native_sources = native_sources;
     crate::driver::build_artifact_from_checked(
         checked,
@@ -76,6 +96,16 @@ pub fn build_from_checked_with_native(
         EmitOptions::default(),
     )
     .map(Artifact::into_path)
+}
+
+pub fn llvm_options() -> CompileOptions {
+    let mut options = CompileOptions::default();
+    options.backend = Backend::Llvm;
+    options.profile_settings = ProfileSettings {
+        backend: Backend::Llvm,
+        ..options.profile_settings
+    };
+    options
 }
 
 pub fn build_tests_from_file(
@@ -120,8 +150,10 @@ pub fn build_tests_from_checked_with_native(
     native_sources: Vec<NativeSource>,
     sanitizer: bool,
 ) -> Result<PathBuf, CodegenError> {
-    let mut options = CompileOptions::default();
-    options.native_sources = native_sources;
+    let mut options = CompileOptions {
+        native_sources,
+        ..CompileOptions::default()
+    };
     options.profile_settings.detector = sanitizer;
     crate::driver::build_artifact_from_checked(
         checked,

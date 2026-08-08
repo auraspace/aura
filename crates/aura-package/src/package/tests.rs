@@ -177,6 +177,14 @@ fn minimal_manifest_gets_stable_profile_defaults() {
 }
 
 #[test]
+fn profile_schema_accepts_llvm_backend() {
+    use aura_codegen::{Backend, Profile};
+
+    let t = parse_aura_toml("[profile.dev]\nbackend = \"llvm\"\n").unwrap();
+    assert_eq!(t.profiles[&Profile::Dev].backend, Backend::Llvm);
+}
+
+#[test]
 fn profile_schema_rejects_unknown_invalid_and_conflicting_settings() {
     let unknown = parse_aura_toml("[profile.dev]\nwat = true\n").unwrap_err();
     assert!(unknown.contains("unknown key `wat`"), "{unknown}");

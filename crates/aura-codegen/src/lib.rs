@@ -7,31 +7,27 @@
 // currently identical.
 #![allow(clippy::if_same_then_else)]
 
-mod array_emit;
-mod async_compat;
-mod build;
+pub mod backends;
 mod cache;
-mod call_emit;
-mod class_emit;
-mod ctx;
 mod driver;
-mod emit;
-mod enum_emit;
 mod error;
-mod expr;
-mod iface;
-mod mir_emit;
-mod names;
 mod options;
-mod runtime_abi;
-mod stmt;
 mod validation;
 
+// Keep existing crate-internal paths stable while the C implementation is
+// physically isolated under `backends::c`.
+pub(crate) use backends::c::{
+    array_emit, async_compat, build, call_emit, class_emit, ctx, emit, enum_emit, expr, iface,
+    mir_emit, names, runtime_abi, stmt,
+};
+
 pub use aura_ir::{CheckedIr, Effect, FunctionIr, LoweredProgram, OwnershipMode, ValueFact};
+pub use backends::llvm::LlvmBackend;
 pub use build::{
-    build_from_checked, build_from_checked_with_native, build_from_file, build_tests_from_checked,
-    build_tests_from_checked_with_native, build_tests_from_file, emit_c_from_ast,
-    emit_c_from_checked, emit_c_tests_from_ast,
+    build_from_checked, build_from_checked_with_native, build_from_checked_with_options,
+    build_from_file, build_tests_from_checked, build_tests_from_checked_with_native,
+    build_tests_from_file, emit_c_from_ast, emit_c_from_checked, emit_c_tests_from_ast,
+    llvm_options,
 };
 pub use cache::{ArtifactCache, ArtifactCacheKey, CacheError};
 pub use ctx::EmitOptions;

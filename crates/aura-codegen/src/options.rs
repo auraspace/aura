@@ -6,7 +6,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Backend {
     C,
-    /// Reserved backend contract; implementation will consume MIR directly.
+    /// Native LLVM IR backend consuming complete MIR.
     Llvm,
     /// Reserved backend contract; implementation will consume MIR directly.
     Cranelift,
@@ -124,9 +124,6 @@ impl ProfileSettings {
     }
 
     pub fn validate(&self) -> Result<(), ProfileSettingsError> {
-        if self.backend != Backend::C {
-            return Err(ProfileSettingsError::UnsupportedBackend);
-        }
         if self
             .linker
             .as_deref()
@@ -140,15 +137,24 @@ impl ProfileSettings {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileSettingsError {
-    UnsupportedBackend,
     EmptyLinker,
+    BackendMismatch {
+        selected: Backend,
+        configured: Backend,
+    },
 }
 
 impl std::fmt::Display for ProfileSettingsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::UnsupportedBackend => write!(f, "only the C backend is supported"),
             Self::EmptyLinker => write!(f, "linker must not be empty"),
+            Self::BackendMismatch {
+                selected,
+                configured,
+            } => write!(
+                f,
+                "selected backend {selected:?} does not match profile backend {configured:?}"
+            ),
         }
     }
 }
@@ -231,6 +237,14 @@ impl Default for CompileOptions {
 
 impl CompileOptions {
     pub fn validate(&self) -> Result<(), OptionsError> {
+        if self.profile_settings.backend != self.backend {
+            return Err(OptionsError::InvalidProfileSettings(
+                ProfileSettingsError::BackendMismatch {
+                    selected: self.backend,
+                    configured: self.profile_settings.backend,
+                },
+            ));
+        }
         self.profile_settings
             .validate()
             .map_err(OptionsError::InvalidProfileSettings)?;

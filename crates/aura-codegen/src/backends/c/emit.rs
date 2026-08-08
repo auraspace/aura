@@ -14037,8 +14037,8 @@ fn emit_async_fun_std_tls(out: &mut String, f: &AsyncFunDecl, checked: &CheckedF
         .as_ref()
         .map(|ty| type_ref_local_key_expand(ty, &[], &[], checked))
         .unwrap_or_default();
-    if (is_read && binary && return_key != "std_bytes_Buffer")
-        || (is_read && !binary && return_key != "String")
+    if is_read
+        && ((binary && return_key != "std_bytes_Buffer") || (!binary && return_key != "String"))
         || (is_write && return_key != "Int")
     {
         return false;

@@ -4,6 +4,7 @@ use aura_analysis::{
     declarative_macro_names, declarative_macro_sources, parse_file, parse_file_with_macro_sources,
 };
 use aura_ast::{shift_file_spans, File, ImportDecl, Path as AstPath, Span};
+use aura_codegen::Profile;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -156,6 +157,7 @@ pub(crate) fn load_single_file(path: &Path) -> Result<LoadedPackage, String> {
         macro_plugins: std::collections::BTreeMap::new(),
         native: BTreeMap::new(),
         native_roots: BTreeMap::new(),
+        profile_settings: aura_codegen::ProfileSettings::for_profile(Profile::Dev),
     })
 }
 
@@ -199,6 +201,7 @@ pub(crate) fn load_from_manifest(
     };
 
     pkg.root = root.clone();
+    pkg.profile_settings = toml.profiles[&Profile::Dev].clone();
     pkg.native = native_config_for_target(&toml, &target);
     pkg.native_roots = pkg
         .native
@@ -1318,6 +1321,7 @@ pub(crate) fn load_directory(
         macro_plugins: std::collections::BTreeMap::new(),
         native: BTreeMap::new(),
         native_roots: BTreeMap::new(),
+        profile_settings: aura_codegen::ProfileSettings::for_profile(Profile::Dev),
     })
 }
 

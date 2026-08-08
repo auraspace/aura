@@ -728,7 +728,7 @@ fun main() {
   println("http-health-cli: passed")
 }
 "#;
-        let formatted = format_source(&source).unwrap();
+        let formatted = format_source(source).unwrap();
 
         assert!(formatted.contains("package http_health_cli\n"));
         assert!(formatted.contains("package http_health_cli\n\nimport std.io as Io\n"));

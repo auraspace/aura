@@ -9,7 +9,7 @@ summary: What Aura is, who it is for, and how the docs fit with RFCs.
 
 **Aura** is a statically typed, compiled language for services, CLIs, workers, and libraries that ship as a **single native executable**.
 
-You write with a **class-based** object model, **null-safe types**, and **lightweight tasks** with a tracing GC. The **toolchain is Rust**; native code is produced today via a **C backend** (LLVM is the longer-term path).
+You write with a **class-based** object model, **null-safe types**, and **lightweight tasks** with a tracing GC. The **toolchain is Rust**; native code is produced through the C compatibility backend or the LLVM backend for complete MIR programs.
 
 ## Product one-liner
 

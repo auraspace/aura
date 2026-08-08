@@ -1,21 +1,21 @@
 # Aura
 
-**Aura** is a statically typed, compiled language (classes, null-safe types, lightweight tasks, and GC) that ships as a **single native executable**. The current toolchain is Rust + a C backend; LLVM remains a future backend.
+**Aura** is a statically typed, compiled language (classes, null-safe types, lightweight tasks, and GC) that ships as a **single native executable**. The current toolchain is Rust with C compatibility and LLVM MIR backends.
 
 This repository currently holds:
 
-| Path                                 | Purpose                                                              |
-| ------------------------------------ | -------------------------------------------------------------------- |
-| [`docs/guide/`](docs/guide/)         | User guide (site `/docs`)                                            |
-| [`docs/rfc/`](docs/rfc/)             | Language & toolchain RFCs                                            |
-| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3; C22 partial implementation closed)          |
-| [`docs/releases/`](docs/releases/)   | Release notes (`0.1.0-alpha`; current `0.1.1-alpha.7`)               |
-| [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                            |
-| [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C backend) |
-| [`corpus/`](corpus/)                 | Sample `.aura` programs for the compiler                             |
-| [`examples/`](examples/)             | Dogfood apps (`notes`, `wc` CLI packages)                            |
-| [`std/`](std/)                       | Standard-library packages                                            |
-| [`runtime/`](runtime/)               | Linked C runtime (`runtime.c`)                                       |
+| Path                                 | Purpose                                                                      |
+| ------------------------------------ | ---------------------------------------------------------------------------- |
+| [`docs/guide/`](docs/guide/)         | User guide (site `/docs`)                                                    |
+| [`docs/rfc/`](docs/rfc/)             | Language & toolchain RFCs                                                    |
+| [`docs/roadmap.md`](docs/roadmap.md) | Execution phases (P0–P3; C22 partial implementation closed)                  |
+| [`docs/releases/`](docs/releases/)   | Release notes (`0.1.0-alpha`; current `0.1.1-alpha.7`)                       |
+| [`site/`](site/)                     | Homepage + docs + RFC site (Vite + React)                                    |
+| [`crates/`](crates/)                 | Rust toolchain (`aura` CLI) — check / build / run / test (C + LLVM backends) |
+| [`corpus/`](corpus/)                 | Sample `.aura` programs for the compiler                                     |
+| [`examples/`](examples/)             | Dogfood apps (`notes`, `wc` CLI packages)                                    |
+| [`std/`](std/)                       | Standard-library packages                                                    |
+| [`runtime/`](runtime/)               | Linked C runtime (`runtime.c`)                                               |
 
 **License:** [MIT](LICENSE)
 
@@ -86,7 +86,7 @@ cargo run -p aura-cli -- run corpus/std_collections/hashmap_int # generic HashMa
 cargo run -p aura-cli -- run corpus/std_collections/hashset_int # generic HashSet<Int> (C15)
 ```
 
-Native builds use a **C backend** (`aura emit-c` + system `cc`) linked with `runtime/runtime.c`. LLVM IR is the longer-term path (RFC-004).
+Native builds use the **C backend** by default (`aura emit-c` + system `cc`) linked with `runtime/runtime.c`. The LLVM backend consumes complete scalar MIR directly and emits textual LLVM IR through Clang (`aura emit-llvm` or `aura build --backend llvm`); programs outside the current common MIR contract fail with a diagnostic instead of falling back to C.
 
 ## Supported release targets
 

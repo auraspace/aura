@@ -3,6 +3,7 @@
 use super::toml::NativeBuildConfig;
 use aura_analysis::{check_file, check_file_with_sandboxed_macro};
 use aura_ast::{shift_file_spans, AttributeArg, AttributeValue, File, Span};
+use aura_codegen::ProfileSettings;
 use aura_sema::{CheckedFile, MacroPluginRequest, MacroSandboxConfig, SemaErrors};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -38,6 +39,8 @@ pub struct LoadedPackage {
     pub native: std::collections::BTreeMap<String, NativeBuildConfig>,
     /// Package root for each native library, because dependencies keep their own paths.
     pub native_roots: std::collections::BTreeMap<String, PathBuf>,
+    /// Normalized dev-profile settings selected from `aura.toml`.
+    pub profile_settings: ProfileSettings,
 }
 impl LoadedPackage {
     /// Check the package and run root-declared RFC-010 plugins for matching
@@ -158,6 +161,7 @@ impl LoadedPackage {
             macro_plugins: self.macro_plugins.clone(),
             native: self.native.clone(),
             native_roots: self.native_roots.clone(),
+            profile_settings: self.profile_settings.clone(),
         })
     }
 

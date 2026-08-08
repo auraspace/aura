@@ -7,8 +7,8 @@ mod test_report;
 
 use aura_analysis::{SemaError, SemaErrors};
 use aura_codegen::{
-    build_from_checked_with_native, build_tests_from_checked_with_native, emit_c_from_checked,
-    NativeSource,
+    build_from_checked_with_native, build_from_checked_with_options,
+    build_tests_from_checked_with_native, emit_c_from_checked, llvm_options, Backend, NativeSource,
 };
 use aura_diagnostics::{
     classify_async, format_async_error, format_error_with, FormatOptions, JsonDiagnostic, Severity,
@@ -47,6 +47,7 @@ fn main() -> ExitCode {
         "remove" => cmd_remove(&args),
         "fmt" => cmd_fmt(&args),
         "emit-c" => cmd_emit_c(&args),
+        "emit-llvm" => cmd_emit_llvm(&args),
         "language-server" | "lsp" => cmd_language_server(&args),
         "new" => cmd_new(&args),
         "init" => cmd_init(&args),
@@ -73,7 +74,7 @@ fn eprint_usage() {
            aura new <path>                   Scaffold package directory\n  \
            aura init [name]                  Scaffold package in current directory\n  \
            aura check [path]                 Parse + typecheck (.aura | dir | aura.toml)\n  \
-           aura build [path] [-o <bin>]      Compile to native binary (C backend)\n  \
+           aura build [path] [-o <bin>] [--backend c|llvm]  Compile to native binary\n  \
            aura run [path] [-- args...]      Build to temp and execute\n  \
            aura test [path] [--test-name <pattern>] [--format json] [-- args...]\n  \
            aura bench [path] [--test-name <pattern>] [-- args...]\n  \
@@ -83,6 +84,7 @@ fn eprint_usage() {
            aura remove <name|origin> [options] Remove dependency and refresh lock\n  \
            aura fmt [--check] <path>          Format/check `.aura` files, project, or folder\n  \
            aura emit-c [path]                Print generated C (debug)\n  \
+           aura emit-llvm [path]             Print generated LLVM IR (debug)\n  \
            aura language-server              Run the stdio LSP server (alias: lsp)\n  \
            aura version                      Print CLI version\n  \
            aura help\n\n\
@@ -917,9 +919,35 @@ fn cmd_emit_c(args: &[String]) -> ExitCode {
     }
 }
 
+fn cmd_emit_llvm(args: &[String]) -> ExitCode {
+    match resolve_package(args).and_then(|pkg| {
+        let checked = pkg
+            .check_with_plugins()
+            .map_err(|e| diag_sema_errors(&pkg, e))?;
+        let program = aura_codegen::LoweredProgram::from_checked(checked);
+        if !program.mir_is_complete() {
+            return Err(format!(
+                "LLVM backend requires complete MIR; unsupported functions: {}",
+                program.unlowered_mir_names().join(", ")
+            ));
+        }
+        aura_codegen::LlvmBackend::emit_module(&program).map_err(|e| e.to_string())
+    }) {
+        Ok(ir) => {
+            print!("{ir}");
+            ExitCode::SUCCESS
+        }
+        Err(msg) => {
+            eprintln!("{msg}");
+            ExitCode::from(1)
+        }
+    }
+}
+
 fn cmd_build(args: &[String]) -> ExitCode {
     let mut input: Option<PathBuf> = None;
     let mut output: Option<PathBuf> = None;
+    let mut backend: Option<Backend> = None;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -930,6 +958,21 @@ fn cmd_build(args: &[String]) -> ExitCode {
                     return ExitCode::from(2);
                 }
                 output = Some(PathBuf::from(&args[i]));
+            }
+            "--backend" => {
+                i += 1;
+                let Some(value) = args.get(i) else {
+                    eprintln!("error: --backend requires c or llvm");
+                    return ExitCode::from(2);
+                };
+                backend = Some(match value.as_str() {
+                    "c" => Backend::C,
+                    "llvm" => Backend::Llvm,
+                    _ => {
+                        eprintln!("error: unsupported backend `{value}` (expected c or llvm)");
+                        return ExitCode::from(2);
+                    }
+                });
             }
             s if s.starts_with('-') => {
                 eprintln!("error: unknown option `{s}`");
@@ -957,6 +1000,8 @@ fn cmd_build(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+
+    let backend = backend.unwrap_or(pkg.profile_settings.backend);
 
     let out = output.unwrap_or_else(|| PathBuf::from(format!("target/aura/{}", pkg.bin_name)));
     let build_started = Instant::now();
@@ -989,11 +1034,18 @@ fn cmd_build(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let compiled =
-        build_from_checked_with_native(&checked, &out, &runtime, native).map_err(|e| match e {
-            aura_codegen::CodegenError::Sema(se) => diag_sema_errors(&pkg, se),
-            other => format!("error: {other}"),
-        });
+    let compiled = if backend == Backend::Llvm {
+        let mut options = llvm_options();
+        options.profile_settings = pkg.profile_settings.clone();
+        options.backend = Backend::Llvm;
+        build_from_checked_with_options(&checked, &out, &runtime, options, native)
+    } else {
+        build_from_checked_with_native(&checked, &out, &runtime, native)
+    }
+    .map_err(|e| match e {
+        aura_codegen::CodegenError::Sema(se) => diag_sema_errors(&pkg, se),
+        other => format!("error: {other}"),
+    });
     match compiled {
         Ok(bin) => {
             let size = fs::metadata(&bin)
