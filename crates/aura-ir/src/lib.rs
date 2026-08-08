@@ -2311,6 +2311,20 @@ pub mod lowering {
                     .iter()
                     .map(|arg| place_or_temp(arg, locals_out, statements, locals, checked))
                     .collect::<Result<Vec<_>, _>>()?;
+                let explicit_type_args = if value.type_args.is_empty() {
+                    None
+                } else {
+                    let checked = checked.ok_or(LowerError::MissingType { span: value.span })?;
+                    Some(
+                        value
+                            .type_args
+                            .iter()
+                            .map(|ty| type_ref_to_ty(ty, &HashMap::new(), checked))
+                            .collect::<Option<Vec<_>>>()
+                            .ok_or(LowerError::MissingType { span: value.span })?,
+                    )
+                };
+                let is_method_call = matches!(value.callee.as_ref(), Expr::Field(_));
                 let target = checked
                     .and_then(|file| file.call_instantiations.get(&value.span.start))
                     .map(|call| CallTarget {
@@ -2322,8 +2336,20 @@ pub mod lowering {
                             function_name.clone()
                         },
                         package: call.package.clone(),
-                        type_args: call.type_args.clone(),
-                        method_type_args: call.method_type_args.clone(),
+                        type_args: if is_method_call {
+                            call.type_args.clone()
+                        } else {
+                            explicit_type_args
+                                .clone()
+                                .unwrap_or_else(|| call.type_args.clone())
+                        },
+                        method_type_args: if is_method_call {
+                            explicit_type_args
+                                .clone()
+                                .unwrap_or_else(|| call.method_type_args.clone())
+                        } else {
+                            call.method_type_args.clone()
+                        },
                         is_constructor: call.is_constructor,
                         is_static: call.is_static,
                         variant: call.variant.clone(),
@@ -5188,7 +5214,8 @@ impl LoweredProgram {
             };
             let receiver_ty = Ty::Class(class.name.name.clone());
             for method in &class.methods {
-                if !method.type_params.is_empty()
+                if !class.type_params.is_empty()
+                    || !method.type_params.is_empty()
                     || method
                         .return_type
                         .as_ref()
@@ -5261,6 +5288,7 @@ impl LoweredProgram {
             .iter()
             .filter(|function| {
                 function.body.is_none()
+                    && function.type_params.is_empty()
                     && !source
                         .ast
                         .foreign_functions
@@ -5467,6 +5495,13 @@ impl LoweredProgram {
                     .methods
                     .iter()
                     .find(|method| method.name.name == method_name)?;
+                if !method
+                    .return_type
+                    .as_ref()
+                    .is_some_and(|ty| ty.name.name == "Task")
+                {
+                    return None;
+                }
                 let class_count = class.type_params.len();
                 let method_count = method.type_params.len();
                 if instance.args.len() != class_count + method_count {
@@ -5627,6 +5662,18 @@ impl LoweredProgram {
                     .iter()
                     .map(|(span, ty)| (*span, subst_ty(ty, &substitutions)))
                     .collect();
+                for instantiation in specialized_source.call_instantiations.values_mut() {
+                    instantiation.type_args = instantiation
+                        .type_args
+                        .iter()
+                        .map(|ty| subst_ty(ty, &substitutions))
+                        .collect();
+                    instantiation.method_type_args = instantiation
+                        .method_type_args
+                        .iter()
+                        .map(|ty| subst_ty(ty, &substitutions))
+                        .collect();
+                }
                 let params = closed
                     .params
                     .iter()

@@ -684,6 +684,11 @@ fn runs_generic_free_function_and_nested_class_monomorphs() {
         "generic-nested-array",
         "nested-array-ok\n",
     );
+    assert_llvm_source_runs(
+        include_str!("../../../../../corpus/generic/constructor_subst.aura"),
+        "generic-constructor-subst",
+        "generic-constructor-subst-ok\n",
+    );
 }
 
 #[test]

@@ -736,7 +736,9 @@ pub(super) fn emit_rvalue(
                 }
                 return Ok(value);
             }
-            if target.is_constructor {
+            let is_constructor = target.is_constructor
+                || (!target.type_args.is_empty() && context.classes.contains_key(&target.name));
+            if is_constructor {
                 if target.name == "Array" {
                     let Some(Ty::Int) = args.first().map(|place| &body.locals[place.local].ty)
                     else {
