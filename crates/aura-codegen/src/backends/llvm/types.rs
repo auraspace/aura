@@ -67,15 +67,17 @@ pub(crate) fn method_symbol_for(
         .first()
         .and_then(|place| body.locals.get(place.local))
         .map(|local| &local.ty)?;
+    let interface_receiver = matches!(receiver_ty, Ty::Interface(_) | Ty::InterfaceApp { .. });
     signatures
         .iter()
         .find_map(|((owner_package, name), (_, params))| {
             let method_name = name.rsplit("::").next()?;
             if method_name != target.name
                 || (owner_package != package && owner_package != &target.package)
-                || !params
-                    .first()
-                    .is_some_and(|candidate| compatible_receiver(candidate, receiver_ty))
+                || !params.first().is_some_and(|candidate| {
+                    compatible_receiver(candidate, receiver_ty)
+                        || (interface_receiver && is_class_type(candidate))
+                })
             {
                 return None;
             }

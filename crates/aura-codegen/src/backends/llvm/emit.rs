@@ -487,6 +487,7 @@ struct EmitContext {
     signatures: Signatures,
     enum_variants: HashMap<String, EnumVariantInfo>,
     classes: HashMap<String, Vec<(String, Ty)>>,
+    class_type_params: HashMap<String, Vec<String>>,
     foreign_names: HashSet<String>,
     string_literals: Vec<String>,
 }
@@ -611,6 +612,22 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
         signatures: signatures(program),
         enum_variants: enum_variants(program),
         classes: classes(program),
+        class_type_params: program
+            .source()
+            .ast
+            .classes
+            .iter()
+            .map(|class| {
+                (
+                    class.name.name.clone(),
+                    class
+                        .type_params
+                        .iter()
+                        .map(|param| param.name.name.clone())
+                        .collect(),
+                )
+            })
+            .collect(),
         foreign_names: program
             .source()
             .ast
@@ -1071,9 +1088,11 @@ fn emit_statement(
             let object_ty = &body.locals[object.local].ty;
             let class_name = class_type_name(object_ty)
                 .ok_or_else(|| unsupported("field stores outside classes"))?;
-            let fields = context
-                .classes
-                .get(class_name)
+            let type_args = match object_ty {
+                Ty::ClassApp { args, .. } => args.as_slice(),
+                _ => &[],
+            };
+            let fields = class_fields(context, class_name, type_args)
                 .ok_or_else(|| unsupported(&format!("class {class_name}")))?;
             let (index, field_ty) = fields
                 .iter()
@@ -1320,7 +1339,7 @@ fn coerce_llvm_argument(
     if types_compatible(source_ty, expected_ty) {
         return Ok(value.to_owned());
     }
-    if is_pointer_value_type(source_ty) && is_pointer_value_type(expected_ty) {
+    if is_pointer_abi_type(source_ty) && is_pointer_abi_type(expected_ty) {
         // Nominal class conversions have already been checked by sema; all
         // heap values cross the LLVM ABI as opaque pointers.
         return Ok(value.to_owned());
@@ -1723,7 +1742,11 @@ fn emit_rvalue(
                     _ => Err(unsupported("toInt operand type")),
                 };
             }
-            if let Some(variant) = &target.variant {
+            if let Some(variant) = target
+                .variant
+                .as_deref()
+                .filter(|variant| *variant != "__iterable_protocol")
+            {
                 let info = context
                     .enum_variants
                     .get(variant)
@@ -1823,9 +1846,7 @@ fn emit_rvalue(
                     .unwrap();
                     return Ok(value);
                 }
-                let fields = context
-                    .classes
-                    .get(&target.name)
+                let fields = class_fields(context, &target.name, &target.type_args)
                     .ok_or_else(|| unsupported(&format!("class {}", target.name)))?;
                 if fields.len() != args.len()
                     || fields.iter().any(|(_, ty)| {
@@ -1941,7 +1962,10 @@ fn emit_rvalue(
                 writeln!(out, "  {raw} = load i64, ptr {raw_slot}").unwrap();
                 return array_value_from_raw(out, raw, element_ty);
             }
-            if target.name == "get" && args.len() == 2 {
+            if target.name == "get"
+                && args.len() == 2
+                && array_element_type(&body.locals[args[0].local].ty).is_some()
+            {
                 let Some(element_ty) = array_element_type(&body.locals[args[0].local].ty) else {
                     return Err(unsupported("get target outside Array"));
                 };
@@ -1950,7 +1974,10 @@ fn emit_rvalue(
                 }
                 return load_array_element(out, args[0], args[1], element_ty, body);
             }
-            if target.name == "push" && args.len() == 2 {
+            if target.name == "push"
+                && args.len() == 2
+                && array_element_type(&body.locals[args[0].local].ty).is_some()
+            {
                 let Some(element_ty) = array_element_type(&body.locals[args[0].local].ty) else {
                     return Err(unsupported("push target outside Array"));
                 };
@@ -1970,7 +1997,10 @@ fn emit_rvalue(
                 .unwrap();
                 return Ok(String::new());
             }
-            if target.name == "pop" && args.len() == 1 {
+            if target.name == "pop"
+                && args.len() == 1
+                && array_element_type(&body.locals[args[0].local].ty).is_some()
+            {
                 let Some(element_ty) = array_element_type(&body.locals[args[0].local].ty) else {
                     return Err(unsupported("pop target outside Array"));
                 };
@@ -1983,7 +2013,10 @@ fn emit_rvalue(
                 .unwrap();
                 return array_value_from_raw(out, raw, element_ty);
             }
-            if target.name == "set" && args.len() == 3 {
+            if target.name == "set"
+                && args.len() == 3
+                && array_element_type(&body.locals[args[0].local].ty).is_some()
+            {
                 let Some(element_ty) = array_element_type(&body.locals[args[0].local].ty) else {
                     return Err(unsupported("set target outside Array"));
                 };
@@ -2138,9 +2171,11 @@ fn emit_rvalue(
             }
             let name =
                 class_type_name(object_ty).ok_or_else(|| unsupported("fields outside classes"))?;
-            let fields = context
-                .classes
-                .get(name)
+            let type_args = match object_ty {
+                Ty::ClassApp { args, .. } => args.as_slice(),
+                _ => &[],
+            };
+            let fields = class_fields(context, name, type_args)
                 .ok_or_else(|| unsupported(&format!("class {name}")))?;
             let (index, field_ty) = fields
                 .iter()
@@ -2411,6 +2446,19 @@ fn is_pointer_value_type(ty: &Ty) -> bool {
     )
 }
 
+fn is_pointer_abi_type(ty: &Ty) -> bool {
+    matches!(
+        ty,
+        Ty::String
+            | Ty::Class(_)
+            | Ty::ClassApp { .. }
+            | Ty::Enum(_)
+            | Ty::EnumApp { .. }
+            | Ty::Interface(_)
+            | Ty::InterfaceApp { .. }
+    )
+}
+
 fn retain_pointer_value(out: &mut String, value: &str, ty: &Ty) -> Result<(), CodegenError> {
     let helper = match ty {
         Ty::String => "aura_llvm_str_retain",
@@ -2517,6 +2565,7 @@ fn llvm_zero(ty: &Ty) -> Result<&'static str, CodegenError> {
         {
             Ok("null")
         }
+        Ty::Interface(_) | Ty::InterfaceApp { .. } => Ok("null"),
         Ty::Enum(_)
         | Ty::EnumApp { .. }
         | Ty::Class(_)
@@ -2568,6 +2617,7 @@ pub(super) fn llvm_type(ty: &Ty) -> Result<&'static str, CodegenError> {
         {
             Ok("ptr")
         }
+        Ty::Interface(_) | Ty::InterfaceApp { .. } => Ok("ptr"),
         Ty::Enum(_)
         | Ty::EnumApp { .. }
         | Ty::Class(_)
@@ -2602,6 +2652,22 @@ fn classes(program: &LoweredProgram) -> HashMap<String, Vec<(String, Ty)>> {
             )
         })
         .collect()
+}
+
+fn class_fields(context: &EmitContext, name: &str, args: &[Ty]) -> Option<Vec<(String, Ty)>> {
+    let fields = context.classes.get(name)?;
+    let params = context.class_type_params.get(name)?;
+    let substitutions = params
+        .iter()
+        .cloned()
+        .zip(args.iter().cloned())
+        .collect::<HashMap<_, _>>();
+    Some(
+        fields
+            .iter()
+            .map(|(field, ty)| (field.clone(), substitute_ty(ty, &substitutions)))
+            .collect(),
+    )
 }
 
 fn class_has_pointer_fields(fields: &Vec<(String, Ty)>) -> bool {
