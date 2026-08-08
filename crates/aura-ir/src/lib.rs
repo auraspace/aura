@@ -1417,12 +1417,20 @@ pub mod lowering {
                     current = join;
                 }
                 Stmt::Var(value) => {
-                    let ty = checked
-                        .and_then(|file| {
-                            file.expr_tys
-                                .get(&(value.init.span().start, value.init.span().end))
+                    let ty = value
+                        .ty
+                        .as_ref()
+                        .and_then(|type_ref| {
+                            checked.and_then(|file| type_ref_to_ty(type_ref, &HashMap::new(), file))
                         })
-                        .cloned()
+                        .or_else(|| value.ty.as_ref().and_then(crate::type_ref_builtin))
+                        .or_else(|| {
+                            checked.and_then(|file| {
+                                file.expr_tys
+                                    .get(&(value.init.span().start, value.init.span().end))
+                                    .cloned()
+                            })
+                        })
                         .ok_or(LowerError::MissingType { span: value.span })?;
                     let id = locals.len();
                     local_ids.insert(value.name.name.clone(), id);
@@ -2290,7 +2298,10 @@ pub mod lowering {
                     let ty = value
                         .ty
                         .as_ref()
-                        .and_then(crate::type_ref_builtin)
+                        .and_then(|type_ref| {
+                            checked.and_then(|file| type_ref_to_ty(type_ref, &HashMap::new(), file))
+                        })
+                        .or_else(|| value.ty.as_ref().and_then(crate::type_ref_builtin))
                         .or_else(|| {
                             checked.and_then(|file| {
                                 file.expr_tys
