@@ -43,6 +43,38 @@ fn emits_calls_with_the_declared_signature() {
 }
 
 #[test]
+fn emits_and_runs_string_operations() {
+    let file = parse_file(include_str!(
+        "../../../../../corpus/expr/string_concat.aura"
+    ))
+    .unwrap();
+    let checked = check_file(&file).unwrap();
+    let program = LoweredProgram::from_checked(checked);
+    assert!(program.mir_is_complete());
+    let out = PathBuf::from(format!("/tmp/aura-llvm-string-{}", std::process::id()));
+    let options = BackendBuildOptions {
+        backend: Backend::Llvm,
+        target: Target::Native,
+        profile: Profile::Debug,
+        optimization: OptimizationLevel::O0,
+        debug: false,
+        lto: Lto::Off,
+        panic: PanicStrategy::Abort,
+        output: OutputKind::Executable,
+        features: Vec::new(),
+    };
+    LlvmBackend::compile(&program, &out, &options).unwrap();
+    let output = std::process::Command::new(&out).output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "ok\nlit\nmix\n");
+    let _ = std::fs::remove_file(&out);
+    let _ = std::fs::remove_file(out.with_file_name(format!(
+        "{}.aura.ll",
+        out.file_name().unwrap().to_string_lossy()
+    )));
+}
+
+#[test]
 fn rejects_async_mir_before_emitting_partial_ir() {
     let file = parse_file("package demo\nasync fun tick(): Int { return 1 }\n").unwrap();
     let checked = check_file(&file).unwrap();

@@ -9,10 +9,155 @@ use crate::error::CodegenError;
 
 type Signatures = HashMap<(String, String), (Ty, Vec<Ty>)>;
 
+const STRING_RUNTIME: &str = r#"
+%AuraLlvmString = type { i64, i64, [0 x i8] }
+declare ptr @malloc(i64)
+declare void @free(ptr)
+declare i64 @strlen(ptr)
+declare ptr @memcpy(ptr, ptr, i64)
+declare i32 @strcmp(ptr, ptr)
+declare i32 @puts(ptr)
+
+define ptr @aura_llvm_str_alloc(i64 %len) {
+entry:
+  %size = add i64 %len, 17
+  %value = call ptr @malloc(i64 %size)
+  %refs = getelementptr %AuraLlvmString, ptr %value, i32 0, i32 0
+  store i64 1, ptr %refs
+  %length = getelementptr %AuraLlvmString, ptr %value, i32 0, i32 1
+  store i64 %len, ptr %length
+  %data = getelementptr %AuraLlvmString, ptr %value, i32 0, i32 2, i64 0
+  %last = add i64 %len, 0
+  %terminator = getelementptr i8, ptr %data, i64 %last
+  store i8 0, ptr %terminator
+  ret ptr %value
+}
+
+define ptr @aura_llvm_str_new(ptr %source) {
+entry:
+  %is_null = icmp eq ptr %source, null
+  br i1 %is_null, label %empty, label %copy
+empty:
+  %empty_value = call ptr @aura_llvm_str_alloc(i64 0)
+  ret ptr %empty_value
+copy:
+  %len = call i64 @strlen(ptr %source)
+  %value = call ptr @aura_llvm_str_alloc(i64 %len)
+  %data = getelementptr %AuraLlvmString, ptr %value, i32 0, i32 2, i64 0
+  %copy_len = add i64 %len, 1
+  %ignored = call ptr @memcpy(ptr %data, ptr %source, i64 %copy_len)
+  ret ptr %value
+}
+
+define void @aura_llvm_str_retain(ptr %value) {
+entry:
+  %is_null = icmp eq ptr %value, null
+  br i1 %is_null, label %done, label %retain
+retain:
+  %refs = getelementptr %AuraLlvmString, ptr %value, i32 0, i32 0
+  %current = load i64, ptr %refs
+  %next = add i64 %current, 1
+  store i64 %next, ptr %refs
+  br label %done
+done:
+  ret void
+}
+
+define void @aura_llvm_str_release(ptr %value) {
+entry:
+  %is_null = icmp eq ptr %value, null
+  br i1 %is_null, label %done, label %release
+release:
+  %refs = getelementptr %AuraLlvmString, ptr %value, i32 0, i32 0
+  %current = load i64, ptr %refs
+  %next = sub i64 %current, 1
+  store i64 %next, ptr %refs
+  %last = icmp eq i64 %next, 0
+  br i1 %last, label %destroy, label %done
+destroy:
+  call void @free(ptr %value)
+  br label %done
+done:
+  ret void
+}
+
+define ptr @aura_llvm_str_data(ptr %value) {
+entry:
+  %is_null = icmp eq ptr %value, null
+  br i1 %is_null, label %empty, label %data
+empty:
+  ret ptr null
+data:
+  %result = getelementptr %AuraLlvmString, ptr %value, i32 0, i32 2, i64 0
+  ret ptr %result
+}
+
+define i64 @aura_llvm_str_len(ptr %value) {
+entry:
+  %data = call ptr @aura_llvm_str_data(ptr %value)
+  %is_null = icmp eq ptr %data, null
+  br i1 %is_null, label %empty, label %measure
+empty:
+  ret i64 0
+measure:
+  %len = call i64 @strlen(ptr %data)
+  ret i64 %len
+}
+
+define ptr @aura_llvm_str_concat(ptr %left, ptr %right) {
+entry:
+  %left_data = call ptr @aura_llvm_str_data(ptr %left)
+  %right_data = call ptr @aura_llvm_str_data(ptr %right)
+  %left_len = call i64 @aura_llvm_str_len(ptr %left)
+  %right_len = call i64 @aura_llvm_str_len(ptr %right)
+  %total = add i64 %left_len, %right_len
+  %value = call ptr @aura_llvm_str_alloc(i64 %total)
+  %data = getelementptr %AuraLlvmString, ptr %value, i32 0, i32 2, i64 0
+  %left_end = getelementptr i8, ptr %data, i64 %left_len
+  %left_copy = call ptr @memcpy(ptr %data, ptr %left_data, i64 %left_len)
+  %right_copy = call ptr @memcpy(ptr %left_end, ptr %right_data, i64 %right_len)
+  ret ptr %value
+}
+
+define i1 @aura_llvm_str_eq(ptr %left, ptr %right) {
+entry:
+  %left_data = call ptr @aura_llvm_str_data(ptr %left)
+  %right_data = call ptr @aura_llvm_str_data(ptr %right)
+  %left_null = icmp eq ptr %left_data, null
+  %right_null = icmp eq ptr %right_data, null
+  %both_null = and i1 %left_null, %right_null
+  br i1 %both_null, label %equal, label %check_one
+check_one:
+  %one_null = xor i1 %left_null, %right_null
+  br i1 %one_null, label %different, label %compare
+compare:
+  %result = call i32 @strcmp(ptr %left_data, ptr %right_data)
+  %same = icmp eq i32 %result, 0
+  br label %result_join
+equal:
+  br label %result_join
+different:
+  br label %result_join
+result_join:
+  %value = phi i1 [ true, %equal ], [ false, %different ], [ %same, %compare ]
+  ret i1 %value
+}
+
+"#;
+
+struct EmitContext {
+    signatures: Signatures,
+    string_literals: Vec<String>,
+}
+
 pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
     validate_program(program)?;
     let mut module = String::from("; ModuleID = 'aura'\nsource_filename = \"aura\"\n\n");
-    let signatures = signatures(program);
+    let mut context = EmitContext {
+        signatures: signatures(program),
+        string_literals: Vec::new(),
+    };
+    module.push_str(STRING_RUNTIME);
     for function in program
         .checked()
         .functions
@@ -22,7 +167,7 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
         let Some(body) = &function.body else {
             continue;
         };
-        emit_function(&mut module, function, body, &signatures)?;
+        emit_function(&mut module, function, body, &mut context)?;
     }
     if let Some(function) = program
         .checked()
@@ -34,6 +179,16 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
         module.push_str(&format!(
             "define i32 @main() {{\nentry:\n  call void @{symbol}()\n  ret i32 0\n}}\n"
         ));
+    }
+    for (index, literal) in context.string_literals.iter().enumerate() {
+        let bytes = literal.as_bytes();
+        writeln!(
+            module,
+            "@.aura_str{index} = private unnamed_addr constant [{} x i8] c\"{}\", align 1",
+            bytes.len() + 1,
+            escape_llvm_bytes(bytes)
+        )
+        .unwrap();
     }
     Ok(module)
 }
@@ -71,7 +226,7 @@ fn emit_function(
     out: &mut String,
     function: &FunctionIr,
     body: &MirBody,
-    signatures: &Signatures,
+    context: &mut EmitContext,
 ) -> Result<(), CodegenError> {
     let ret = llvm_type(&function.ret.ty)?;
     let params = function
@@ -107,7 +262,7 @@ fn emit_function(
     for (index, block) in body.blocks.iter().enumerate() {
         writeln!(out, "bb{index}:").unwrap();
         for statement in &block.statements {
-            emit_statement(out, statement, body, signatures, &function.package)?;
+            emit_statement(out, statement, body, context, &function.package)?;
         }
         emit_terminator(out, &block.terminator, body, ret)?;
     }
@@ -119,7 +274,7 @@ fn emit_statement(
     out: &mut String,
     statement: &Statement,
     body: &MirBody,
-    signatures: &Signatures,
+    context: &mut EmitContext,
     package: &str,
 ) -> Result<(), CodegenError> {
     match statement {
@@ -132,21 +287,28 @@ fn emit_statement(
                 value,
                 body,
                 Some(&body.locals[place.local].ty),
-                signatures,
                 package,
+                context,
             )?;
             let ty = llvm_type(&body.locals[place.local].ty)?;
             writeln!(out, "  store {ty} {value}, ptr %slot{}", place.local).unwrap();
         }
-        Statement::Move { from, to }
-        | Statement::Clone { from, to }
-        | Statement::Retain { from, to } => {
-            copy_place(out, *from, *to, body)?;
+        Statement::Move { from, to } => {
+            copy_place(out, *from, *to, body, false)?;
+        }
+        Statement::Clone { from, to } | Statement::Retain { from, to } => {
+            copy_place(out, *from, *to, body, true)?;
         }
         Statement::Evaluate(value) => {
-            let _ = emit_rvalue(out, value, body, None, signatures, package)?;
+            let _ = emit_rvalue(out, value, body, None, package, context)?;
         }
-        Statement::Drop(_) | Statement::EnterTry { .. } | Statement::LeaveTry => {}
+        Statement::Drop(place) => {
+            if is_string_type(&body.locals[place.local].ty) {
+                let value = load_place(out, *place, body)?;
+                writeln!(out, "  call void @aura_llvm_str_release(ptr {value})").unwrap();
+            }
+        }
+        Statement::EnterTry { .. } | Statement::LeaveTry => {}
         Statement::ExtractVariantField { .. } | Statement::LoadIndex { .. } => {
             return Err(unsupported("aggregate extraction/indexing"));
         }
@@ -159,9 +321,13 @@ fn copy_place(
     from: Place,
     to: Place,
     body: &MirBody,
+    retain: bool,
 ) -> Result<(), CodegenError> {
     let ty = llvm_type(&body.locals[from.local].ty)?;
     let value = load_place(out, from, body)?;
+    if retain && is_string_type(&body.locals[from.local].ty) {
+        writeln!(out, "  call void @aura_llvm_str_retain(ptr {value})").unwrap();
+    }
     writeln!(out, "  store {ty} {value}, ptr %slot{}", to.local).unwrap();
     Ok(())
 }
@@ -213,8 +379,8 @@ fn emit_rvalue(
     value: &Rvalue,
     body: &MirBody,
     result_ty: Option<&Ty>,
-    signatures: &Signatures,
     package: &str,
+    context: &mut EmitContext,
 ) -> Result<String, CodegenError> {
     match value {
         Rvalue::Use(place) => load_place(out, *place, body),
@@ -222,7 +388,30 @@ fn emit_rvalue(
         Rvalue::ConstFloat(value) => Ok(format_float_constant(f64::from_bits(*value))),
         Rvalue::ConstBool(value) => Ok(if *value { "true" } else { "false" }.into()),
         Rvalue::ConstNull => Ok("null".into()),
-        Rvalue::ConstString(_) => Err(unsupported("String constants")),
+        Rvalue::ConstString(value) => {
+            let index = context
+                .string_literals
+                .iter()
+                .position(|literal| literal == value)
+                .unwrap_or_else(|| {
+                    context.string_literals.push(value.clone());
+                    context.string_literals.len() - 1
+                });
+            let length = context.string_literals[index].len() + 1;
+            let address = next_temp(out);
+            writeln!(
+                out,
+                "  {address} = getelementptr [{length} x i8], ptr @.aura_str{index}, i64 0, i64 0"
+            )
+            .unwrap();
+            let value = next_temp(out);
+            writeln!(
+                out,
+                "  {value} = call ptr @aura_llvm_str_new(ptr {address})"
+            )
+            .unwrap();
+            Ok(value)
+        }
         Rvalue::Unary { op, operand } => {
             let value = load_place(out, *operand, body)?;
             let operand_ty = &body.locals[operand.local].ty;
@@ -235,9 +424,33 @@ fn emit_rvalue(
         }
         Rvalue::Binary { op, left, right } => {
             let left_ty = &body.locals[left.local].ty;
-            let operand_ty = llvm_type(left_ty)?;
             let left = load_place(out, *left, body)?;
             let right = load_place(out, *right, body)?;
+            if is_string_type(left_ty) {
+                let temp = next_temp(out);
+                match op {
+                    BinaryOp::Add => writeln!(
+                        out,
+                        "  {temp} = call ptr @aura_llvm_str_concat(ptr {left}, ptr {right})"
+                    )
+                    .unwrap(),
+                    BinaryOp::Eq | BinaryOp::Ne => {
+                        writeln!(
+                            out,
+                            "  {temp} = call i1 @aura_llvm_str_eq(ptr {left}, ptr {right})"
+                        )
+                        .unwrap();
+                        if matches!(op, BinaryOp::Ne) {
+                            let inverted = next_temp(out);
+                            writeln!(out, "  {inverted} = xor i1 {temp}, true").unwrap();
+                            return Ok(inverted);
+                        }
+                    }
+                    _ => return Err(unsupported("String binary operation")),
+                }
+                return Ok(temp);
+            }
+            let operand_ty = llvm_type(left_ty)?;
             let instruction = match (op, left_ty) {
                 (BinaryOp::Add, Ty::Float) => "fadd",
                 (BinaryOp::Sub, Ty::Float) => "fsub",
@@ -292,7 +505,22 @@ fn emit_rvalue(
                 .map(|place| load_place(out, *place, body))
                 .collect::<Result<Vec<_>, _>>()?;
             let name = symbol_name(&target.package, &target.name);
-            let (return_ty, parameter_tys) = signature_for(signatures, package, target)
+            if is_print_call(target) {
+                if args.len() != 1 || !is_string_type(&body.locals[args[0].local].ty) {
+                    return Err(unsupported(&format!("{} argument shape", target.name)));
+                }
+                let data = next_temp(out);
+                writeln!(
+                    out,
+                    "  {data} = call ptr @aura_llvm_str_data(ptr {})",
+                    values[0]
+                )
+                .unwrap();
+                let call = next_temp(out);
+                writeln!(out, "  {call} = call i32 @puts(ptr {data})").unwrap();
+                return Ok(String::new());
+            }
+            let (return_ty, parameter_tys) = signature_for(&context.signatures, package, target)
                 .ok_or_else(|| unsupported(&format!("call target {}", target.name)))?;
             if parameter_tys.len() != values.len() {
                 return Err(unsupported(&format!("call arity for {}", target.name)));
@@ -350,7 +578,8 @@ pub(super) fn llvm_type(ty: &Ty) -> Result<&'static str, CodegenError> {
         Ty::Int => Ok("i64"),
         Ty::Bool => Ok("i1"),
         Ty::Float => Ok("double"),
-        Ty::Null => Ok("ptr"),
+        Ty::String | Ty::Null => Ok("ptr"),
+        Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::String) => Ok("ptr"),
         _ => Err(unsupported(&format!("type {}", ty.display()))),
     }
 }
@@ -393,12 +622,41 @@ fn signature_for<'a>(
         })
 }
 
+fn is_string_type(ty: &Ty) -> bool {
+    match ty {
+        Ty::String => true,
+        Ty::Nullable(inner) => matches!(inner.as_ref(), Ty::String),
+        _ => false,
+    }
+}
+
+fn is_print_call(target: &aura_ir::mir::CallTarget) -> bool {
+    matches!(
+        target.name.as_str(),
+        "print" | "println" | "eprint" | "eprintln"
+    ) && (target.package.is_empty() || target.package.starts_with("std."))
+}
+
 pub(super) fn format_float_constant(value: f64) -> String {
     if value == 0.0 {
         "0.0".into()
     } else {
         format!("{value:.17}")
     }
+}
+
+fn escape_llvm_bytes(bytes: &[u8]) -> String {
+    let mut escaped = String::new();
+    for &byte in bytes {
+        match byte {
+            b'\\' => escaped.push_str("\\5C"),
+            b'"' => escaped.push_str("\\22"),
+            0x20..=0x7e => escaped.push(byte as char),
+            _ => write!(escaped, "\\{byte:02X}").unwrap(),
+        }
+    }
+    escaped.push_str("\\00");
+    escaped
 }
 
 fn symbol_name(package: &str, name: &str) -> String {

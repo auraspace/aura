@@ -865,8 +865,15 @@ pub mod lowering {
                         terminator: Terminator::Unreachable,
                     });
                     blocks[current].terminator = Terminator::Goto { target: head };
+                    let condition = place_or_temp(
+                        &value.cond,
+                        &mut locals,
+                        &mut blocks[head].statements,
+                        &local_ids,
+                        checked,
+                    )?;
                     blocks[head].terminator = Terminator::SwitchInt {
-                        condition: place_for_expr(&value.cond, &local_ids)?,
+                        condition,
                         then_target: body_target,
                         else_target: exit,
                     };
@@ -1212,7 +1219,13 @@ pub mod lowering {
                     current = exit;
                 }
                 Stmt::If(value) => {
-                    let condition = place_for_expr(&value.cond, &local_ids)?;
+                    let condition = place_or_temp(
+                        &value.cond,
+                        &mut locals,
+                        &mut blocks[current].statements,
+                        &local_ids,
+                        checked,
+                    )?;
                     let then_target = blocks.len();
                     blocks.push(BasicBlock {
                         statements: Vec::new(),
@@ -2437,7 +2450,13 @@ pub mod lowering {
                     return Ok(());
                 }
                 Stmt::If(value) => {
-                    let condition = place_for_expr(&value.cond, &branch_bindings)?;
+                    let condition = place_or_temp(
+                        &value.cond,
+                        locals,
+                        &mut blocks[block].statements,
+                        &branch_bindings,
+                        checked,
+                    )?;
                     let then_target = blocks.len();
                     blocks.push(BasicBlock {
                         statements: Vec::new(),
@@ -3013,6 +3032,24 @@ pub mod lowering {
                     span: expr.span(),
                     name: name.to_string(),
                 });
+        }
+        if let Some(ty) = checked.and_then(|file| {
+            file.expr_tys
+                .get(&(expr.span().start, expr.span().end))
+                .cloned()
+        }) {
+            let local = locals.len();
+            locals.push(Local {
+                name: format!("__return_{local}"),
+                ty: ty.clone(),
+                ownership: ownership::mode_for_ty(&ty),
+            });
+            let value = lower_rvalue(expr, locals, statements, bindings, checked)?;
+            statements.push(Statement::Assign {
+                place: Place { local },
+                value,
+            });
+            return Ok(Place { local });
         }
         let ty = match expr {
             Expr::Int(_) => Ty::Int,
