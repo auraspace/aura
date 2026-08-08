@@ -427,6 +427,25 @@ fn runs_nullable_string_unwrap() {
 }
 
 #[test]
+fn runs_tagged_nullable_returns_from_null_and_value_paths() {
+    assert_llvm_source_runs(
+        r#"package demo
+fun maybe(value: Int): Int? {
+    if (value < 0) { return null }
+    return value
+}
+fun main() {
+    assert(maybe(-1) == null)
+    assert(maybe(42)!! == 42)
+    println("nullable-ok")
+}
+"#,
+        "nullable-return-paths",
+        "nullable-ok\n",
+    );
+}
+
+#[test]
 fn runs_unit_enum_switches() {
     let file = parse_file(include_str!("../../../../../corpus/enum/color.aura")).unwrap();
     let checked = check_file(&file).unwrap();

@@ -676,7 +676,17 @@ fn emit_terminator(
                     out.push_str("  unreachable\n");
                     return Ok(());
                 };
-                let loaded = load_place(out, *value, body)?;
+                let loaded = if body.locals[value.local].ty == Ty::Null {
+                    if let Some(zero) = nullable_zero_value(Some(&body.return_ty)) {
+                        zero.to_owned()
+                    } else {
+                        load_place(out, *value, body)?
+                    }
+                } else if body.locals[value.local].ty != body.return_ty {
+                    emit_use_value(out, *value, body, Some(&body.return_ty))?
+                } else {
+                    load_place(out, *value, body)?
+                };
                 writeln!(out, "  ret {ret} {loaded}").unwrap();
             }
         }

@@ -100,6 +100,22 @@ pub(crate) fn method_symbol_for(
                     Some(symbol_name(owner_package, name))
                 })
         })
+        .or_else(|| {
+            // Imported class methods may arrive without a package on the call
+            // target. Match the receiver's nominal class before falling back
+            // to the generic ABI-compatible lookup.
+            signatures
+                .iter()
+                .find_map(|((owner_package, name), (_, params))| {
+                    let method_name = name.rsplit("::").next()?;
+                    if method_name != target.name {
+                        return None;
+                    }
+                    let candidate = params.first()?;
+                    (class_type_name(candidate) == class_type_name(receiver_ty))
+                        .then(|| symbol_name(owner_package, name))
+                })
+        })
 }
 
 pub(crate) fn signature_for_symbol<'a>(
