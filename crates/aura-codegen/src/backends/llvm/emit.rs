@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
+use aura_ast::Span;
 use aura_ir::mir::{BinaryOp, MirBody, Place, Rvalue, Statement, Terminator, UnaryOp};
 use aura_ir::{FunctionIr, LoweredProgram};
 use aura_sema::Ty;
@@ -406,6 +407,54 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
             .collect(),
         string_literals: Vec::new(),
     };
+    let mut extra_functions = async_functions(program);
+    let mut seen_spawns = extra_functions
+        .iter()
+        .map(|function| function.name.clone())
+        .collect::<HashSet<_>>();
+    for function in program
+        .checked()
+        .functions
+        .iter()
+        .chain(program.checked().generic_functions.iter())
+    {
+        if let Some(body) = &function.body {
+            collect_spawn_functions(
+                body,
+                &function.package,
+                &mut extra_functions,
+                &mut seen_spawns,
+            );
+        }
+    }
+    for body in program
+        .checked()
+        .async_mir
+        .iter()
+        .chain(program.checked().open_generic_async_mir.iter())
+        .chain(program.checked().generic_async_mir.iter())
+        .chain(program.checked().generic_async_method_mir.iter())
+    {
+        collect_spawn_functions(
+            body,
+            &program.checked().package,
+            &mut extra_functions,
+            &mut seen_spawns,
+        );
+    }
+    for function in &extra_functions {
+        context.signatures.insert(
+            (function.package.clone(), function.name.clone()),
+            (
+                function.ret.ty.clone(),
+                function
+                    .params
+                    .iter()
+                    .map(|param| param.ty.clone())
+                    .collect(),
+            ),
+        );
+    }
     module.push_str(STRING_RUNTIME);
     module.push_str(ENUM_RUNTIME);
     module.push_str(CLASS_RUNTIME);
@@ -422,6 +471,11 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
             continue;
         };
         emit_function(&mut module, function, body, &mut context)?;
+    }
+    for function in &extra_functions {
+        if let Some(body) = &function.body {
+            emit_function(&mut module, function, body, &mut context)?;
+        }
     }
     if let Some(function) = program
         .checked()
@@ -451,6 +505,78 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
         .unwrap();
     }
     Ok(module)
+}
+
+fn async_functions(program: &LoweredProgram) -> Vec<FunctionIr> {
+    program
+        .checked()
+        .async_mir
+        .iter()
+        .chain(program.checked().open_generic_async_mir.iter())
+        .chain(program.checked().generic_async_mir.iter())
+        .chain(program.checked().generic_async_method_mir.iter())
+        .map(|body| {
+            let parameter_count = program
+                .source()
+                .ast
+                .async_functions
+                .iter()
+                .find(|function| function.name.name == body.name)
+                .map(|function| function.params.len())
+                .unwrap_or_else(|| body.locals.len().min(0));
+            synthetic_function(body, program.checked().package.clone(), parameter_count)
+        })
+        .collect()
+}
+
+fn collect_spawn_functions(
+    body: &MirBody,
+    package: &str,
+    output: &mut Vec<FunctionIr>,
+    seen: &mut HashSet<String>,
+) {
+    for block in &body.blocks {
+        for statement in &block.statements {
+            let value = match statement {
+                Statement::Assign { value, .. } | Statement::Evaluate(value) => value,
+                _ => continue,
+            };
+            let Rvalue::AsyncOp(aura_ir::mir::AsyncOp::Spawn { body, captures }) = value else {
+                continue;
+            };
+            if seen.insert(body.name.clone()) {
+                output.push(synthetic_function(body, package.to_owned(), captures.len()));
+            }
+            collect_spawn_functions(body, package, output, seen);
+        }
+    }
+}
+
+fn synthetic_function(body: &MirBody, package: String, parameter_count: usize) -> FunctionIr {
+    FunctionIr {
+        name: body.name.clone(),
+        package,
+        params: body
+            .locals
+            .iter()
+            .take(parameter_count)
+            .map(|local| aura_ir::ValueFact {
+                ty: local.ty.clone(),
+                ownership: aura_ir::ownership::mode_for_ty(&local.ty),
+                span: Span::new(0, 0),
+            })
+            .collect(),
+        ret: aura_ir::ValueFact {
+            ty: body.return_ty.clone(),
+            ownership: aura_ir::ownership::mode_for_ty(&body.return_ty),
+            span: Span::new(0, 0),
+        },
+        type_params: Vec::new(),
+        bounds: HashMap::new(),
+        effect: body.effect,
+        body: Some(body.clone()),
+        span: Span::new(0, 0),
+    }
 }
 
 fn emit_foreign_declarations(
@@ -483,13 +609,6 @@ fn emit_foreign_declarations(
 
 fn validate_program(program: &LoweredProgram) -> Result<(), CodegenError> {
     let checked = program.checked();
-    if !checked.async_mir.is_empty()
-        || !checked.open_generic_async_mir.is_empty()
-        || !checked.generic_async_mir.is_empty()
-        || !checked.generic_async_method_mir.is_empty()
-    {
-        return Err(unsupported("async MIR"));
-    }
     for function in checked
         .functions
         .iter()
@@ -499,6 +618,16 @@ fn validate_program(program: &LoweredProgram) -> Result<(), CodegenError> {
             body.validate()
                 .map_err(|error| unsupported(&format!("invalid MIR: {error:?}")))?;
         }
+    }
+    for body in checked
+        .async_mir
+        .iter()
+        .chain(checked.open_generic_async_mir.iter())
+        .chain(checked.generic_async_mir.iter())
+        .chain(checked.generic_async_method_mir.iter())
+    {
+        body.validate()
+            .map_err(|error| unsupported(&format!("invalid async MIR: {error:?}")))?;
     }
     Ok(())
 }
@@ -808,10 +937,40 @@ fn emit_terminator(
             }
             out.push_str("  ]\n");
         }
-        Terminator::Await { .. } | Terminator::Throw { .. } | Terminator::Cancel => {
-            return Err(unsupported(
-                "tag switch, async, exception, or cancellation control flow",
-            ));
+        Terminator::Await {
+            task,
+            result,
+            resume,
+            unwind,
+        } => {
+            let task_ty = &body.locals[task.local].ty;
+            let Some(payload_ty) = task_payload_type(task_ty) else {
+                return Err(unsupported("awaiting a non-task value"));
+            };
+            let value = if *payload_ty == Ty::Unit {
+                None
+            } else {
+                Some(load_place(out, *task, body)?)
+            };
+            if let Some(value) = value {
+                if body.locals[result.local].ty != *payload_ty {
+                    return Err(unsupported("await result type"));
+                }
+                writeln!(
+                    out,
+                    "  store {} {value}, ptr %slot{}",
+                    llvm_type(payload_ty)?,
+                    result.local
+                )
+                .unwrap();
+            }
+            writeln!(out, "  br label %bb{resume}").unwrap();
+            if unwind.is_some() {
+                return Err(unsupported("async unwind edges"));
+            }
+        }
+        Terminator::Throw { .. } | Terminator::Cancel => {
+            return Err(unsupported("exception or cancellation control flow"));
         }
     }
     Ok(())
@@ -1275,7 +1434,85 @@ fn emit_rvalue(
                 _ => Err(unsupported("class field type")),
             }
         }
-        Rvalue::Intrinsic(_) | Rvalue::AsyncOp(_) => Err(unsupported("non-scalar MIR operation")),
+        Rvalue::Intrinsic(_) => Err(unsupported("LLVM intrinsic")),
+        Rvalue::AsyncOp(operation) => {
+            emit_async_op(out, operation, body, result_ty, package, context)
+        }
+    }
+}
+
+fn emit_async_op(
+    out: &mut String,
+    operation: &aura_ir::mir::AsyncOp,
+    body: &MirBody,
+    result_ty: Option<&Ty>,
+    package: &str,
+    context: &mut EmitContext,
+) -> Result<String, CodegenError> {
+    use aura_ir::mir::AsyncOp;
+
+    match operation {
+        AsyncOp::Spawn {
+            body: task_body,
+            captures,
+        } => {
+            if captures.len() > task_body.locals.len() {
+                return Err(unsupported("spawn capture arity"));
+            }
+            let values = captures
+                .iter()
+                .map(|capture| load_place(out, capture.source, body))
+                .collect::<Result<Vec<_>, _>>()?;
+            let (_, parameter_tys) = context
+                .signatures
+                .get(&(package.to_owned(), task_body.name.clone()))
+                .ok_or_else(|| unsupported(&format!("spawn body {}", task_body.name)))?;
+            if parameter_tys.len() != values.len() {
+                return Err(unsupported("spawn body parameter arity"));
+            }
+            let arguments = values
+                .iter()
+                .zip(parameter_tys)
+                .map(|(value, ty)| Ok(format!("{} {value}", llvm_type(ty)?)))
+                .collect::<Result<Vec<_>, CodegenError>>()?
+                .join(", ");
+            let payload_ty = &task_body.return_ty;
+            if *payload_ty == Ty::Unit {
+                writeln!(
+                    out,
+                    "  call void @{}({arguments})",
+                    symbol_name(package, &task_body.name)
+                )
+                .unwrap();
+                Ok("null".into())
+            } else {
+                let value = next_temp(out);
+                writeln!(
+                    out,
+                    "  {value} = call {} @{}({arguments})",
+                    llvm_type(payload_ty)?,
+                    symbol_name(package, &task_body.name)
+                )
+                .unwrap();
+                Ok(value)
+            }
+        }
+        AsyncOp::Join(handle) => {
+            let handle_ty = &body.locals[handle.local].ty;
+            if task_payload_type(handle_ty).is_none() {
+                return Err(unsupported("joining a non-task handle"));
+            }
+            if result_ty.is_some_and(|ty| *ty == Ty::Unit) {
+                Ok(String::new())
+            } else {
+                load_place(out, *handle, body)
+            }
+        }
+        AsyncOp::Cancel(_) => Ok(String::new()),
+        AsyncOp::ChannelCreate { .. }
+        | AsyncOp::ChannelSend { .. }
+        | AsyncOp::ChannelReceive(_)
+        | AsyncOp::ChannelClose(_) => Err(unsupported("LLVM channel operation")),
     }
 }
 
@@ -1424,6 +1661,14 @@ fn llvm_zero(ty: &Ty) -> Result<&'static str, CodegenError> {
         | Ty::Class(_)
         | Ty::ClassApp { .. }
         | Ty::ForeignHandle(_) => Ok("null"),
+        Ty::Task(inner) | Ty::TaskHandle(inner) => {
+            if matches!(inner.as_ref(), Ty::Unit) {
+                Ok("null")
+            } else {
+                llvm_zero(inner)
+            }
+        }
+        Ty::Channel(_) => Ok("null"),
         _ => Err(unsupported(&format!("type {}", ty.display()))),
     }
 }
@@ -1448,7 +1693,22 @@ pub(super) fn llvm_type(ty: &Ty) -> Result<&'static str, CodegenError> {
         | Ty::Class(_)
         | Ty::ClassApp { .. }
         | Ty::ForeignHandle(_) => Ok("ptr"),
+        Ty::Task(inner) | Ty::TaskHandle(inner) => {
+            if matches!(inner.as_ref(), Ty::Unit) {
+                Ok("ptr")
+            } else {
+                llvm_type(inner)
+            }
+        }
+        Ty::Channel(_) => Ok("ptr"),
         _ => Err(unsupported(&format!("type {}", ty.display()))),
+    }
+}
+
+fn task_payload_type(ty: &Ty) -> Option<&Ty> {
+    match ty {
+        Ty::Task(payload) | Ty::TaskHandle(payload) => Some(payload),
+        _ => None,
     }
 }
 

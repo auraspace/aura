@@ -97,12 +97,13 @@ fn emits_non_unit_control_flow_with_unreachable_joins() {
 }
 
 #[test]
-fn rejects_async_mir_before_emitting_partial_ir() {
+fn emits_async_mir_as_immediate_tasks() {
     let file = parse_file("package demo\nasync fun tick(): Int { return 1 }\n").unwrap();
     let checked = check_file(&file).unwrap();
     let program = LoweredProgram::from_checked(checked);
-    let error = LlvmBackend::emit_module(&program).unwrap_err().to_string();
-    assert!(error.contains("async MIR"));
+    let module = LlvmBackend::emit_module(&program).unwrap();
+    assert!(module.contains("define i64 @aura_demo_tick"));
+    assert_llvm_compiles(&module, "async-module");
 }
 
 #[test]
