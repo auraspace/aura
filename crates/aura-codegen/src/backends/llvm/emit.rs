@@ -29,6 +29,7 @@ struct EmitContext {
     classes: HashMap<String, Vec<(String, Ty)>>,
     class_superclasses: HashMap<String, String>,
     class_superclass_args: HashMap<String, Vec<aura_ast::Expr>>,
+    class_interfaces: HashMap<String, Vec<String>>,
     class_type_ids: HashMap<String, i64>,
     class_type_params: HashMap<String, Vec<String>>,
     foreign_names: HashSet<String>,
@@ -69,6 +70,22 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
             .filter_map(|class| {
                 (!class.superclass_args.is_empty())
                     .then(|| (class.name.name.clone(), class.superclass_args.clone()))
+            })
+            .collect(),
+        class_interfaces: program
+            .source()
+            .ast
+            .classes
+            .iter()
+            .map(|class| {
+                (
+                    class.name.name.clone(),
+                    class
+                        .implements
+                        .iter()
+                        .map(|interface| interface.name.name.clone())
+                        .collect(),
+                )
             })
             .collect(),
         class_type_ids: class_type_ids(program),
@@ -639,19 +656,40 @@ fn dynamic_method_targets(
     receiver_ty: &Ty,
     target: &aura_ir::mir::CallTarget,
 ) -> Vec<(i64, String)> {
-    let (Ty::Class(base) | Ty::ClassApp { name: base, .. }) = receiver_ty else {
-        return Vec::new();
+    let interface_base = match receiver_ty {
+        Ty::Interface(name) => Some(name.split('@').next().unwrap_or(name)),
+        Ty::InterfaceApp { name, .. } => Some(name.split('@').next().unwrap_or(name)),
+        _ => None,
     };
-    let base = base.split('@').next().unwrap_or(base);
+    let base = match receiver_ty {
+        Ty::Class(name) | Ty::ClassApp { name, .. } => name.split('@').next().unwrap_or(name),
+        Ty::Interface(name) | Ty::InterfaceApp { name, .. } => {
+            name.split('@').next().unwrap_or(name)
+        }
+        _ => return Vec::new(),
+    };
     let receiver_args = match receiver_ty {
-        Ty::ClassApp { args, .. } => args.as_slice(),
+        Ty::ClassApp { args, .. } | Ty::InterfaceApp { args, .. } => args.as_slice(),
         _ => &[],
     };
-    let mut descendants = context
-        .class_superclasses
-        .iter()
-        .filter_map(|(class, parent)| (parent == base).then_some(class.clone()))
-        .collect::<Vec<_>>();
+    let mut descendants = if let Some(interface) = interface_base {
+        context
+            .class_interfaces
+            .iter()
+            .filter_map(|(class, interfaces)| {
+                interfaces
+                    .iter()
+                    .any(|name| name == interface)
+                    .then_some(class.clone())
+            })
+            .collect::<Vec<_>>()
+    } else {
+        context
+            .class_superclasses
+            .iter()
+            .filter_map(|(class, parent)| (parent == base).then_some(class.clone()))
+            .collect::<Vec<_>>()
+    };
     let mut index = 0;
     while index < descendants.len() {
         let parent = descendants[index].clone();

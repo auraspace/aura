@@ -1,3 +1,7 @@
+#if defined(AURA_LLVM_RUNTIME)
+#include "../../llvm_exceptions.h"
+#endif
+
 void aura_assert(bool cond)
 {
   if (!cond)
@@ -47,6 +51,7 @@ void aura_assert_eq_bool(bool a, bool b)
  * These helpers intentionally use the same prefix/layout as the textual LLVM
  * runtime. They are linked in this translation unit so the backend can reuse
  * the platform C library for bounds checks and string parsing. */
+#if defined(AURA_LLVM_RUNTIME)
 
 typedef struct {
   int64_t refs;
@@ -300,6 +305,8 @@ bool aura_llvm_array_is_empty(void *value)
 {
   return value == NULL || ((AuraLlvmArray *)value)->length == 0;
 }
+
+#endif
 
 /* ---- Unchecked exceptions (setjmp / longjmp) ---- */
 

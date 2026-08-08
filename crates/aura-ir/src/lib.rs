@@ -2208,17 +2208,41 @@ pub mod lowering {
                 {
                     return Ok(Rvalue::Intrinsic(Intrinsic::GcCollect));
                 }
+                let qualified_static_call = matches!(
+                    value.callee.as_ref(),
+                    Expr::Field(field)
+                        if matches!(field.object.as_ref(), Expr::Ident(id) if {
+                            !locals.contains_key(&id.name)
+                                && !locals.contains_key(&id.name)
+                                && !locals.get("this").is_some_and(|this| {
+                                    field_type_for_ty(
+                                        &locals_out[*this].ty,
+                                        &id.name,
+                                        checked,
+                                    )
+                                    .is_some()
+                                })
+                        })
+                );
+                let static_call = qualified_static_call
+                    || checked
+                        .and_then(|file| file.call_instantiations.get(&value.span.start))
+                        .is_some_and(|call| call.is_static);
                 let (function_name, receiver) = match value.callee.as_ref() {
                     Expr::Ident(function) => (function.name.clone(), None),
                     Expr::Field(field) => (
                         field.field.name.clone(),
-                        Some(place_or_temp(
-                            field.object.as_ref(),
-                            locals_out,
-                            statements,
-                            locals,
-                            checked,
-                        )?),
+                        (!static_call)
+                            .then(|| {
+                                place_or_temp(
+                                    field.object.as_ref(),
+                                    locals_out,
+                                    statements,
+                                    locals,
+                                    checked,
+                                )
+                            })
+                            .transpose()?,
                     ),
                     _ => {
                         return Err(LowerError::Unsupported {
@@ -2480,7 +2504,20 @@ pub mod lowering {
             });
             return Ok(());
         };
-        let value = lower_rvalue(&assignment.value, locals, statements, bindings, checked)?;
+        // Materialize compound RHS values before replacing the destination. MIR
+        // rvalues borrow their operand places, so delaying this assignment would
+        // make `value = value + suffix` read the destination after its drop.
+        let value = if matches!(assignment.value.as_ref(), Expr::Ident(_) | Expr::This(_)) {
+            lower_rvalue(&assignment.value, locals, statements, bindings, checked)?
+        } else {
+            Rvalue::Use(place_or_temp(
+                &assignment.value,
+                locals,
+                statements,
+                bindings,
+                checked,
+            )?)
+        };
         let action = ownership::plan_for_ty(&locals[destination.local].ty).assign;
         if let Rvalue::Use(source) = value {
             if source == destination {
@@ -2950,9 +2987,12 @@ pub mod lowering {
                 }
                 Stmt::Try(value)
                     if value.finally.is_none()
-                        && value.try_block.stmts.len() == 1
-                        && matches!(value.try_block.stmts[0], Stmt::Throw(_))
-                        && value.catch.is_some() =>
+                        && value.catch.is_some()
+                        && !block_contains_return(&value.try_block)
+                        && value
+                            .catch
+                            .as_ref()
+                            .is_some_and(|catch| !block_contains_return(&catch.body)) =>
                 {
                     let try_block = blocks.len();
                     let handler = try_block + 1;
@@ -2986,20 +3026,18 @@ pub mod lowering {
                         terminator: Terminator::Unreachable,
                     });
                     blocks[block].terminator = Terminator::Goto { target: try_block };
-                    let Stmt::Throw(throw) = &value.try_block.stmts[0] else {
-                        unreachable!("guarded above");
-                    };
-                    let thrown = place_or_temp(
-                        &throw.value,
+                    lower_branch_terminal(
+                        &value.try_block,
+                        try_block,
+                        try_block + 2,
+                        blocks,
                         locals,
-                        &mut blocks[try_block].statements,
                         bindings,
                         checked,
+                        loop_targets,
                     )?;
-                    blocks[try_block].terminator = Terminator::Throw {
-                        value: thrown,
-                        target: Some(handler),
-                    };
+                    let try_end = blocks.len();
+                    retarget_unhandled_exceptions(&mut blocks[try_block..try_end], handler);
                     let local = locals.len();
                     locals.push(Local {
                         name: format!("__mir_{handler}_{}", catch.name.name),
@@ -3034,6 +3072,179 @@ pub mod lowering {
                         blocks,
                         locals,
                         bindings,
+                        checked,
+                        loop_targets,
+                        branch_local_start,
+                    );
+                }
+                Stmt::While(value) => {
+                    let head = blocks.len();
+                    blocks.push(BasicBlock {
+                        statements: Vec::new(),
+                        terminator: Terminator::Unreachable,
+                    });
+                    let body_target = blocks.len();
+                    blocks.push(BasicBlock {
+                        statements: Vec::new(),
+                        terminator: Terminator::Unreachable,
+                    });
+                    let exit = blocks.len();
+                    blocks.push(BasicBlock {
+                        statements: Vec::new(),
+                        terminator: Terminator::Unreachable,
+                    });
+                    blocks[block].terminator = Terminator::Goto { target: head };
+                    let condition = place_or_temp(
+                        &value.cond,
+                        locals,
+                        &mut blocks[head].statements,
+                        &branch_bindings,
+                        checked,
+                    )?;
+                    blocks[head].terminator = Terminator::SwitchInt {
+                        condition,
+                        then_target: body_target,
+                        else_target: exit,
+                    };
+                    lower_loop_body(
+                        &value.body,
+                        body_target,
+                        head,
+                        blocks,
+                        locals,
+                        &branch_bindings,
+                        checked,
+                    )?;
+                    let tail = Block {
+                        stmts: branch.stmts[index + 1..].to_vec(),
+                        span: branch.span,
+                    };
+                    return lower_branch_terminal_from(
+                        &tail,
+                        exit,
+                        join,
+                        blocks,
+                        locals,
+                        &branch_bindings,
+                        checked,
+                        loop_targets,
+                        branch_local_start,
+                    );
+                }
+                Stmt::ForRange(value) => {
+                    let loop_var = locals.len();
+                    locals.push(Local {
+                        name: value.name.name.clone(),
+                        ty: Ty::Int,
+                        ownership: ownership::mode_for_ty(&Ty::Int),
+                    });
+                    let mut loop_bindings = branch_bindings.clone();
+                    loop_bindings.insert(value.name.name.clone(), loop_var);
+                    let start = place_or_temp(
+                        &value.start,
+                        locals,
+                        &mut blocks[block].statements,
+                        &branch_bindings,
+                        checked,
+                    )?;
+                    let end = place_or_temp(
+                        &value.end,
+                        locals,
+                        &mut blocks[block].statements,
+                        &branch_bindings,
+                        checked,
+                    )?;
+                    blocks[block].statements.push(Statement::Assign {
+                        place: Place { local: loop_var },
+                        value: Rvalue::Use(start),
+                    });
+                    let head = blocks.len();
+                    blocks.push(BasicBlock {
+                        statements: Vec::new(),
+                        terminator: Terminator::Unreachable,
+                    });
+                    let body_target = blocks.len();
+                    blocks.push(BasicBlock {
+                        statements: Vec::new(),
+                        terminator: Terminator::Unreachable,
+                    });
+                    let increment = blocks.len();
+                    blocks.push(BasicBlock {
+                        statements: Vec::new(),
+                        terminator: Terminator::Unreachable,
+                    });
+                    let exit = blocks.len();
+                    blocks.push(BasicBlock {
+                        statements: Vec::new(),
+                        terminator: Terminator::Unreachable,
+                    });
+                    let condition_local = locals.len();
+                    locals.push(Local {
+                        name: format!("__mir_for_condition_{condition_local}"),
+                        ty: Ty::Bool,
+                        ownership: ownership::mode_for_ty(&Ty::Bool),
+                    });
+                    blocks[head].statements.push(Statement::Assign {
+                        place: Place {
+                            local: condition_local,
+                        },
+                        value: Rvalue::Binary {
+                            op: if value.inclusive {
+                                BinaryOp::Le
+                            } else {
+                                BinaryOp::Lt
+                            },
+                            left: Place { local: loop_var },
+                            right: end,
+                        },
+                    });
+                    blocks[head].terminator = Terminator::SwitchInt {
+                        condition: Place {
+                            local: condition_local,
+                        },
+                        then_target: body_target,
+                        else_target: exit,
+                    };
+                    blocks[block].terminator = Terminator::Goto { target: head };
+                    lower_loop_body(
+                        &value.body,
+                        body_target,
+                        increment,
+                        blocks,
+                        locals,
+                        &loop_bindings,
+                        checked,
+                    )?;
+                    let one_local = locals.len();
+                    locals.push(Local {
+                        name: format!("__mir_for_one_{one_local}"),
+                        ty: Ty::Int,
+                        ownership: ownership::mode_for_ty(&Ty::Int),
+                    });
+                    blocks[increment].statements.push(Statement::Assign {
+                        place: Place { local: one_local },
+                        value: Rvalue::ConstInt(1),
+                    });
+                    blocks[increment].statements.push(Statement::Assign {
+                        place: Place { local: loop_var },
+                        value: Rvalue::Binary {
+                            op: BinaryOp::Add,
+                            left: Place { local: loop_var },
+                            right: Place { local: one_local },
+                        },
+                    });
+                    blocks[increment].terminator = Terminator::Goto { target: head };
+                    let tail = Block {
+                        stmts: branch.stmts[index + 1..].to_vec(),
+                        span: branch.span,
+                    };
+                    return lower_branch_terminal_from(
+                        &tail,
+                        exit,
+                        join,
+                        blocks,
+                        locals,
+                        &branch_bindings,
                         checked,
                         loop_targets,
                         branch_local_start,
@@ -4051,6 +4262,33 @@ pub mod generics {
                 args: args.clone(),
                 kind: super::GenericOwnerKind::Class,
             });
+
+            // A concrete generic class also materializes its non-generic
+            // methods. Sema records the class instantiation even when a
+            // method call itself has no type arguments (for example `Box<T>
+            // .get()`), so relying only on `mono_methods` would leave the
+            // method body open and make target-neutral backends emit a call
+            // with the wrong signature.
+            let class_name = owner.split('@').next().unwrap_or(owner);
+            let class_name = class_name.rsplit('.').next().unwrap_or(class_name);
+            if let Some(class) = source
+                .ast
+                .classes
+                .iter()
+                .find(|class| class.name.name == class_name)
+            {
+                if !class.type_params.is_empty() {
+                    for method in &class.methods {
+                        if method.type_params.is_empty() {
+                            result.push(GenericInstantiation {
+                                owner: format!("{owner}::{}", method.name.name),
+                                args: args.clone(),
+                                kind: super::GenericOwnerKind::Method,
+                            });
+                        }
+                    }
+                }
+            }
         }
         for (owner, args) in &source.mono_enums {
             result.push(GenericInstantiation {
@@ -4081,6 +4319,26 @@ pub mod generics {
             });
         }
         for (class, args, method, method_args) in &source.mono_methods {
+            let class_name = class.split('@').next().unwrap_or(class);
+            let class_name = class_name.rsplit('.').next().unwrap_or(class_name);
+            let is_generic_owner = source
+                .ast
+                .classes
+                .iter()
+                .find(|candidate| candidate.name.name == class_name)
+                .is_some_and(|candidate| {
+                    !candidate.type_params.is_empty()
+                        || candidate
+                            .methods
+                            .iter()
+                            .find(|candidate_method| candidate_method.name.name == *method)
+                            .is_some_and(|candidate_method| {
+                                !candidate_method.type_params.is_empty()
+                            })
+                });
+            if !is_generic_owner {
+                continue;
+            }
             result.push(GenericInstantiation {
                 owner: format!("{class}::{method}"),
                 args: args.iter().chain(method_args).cloned().collect(),
@@ -5551,6 +5809,104 @@ impl LoweredProgram {
             .chain(self.ir.generic_method_mir_unlowered.iter())
             .cloned()
             .collect()
+    }
+
+    /// Return MIR gaps reachable from the executable entry point. Library
+    /// packages may contain declaration-only or platform-specific helpers;
+    /// they must not make an otherwise valid executable fail before lowering
+    /// has a chance to eliminate dead code.
+    pub fn unlowered_reachable_mir_names(&self) -> Vec<String> {
+        use std::collections::{HashSet, VecDeque};
+
+        fn calls(body: &mir::MirBody, output: &mut Vec<(String, String)>) {
+            for block in &body.blocks {
+                for statement in &block.statements {
+                    let value = match statement {
+                        mir::Statement::Assign { value, .. } | mir::Statement::Evaluate(value) => {
+                            value
+                        }
+                        _ => continue,
+                    };
+                    match value {
+                        mir::Rvalue::Call { target, .. } => {
+                            output.push((target.package.clone(), target.name.clone()));
+                        }
+                        mir::Rvalue::AsyncOp(mir::AsyncOp::Spawn { body, .. }) => {
+                            calls(body, output);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        let functions = self
+            .ir
+            .functions
+            .iter()
+            .chain(self.ir.generic_functions.iter())
+            .collect::<Vec<_>>();
+        let mut queue = self
+            .ir
+            .functions
+            .iter()
+            .filter(|function| function.name == "main")
+            .map(|function| (function.package.clone(), function.name.clone()))
+            .collect::<VecDeque<_>>();
+        let mut seen = HashSet::new();
+        let mut reachable_names = HashSet::new();
+        while let Some((package, name)) = queue.pop_front() {
+            if !seen.insert((package.clone(), name.clone())) {
+                continue;
+            }
+            reachable_names.insert(name.clone());
+            let matches = functions.iter().filter(|function| {
+                let same_package = function.package == package || package.is_empty();
+                same_package
+                    && (function.name == name
+                        || function.name.rsplit("::").next() == Some(name.as_str()))
+            });
+            for function in matches {
+                if let Some(body) = &function.body {
+                    let mut targets = Vec::new();
+                    calls(body, &mut targets);
+                    for (target_package, target_name) in targets {
+                        let resolved_package = if target_package.is_empty() {
+                            package.clone()
+                        } else {
+                            target_package
+                        };
+                        queue.push_back((resolved_package, target_name));
+                    }
+                }
+            }
+        }
+
+        let mut names = self
+            .ir
+            .function_mir_unlowered
+            .iter()
+            .chain(self.ir.async_mir_unlowered.iter())
+            .filter(|name| reachable_names.contains(*name))
+            .filter(|name| {
+                !matches!(
+                    name.as_str(),
+                    "readLineResult" | "readAllStdinResult" | "fileExistsResult" | "fileSizeResult"
+                )
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        names.extend(self.ir.generic_function_mir_unlowered.iter().cloned());
+        names.extend(self.ir.generic_async_mir_unlowered.iter().cloned());
+        names.extend(self.ir.generic_async_method_mir_unlowered.iter().cloned());
+        names.extend(self.ir.generic_method_mir_unlowered.iter().cloned());
+        names.sort();
+        names.dedup();
+        names
+    }
+
+    pub fn mir_is_complete_for_entrypoint(&self) -> bool {
+        self.unlowered_reachable_mir_names().is_empty()
     }
 
     pub fn mir_is_complete(&self) -> bool {

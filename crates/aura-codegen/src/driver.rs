@@ -301,10 +301,10 @@ pub fn build_artifact_from_checked(
             options
                 .validate()
                 .map_err(|error| CodegenError::Configuration(error.to_string()))?;
-            if !program.mir_is_complete() {
+            if !program.mir_is_complete_for_entrypoint() {
                 return Err(CodegenError::Configuration(format!(
                     "LLVM backend requires complete MIR; unsupported functions: {}",
-                    program.unlowered_mir_names().join(", ")
+                    program.unlowered_reachable_mir_names().join(", ")
                 )));
             }
             LlvmBackend.compile_ir(
@@ -328,10 +328,12 @@ impl<B: Backend> Driver<B> {
     pub fn emit(&self, file: &File, opts: EmitOptions) -> Result<String, CodegenError> {
         let checked = check_file(file)?;
         let program = LoweredProgram::from_checked(checked);
-        if self.backend.capabilities().requires_complete_mir && !program.mir_is_complete() {
+        if self.backend.capabilities().requires_complete_mir
+            && !program.mir_is_complete_for_entrypoint()
+        {
             return Err(CodegenError::Configuration(format!(
                 "backend requires complete MIR; unsupported functions: {}",
-                program.unlowered_mir_names().join(", ")
+                program.unlowered_reachable_mir_names().join(", ")
             )));
         }
         Ok(self.backend.emit_ir(&program, opts.into()))
@@ -351,10 +353,12 @@ impl<B: Backend> Driver<B> {
         }
         let checked = check_file(file)?;
         let program = LoweredProgram::from_checked(checked);
-        if self.backend.capabilities().requires_complete_mir && !program.mir_is_complete() {
+        if self.backend.capabilities().requires_complete_mir
+            && !program.mir_is_complete_for_entrypoint()
+        {
             return Err(CodegenError::Configuration(format!(
                 "backend requires complete MIR; unsupported functions: {}",
-                program.unlowered_mir_names().join(", ")
+                program.unlowered_reachable_mir_names().join(", ")
             )));
         }
         if capabilities.requires_c_runtime {

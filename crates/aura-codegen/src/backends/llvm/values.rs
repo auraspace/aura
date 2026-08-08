@@ -607,6 +607,9 @@ pub(super) fn emit_rvalue(
             if let Some(value) = emit_builtin_method(out, target, args, &values, body)? {
                 return Ok(value);
             }
+            if let Some(value) = emit_std_io_intrinsic(out, target, &values, body, result_ty)? {
+                return Ok(value);
+            }
             if let Some(variant) = target
                 .variant
                 .as_deref()
@@ -638,7 +641,7 @@ pub(super) fn emit_rvalue(
                             | Ty::ClassApp { .. }
                             | Ty::Enum(_)
                             | Ty::EnumApp { .. }
-                    )
+                    ) && !matches!(ty, Ty::Nullable(inner) if is_pointer_value_type(inner))
                 }) {
                     return Err(unsupported("non-primitive enum payload"));
                 }
@@ -678,8 +681,16 @@ pub(super) fn emit_rvalue(
                         Ty::String
                         | Ty::Class(_)
                         | Ty::ClassApp { .. }
+                        | Ty::Interface(_)
+                        | Ty::InterfaceApp { .. }
                         | Ty::Enum(_)
                         | Ty::EnumApp { .. } => {
+                            retain_pointer_value(out, argument, ty)?;
+                            let raw = next_temp(out);
+                            writeln!(out, "  {raw} = ptrtoint ptr {argument} to i64").unwrap();
+                            raw
+                        }
+                        Ty::Nullable(inner) if is_pointer_value_type(inner) => {
                             retain_pointer_value(out, argument, ty)?;
                             let raw = next_temp(out);
                             writeln!(out, "  {raw} = ptrtoint ptr {argument} to i64").unwrap();
@@ -797,7 +808,11 @@ pub(super) fn emit_rvalue(
                 let Ty::Channel(element_ty) = &body.locals[args[0].local].ty else {
                     return Err(unsupported("send target outside Channel"));
                 };
-                if !types_compatible(&body.locals[args[1].local].ty, element_ty) {
+                let source_ty = &body.locals[args[1].local].ty;
+                let interface_coercion =
+                    matches!(&**element_ty, Ty::Interface(_) | Ty::InterfaceApp { .. })
+                        && is_class_type(source_ty);
+                if !types_compatible(source_ty, element_ty) && !interface_coercion {
                     return Err(unsupported("channel send value type"));
                 }
                 let value = &values[1];
@@ -867,7 +882,11 @@ pub(super) fn emit_rvalue(
                 let Some(element_ty) = array_element_type(&body.locals[args[0].local].ty) else {
                     return Err(unsupported("push target outside Array"));
                 };
-                if !types_compatible(&body.locals[args[1].local].ty, element_ty) {
+                let source_ty = &body.locals[args[1].local].ty;
+                let interface_coercion =
+                    matches!(element_ty, Ty::Interface(_) | Ty::InterfaceApp { .. })
+                        && is_class_type(source_ty);
+                if !types_compatible(source_ty, element_ty) && !interface_coercion {
                     return Err(unsupported("Array push value type"));
                 }
                 let value = &values[1];
@@ -945,6 +964,14 @@ pub(super) fn emit_rvalue(
                 .ok_or_else(|| unsupported(&format!("call target {}", target.name)))?;
             if parameter_tys.len() != values.len() {
                 return Err(unsupported(&format!("call arity for {}", target.name)));
+            }
+            if !context.foreign_names.contains(&target.name) {
+                for (index, value) in values.iter().enumerate() {
+                    let source_ty = &body.locals[args[index].local].ty;
+                    if is_pointer_value_type(source_ty) {
+                        retain_pointer_value(out, value, source_ty)?;
+                    }
+                }
             }
             let arguments = values
                 .iter()
@@ -1062,7 +1089,7 @@ pub(super) fn emit_rvalue(
             }
             Ok(value)
         }
-        Rvalue::TypeTest { operand, .. } => {
+        Rvalue::TypeTest { operand, ty } => {
             let value = load_place(out, *operand, body)?;
             if matches!(
                 &body.locals[operand.local].ty,
@@ -1077,12 +1104,29 @@ pub(super) fn emit_rvalue(
                 .unwrap();
                 return Ok(present);
             }
-            if !is_string_type(&body.locals[operand.local].ty) {
-                return Err(unsupported("type tests outside nullable heap value"));
+            if is_string_type(&body.locals[operand.local].ty) {
+                let temp = next_temp(out);
+                writeln!(out, "  {temp} = icmp ne ptr {value}, null").unwrap();
+                return Ok(temp);
             }
-            let temp = next_temp(out);
-            writeln!(out, "  {temp} = icmp ne ptr {value}, null").unwrap();
-            Ok(temp)
+            let (Ty::Class(name) | Ty::ClassApp { name, .. }) = ty else {
+                return Err(unsupported("type tests outside nominal heap values"));
+            };
+            let class = name.split('@').next().unwrap_or(name);
+            let type_id = context
+                .class_type_ids
+                .get(class)
+                .copied()
+                .ok_or_else(|| unsupported("type test class"))?;
+            let runtime_type = next_temp(out);
+            writeln!(
+                out,
+                "  {runtime_type} = call i64 @aura_llvm_class_type(ptr {value})"
+            )
+            .unwrap();
+            let result = next_temp(out);
+            writeln!(out, "  {result} = icmp eq i64 {runtime_type}, {type_id}").unwrap();
+            Ok(result)
         }
         Rvalue::Length(place) => {
             let value = load_place(out, *place, body)?;
@@ -1366,6 +1410,207 @@ fn emit_builtin_method(
     Ok(None)
 }
 
+fn emit_std_io_intrinsic(
+    out: &mut String,
+    target: &aura_ir::mir::CallTarget,
+    values: &[String],
+    body: &MirBody,
+    result_ty: Option<&Ty>,
+) -> Result<Option<String>, CodegenError> {
+    if !target.package.starts_with("std.io") {
+        return Ok(None);
+    }
+    let mut string_data = |value: &str| {
+        let data = next_temp(out);
+        writeln!(out, "  {data} = call ptr @aura_llvm_str_data(ptr {value})").unwrap();
+        data
+    };
+    let value = match (target.name.as_str(), values.len()) {
+        ("print", 1) | ("println", 1) | ("eprint", 1) | ("eprintln", 1) => {
+            let data = string_data(&values[0]);
+            let helper = match target.name.as_str() {
+                "print" => "aura_print",
+                "println" => "aura_println",
+                "eprint" => "aura_eprint",
+                _ => "aura_eprintln",
+            };
+            writeln!(out, "  call void @{helper}(ptr {data})").unwrap();
+            String::new()
+        }
+        ("readFile", 1) | ("tryReadFile", 1) => {
+            let path = string_data(&values[0]);
+            let raw = next_temp(out);
+            let helper = if target.name == "readFile" {
+                "aura_read_file"
+            } else {
+                "aura_try_read_file"
+            };
+            writeln!(out, "  {raw} = call ptr @{helper}(ptr {path})").unwrap();
+            let result = next_temp(out);
+            let constructor = if target.name == "readFile" {
+                "aura_llvm_str_new"
+            } else {
+                "aura_llvm_str_new_nullable"
+            };
+            writeln!(out, "  {result} = call ptr @{constructor}(ptr {raw})").unwrap();
+            writeln!(out, "  call void @free(ptr {raw})").unwrap();
+            result
+        }
+        ("writeFile", 2) | ("appendFile", 2) | ("tryWriteFile", 2) => {
+            let path = string_data(&values[0]);
+            let content = string_data(&values[1]);
+            let result = next_temp(out);
+            match target.name.as_str() {
+                "writeFile" => {
+                    writeln!(
+                        out,
+                        "  call void @aura_write_file(ptr {path}, ptr {content})"
+                    )
+                    .unwrap();
+                    return Ok(Some(String::new()));
+                }
+                "appendFile" => {
+                    writeln!(
+                        out,
+                        "  call void @aura_append_file(ptr {path}, ptr {content})"
+                    )
+                    .unwrap();
+                    return Ok(Some(String::new()));
+                }
+                _ => writeln!(
+                    out,
+                    "  {result} = call i1 @aura_try_write_file(ptr {path}, ptr {content})"
+                )
+                .unwrap(),
+            }
+            result
+        }
+        ("fileExists", 1) => {
+            let path = string_data(&values[0]);
+            let result = next_temp(out);
+            writeln!(out, "  {result} = call i1 @aura_file_exists(ptr {path})").unwrap();
+            result
+        }
+        ("fileSize", 1) => {
+            let path = string_data(&values[0]);
+            let result = next_temp(out);
+            writeln!(out, "  {result} = call i64 @aura_file_size(ptr {path})").unwrap();
+            result
+        }
+        ("readLine", 0) | ("readAllStdin", 0) => {
+            let raw = next_temp(out);
+            let helper = if target.name == "readLine" {
+                "aura_read_line"
+            } else {
+                "aura_read_all_stdin"
+            };
+            writeln!(out, "  {raw} = call ptr @{helper}()").unwrap();
+            let result = next_temp(out);
+            let constructor = if target.name == "readLine" {
+                "aura_llvm_str_new_nullable"
+            } else {
+                "aura_llvm_str_new"
+            };
+            writeln!(out, "  {result} = call ptr @{constructor}(ptr {raw})").unwrap();
+            writeln!(out, "  call void @free(ptr {raw})").unwrap();
+            result
+        }
+        ("args", 0) => {
+            let result = next_temp(out);
+            writeln!(out, "  {result} = call ptr @aura_llvm_args()").unwrap();
+            result
+        }
+        ("exit", 1) => {
+            writeln!(out, "  call void @aura_exit(i64 {})", values[0]).unwrap();
+            String::new()
+        }
+        ("readLineResult", 0) => {
+            let raw = next_temp(out);
+            writeln!(out, "  {raw} = call ptr @aura_read_line()").unwrap();
+            let value = next_temp(out);
+            writeln!(
+                out,
+                "  {value} = call ptr @aura_llvm_str_new_nullable(ptr {raw})"
+            )
+            .unwrap();
+            writeln!(out, "  call void @free(ptr {raw})").unwrap();
+            return Ok(Some(emit_result_variant(out, result_ty, &value, 0, true)?));
+        }
+        ("readAllStdinResult", 0) => {
+            let raw = next_temp(out);
+            writeln!(out, "  {raw} = call ptr @aura_read_all_stdin()").unwrap();
+            let value = next_temp(out);
+            writeln!(out, "  {value} = call ptr @aura_llvm_str_new(ptr {raw})").unwrap();
+            writeln!(out, "  call void @free(ptr {raw})").unwrap();
+            return Ok(Some(emit_result_variant(out, result_ty, &value, 0, true)?));
+        }
+        ("fileExistsResult", 1) => {
+            let path = string_data(&values[0]);
+            let value = next_temp(out);
+            writeln!(out, "  {value} = call i1 @aura_file_exists(ptr {path})").unwrap();
+            return Ok(Some(emit_result_variant(out, result_ty, &value, 0, false)?));
+        }
+        ("fileSizeResult", 1) => {
+            let path = string_data(&values[0]);
+            let value = next_temp(out);
+            writeln!(out, "  {value} = call i64 @aura_file_size(ptr {path})").unwrap();
+            return Ok(Some(emit_result_variant(out, result_ty, &value, 0, false)?));
+        }
+        _ => return Ok(None),
+    };
+    let _ = body;
+    Ok(Some(value))
+}
+
+fn emit_result_variant(
+    out: &mut String,
+    result_ty: Option<&Ty>,
+    value: &str,
+    tag: i64,
+    pointer_payload: bool,
+) -> Result<String, CodegenError> {
+    let Ty::EnumApp { args, .. } = result_ty.ok_or_else(|| unsupported("Result intrinsic type"))?
+    else {
+        return Err(unsupported("Result intrinsic type"));
+    };
+    let payload_ty = args
+        .first()
+        .ok_or_else(|| unsupported("Result intrinsic payload type"))?;
+    let result = next_temp(out);
+    writeln!(out, "  {result} = call ptr @aura_llvm_enum_alloc(i64 1)").unwrap();
+    let tag_address = next_temp(out);
+    writeln!(
+        out,
+        "  {tag_address} = getelementptr %AuraLlvmEnum, ptr {result}, i32 0, i32 1"
+    )
+    .unwrap();
+    writeln!(out, "  store i64 {tag}, ptr {tag_address}").unwrap();
+    let field_address = next_temp(out);
+    writeln!(
+        out,
+        "  {field_address} = getelementptr %AuraLlvmEnum, ptr {result}, i32 0, i32 2, i64 0"
+    )
+    .unwrap();
+    let raw = if pointer_payload {
+        retain_pointer_value(out, value, payload_ty)?;
+        let raw = next_temp(out);
+        writeln!(out, "  {raw} = ptrtoint ptr {value} to i64").unwrap();
+        raw
+    } else {
+        match payload_ty {
+            Ty::Bool => {
+                let raw = next_temp(out);
+                writeln!(out, "  {raw} = zext i1 {value} to i64").unwrap();
+                raw
+            }
+            Ty::Int => value.to_owned(),
+            _ => return Err(unsupported("Result intrinsic payload type")),
+        }
+    };
+    writeln!(out, "  store i64 {raw}, ptr {field_address}").unwrap();
+    Ok(result)
+}
+
 fn emit_superclass_arg(
     out: &mut String,
     expr: &aura_ast::Expr,
@@ -1425,7 +1670,14 @@ fn raw_class_field_value(
             writeln!(out, "  {raw} = bitcast double {argument} to i64").unwrap();
             Ok(raw)
         }
-        Ty::String | Ty::Class(_) | Ty::ClassApp { .. } | Ty::Enum(_) | Ty::EnumApp { .. } => {
+        Ty::String
+        | Ty::Class(_)
+        | Ty::ClassApp { .. }
+        | Ty::Interface(_)
+        | Ty::InterfaceApp { .. }
+        | Ty::Enum(_)
+        | Ty::EnumApp { .. }
+        | Ty::ForeignHandle(_) => {
             retain_pointer_value(out, argument, ty)?;
             let raw = next_temp(out);
             writeln!(out, "  {raw} = ptrtoint ptr {argument} to i64").unwrap();
@@ -1668,7 +1920,14 @@ pub(super) fn array_raw_value(
             writeln!(out, "  {raw} = bitcast double {value} to i64").unwrap();
             Ok(raw)
         }
-        Ty::String | Ty::Class(_) | Ty::ClassApp { .. } | Ty::Enum(_) | Ty::EnumApp { .. } => {
+        Ty::String
+        | Ty::Class(_)
+        | Ty::ClassApp { .. }
+        | Ty::Interface(_)
+        | Ty::InterfaceApp { .. }
+        | Ty::Enum(_)
+        | Ty::EnumApp { .. }
+        | Ty::ForeignHandle(_) => {
             let raw = next_temp(out);
             writeln!(out, "  {raw} = ptrtoint ptr {value} to i64").unwrap();
             Ok(raw)
@@ -1678,9 +1937,19 @@ pub(super) fn array_raw_value(
 }
 
 pub(super) fn is_pointer_value_type(ty: &Ty) -> bool {
+    if let Ty::Nullable(inner) = ty {
+        return is_pointer_value_type(inner);
+    }
     matches!(
         ty,
-        Ty::String | Ty::Class(_) | Ty::ClassApp { .. } | Ty::Enum(_) | Ty::EnumApp { .. }
+        Ty::String
+            | Ty::Class(_)
+            | Ty::ClassApp { .. }
+            | Ty::Interface(_)
+            | Ty::InterfaceApp { .. }
+            | Ty::Enum(_)
+            | Ty::EnumApp { .. }
+            | Ty::ForeignHandle(_)
     )
 }
 
@@ -1702,9 +1971,16 @@ pub(super) fn retain_pointer_value(
     value: &str,
     ty: &Ty,
 ) -> Result<(), CodegenError> {
+    if let Ty::Nullable(inner) = ty {
+        return retain_pointer_value(out, value, inner);
+    }
     let helper = match ty {
         Ty::String => "aura_llvm_str_retain",
-        Ty::Class(_) | Ty::ClassApp { .. } => "aura_llvm_class_retain",
+        Ty::Class(_)
+        | Ty::ClassApp { .. }
+        | Ty::Interface(_)
+        | Ty::InterfaceApp { .. }
+        | Ty::ForeignHandle(_) => "aura_llvm_class_retain",
         Ty::Enum(_) | Ty::EnumApp { .. } => "aura_llvm_enum_retain",
         _ => return Err(unsupported("non-pointer value")),
     };
@@ -1713,9 +1989,16 @@ pub(super) fn retain_pointer_value(
 }
 
 pub(super) fn release_raw_value(out: &mut String, raw: &str, ty: &Ty) -> Result<(), CodegenError> {
+    if let Ty::Nullable(inner) = ty {
+        return release_raw_value(out, raw, inner);
+    }
     let helper = match ty {
         Ty::String => "aura_llvm_str_release",
-        Ty::Class(_) | Ty::ClassApp { .. } => "aura_llvm_class_release",
+        Ty::Class(_)
+        | Ty::ClassApp { .. }
+        | Ty::Interface(_)
+        | Ty::InterfaceApp { .. }
+        | Ty::ForeignHandle(_) => "aura_llvm_class_release",
         Ty::Enum(_) | Ty::EnumApp { .. } => "aura_llvm_enum_release",
         _ => return Err(unsupported("non-pointer value")),
     };
@@ -1742,7 +2025,14 @@ pub(super) fn array_value_from_raw(
             writeln!(out, "  {value} = bitcast i64 {raw} to double").unwrap();
             Ok(value)
         }
-        Ty::String | Ty::Class(_) | Ty::ClassApp { .. } | Ty::Enum(_) | Ty::EnumApp { .. } => {
+        Ty::String
+        | Ty::Class(_)
+        | Ty::ClassApp { .. }
+        | Ty::Interface(_)
+        | Ty::InterfaceApp { .. }
+        | Ty::Enum(_)
+        | Ty::EnumApp { .. }
+        | Ty::ForeignHandle(_) => {
             let value = next_temp(out);
             writeln!(out, "  {value} = inttoptr i64 {raw} to ptr").unwrap();
             Ok(value)

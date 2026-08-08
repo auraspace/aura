@@ -925,10 +925,10 @@ fn cmd_emit_llvm(args: &[String]) -> ExitCode {
             .check_with_plugins()
             .map_err(|e| diag_sema_errors(&pkg, e))?;
         let program = aura_codegen::LoweredProgram::from_checked(checked);
-        if !program.mir_is_complete() {
+        if !program.mir_is_complete_for_entrypoint() {
             return Err(format!(
                 "LLVM backend requires complete MIR; unsupported functions: {}",
-                program.unlowered_mir_names().join(", ")
+                program.unlowered_reachable_mir_names().join(", ")
             ));
         }
         aura_codegen::LlvmBackend::emit_module(&program).map_err(|e| e.to_string())

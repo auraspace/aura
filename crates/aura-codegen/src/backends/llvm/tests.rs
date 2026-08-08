@@ -622,6 +622,24 @@ fn runs_overridden_method_through_base_reference() {
 }
 
 #[test]
+fn runs_interface_dispatch_through_an_array() {
+    assert_llvm_source_runs(
+        include_str!("../../../../../corpus/iface/dispatch_array.aura"),
+        "interface-array-dispatch",
+        "dispatch\n",
+    );
+}
+
+#[test]
+fn runs_generic_class_methods_with_owned_array_fields() {
+    assert_llvm_source_runs(
+        include_str!("../../../../../corpus/generic/array_field_return.aura"),
+        "generic-array-field",
+        "kept\nb2\nok\nh2k\nd99\nh3k\nf7\nalive\n",
+    );
+}
+
+#[test]
 fn runs_string_and_array_builtin_methods() {
     assert_llvm_source_runs(
         r#"package demo

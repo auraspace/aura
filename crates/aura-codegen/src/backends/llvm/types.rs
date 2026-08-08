@@ -163,6 +163,24 @@ pub(crate) fn types_compatible(left: &Ty, right: &Ty) -> bool {
                     .zip(right_args)
                     .all(|(left, right)| types_compatible(left, right))
         }
+        (Ty::Interface(left), Ty::Interface(right)) => nominal_tail(left) == nominal_tail(right),
+        (
+            Ty::InterfaceApp {
+                name: left,
+                args: left_args,
+            },
+            Ty::InterfaceApp {
+                name: right,
+                args: right_args,
+            },
+        ) => {
+            nominal_tail(left) == nominal_tail(right)
+                && left_args.len() == right_args.len()
+                && left_args
+                    .iter()
+                    .zip(right_args)
+                    .all(|(left, right)| types_compatible(left, right))
+        }
         _ => left == right,
     }
 }
@@ -235,7 +253,7 @@ pub(crate) fn array_element_type(ty: &Ty) -> Option<&Ty> {
 pub(crate) fn array_kind(ty: &Ty) -> Result<i64, CodegenError> {
     match ty {
         Ty::String => Ok(1),
-        Ty::Class(_) | Ty::ClassApp { .. } => Ok(2),
+        Ty::Class(_) | Ty::ClassApp { .. } | Ty::Interface(_) | Ty::InterfaceApp { .. } => Ok(2),
         Ty::Enum(_) | Ty::EnumApp { .. } => Ok(3),
         Ty::Int | Ty::Bool | Ty::Float => Ok(0),
         _ => Err(super::unsupported("Array element type")),

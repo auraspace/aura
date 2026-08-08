@@ -54,6 +54,13 @@ pub(super) fn emit_statement(
                     .unwrap_or_else(|| "aura_llvm_class_release".into());
                 writeln!(out, "  call void @{helper}(ptr {value})").unwrap();
                 writeln!(out, "  store ptr null, ptr %slot{}", place.local).unwrap();
+            } else if matches!(
+                &body.locals[place.local].ty,
+                Ty::Interface(_) | Ty::InterfaceApp { .. }
+            ) {
+                let value = load_place(out, *place, body)?;
+                writeln!(out, "  call void @aura_llvm_class_release(ptr {value})").unwrap();
+                writeln!(out, "  store ptr null, ptr %slot{}", place.local).unwrap();
             } else if is_array_type(&body.locals[place.local].ty) {
                 let value = load_place(out, *place, body)?;
                 writeln!(out, "  call void @aura_llvm_array_release(ptr {value})").unwrap();
@@ -131,7 +138,7 @@ pub(super) fn emit_statement(
                 .enumerate()
                 .find(|(_, (name, _))| name == field)
                 .ok_or_else(|| unsupported(&format!("enum field {variant}.{field}")))?;
-            if !matches!(
+            if (!matches!(
                 field_ty,
                 Ty::Int
                     | Ty::Bool
@@ -141,7 +148,8 @@ pub(super) fn emit_statement(
                     | Ty::ClassApp { .. }
                     | Ty::Enum(_)
                     | Ty::EnumApp { .. }
-            ) || !types_compatible(&body.locals[to.local].ty, field_ty)
+            ) && !matches!(field_ty, Ty::Nullable(inner) if is_pointer_value_type(inner)))
+                || !types_compatible(&body.locals[to.local].ty, field_ty)
             {
                 return Err(unsupported("non-primitive enum payload"));
             }
@@ -175,6 +183,12 @@ pub(super) fn emit_statement(
                     retain_pointer_value(out, &value, field_ty)?;
                     value
                 }
+                Ty::Nullable(inner) if is_pointer_value_type(inner) => {
+                    let value = next_temp(out);
+                    writeln!(out, "  {value} = inttoptr i64 {raw} to ptr").unwrap();
+                    retain_pointer_value(out, &value, field_ty)?;
+                    value
+                }
                 _ => unreachable!("validated enum payload"),
             };
             let ty = llvm_type(field_ty)?;
@@ -191,7 +205,7 @@ pub(super) fn emit_statement(
                 let value = load_string_byte(out, *collection, *index, body)?;
                 writeln!(out, "  store i64 {value}, ptr %slot{}", to.local).unwrap();
             } else if let Some(element_ty) = array_element_type(collection_ty) {
-                if body.locals[to.local].ty != *element_ty {
+                if !types_compatible(&body.locals[to.local].ty, element_ty) {
                     return Err(unsupported("Array index result type"));
                 }
                 let value = load_array_element(out, *collection, *index, element_ty, body)?;
@@ -269,7 +283,13 @@ pub(super) fn copy_place(
         writeln!(out, "  call void @aura_llvm_str_retain(ptr {value})").unwrap();
     } else if retain && is_enum_type(&body.locals[from.local].ty) {
         writeln!(out, "  call void @aura_llvm_enum_retain(ptr {value})").unwrap();
-    } else if retain && is_class_type(&body.locals[from.local].ty) {
+    } else if retain
+        && (is_class_type(&body.locals[from.local].ty)
+            || matches!(
+                &body.locals[from.local].ty,
+                Ty::Interface(_) | Ty::InterfaceApp { .. }
+            ))
+    {
         writeln!(out, "  call void @aura_llvm_class_retain(ptr {value})").unwrap();
     } else if retain && is_array_type(&body.locals[from.local].ty) {
         writeln!(out, "  call void @aura_llvm_array_retain(ptr {value})").unwrap();

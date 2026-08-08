@@ -28,6 +28,22 @@ declare void @aura_llvm_array_clear(ptr)
 declare void @aura_llvm_array_reserve(ptr, i64)
 declare i1 @aura_llvm_array_is_empty(ptr)
 declare i32 @puts(ptr)
+declare void @aura_print(ptr)
+declare void @aura_println(ptr)
+declare void @aura_eprint(ptr)
+declare void @aura_eprintln(ptr)
+declare ptr @aura_read_file(ptr)
+declare ptr @aura_try_read_file(ptr)
+declare void @aura_write_file(ptr, ptr)
+declare i1 @aura_try_write_file(ptr, ptr)
+declare void @aura_append_file(ptr, ptr)
+declare i1 @aura_file_exists(ptr)
+declare i64 @aura_file_size(ptr)
+declare ptr @aura_read_line()
+declare ptr @aura_read_all_stdin()
+declare i64 @aura_args_count()
+declare ptr @aura_args_get(i64)
+declare void @aura_exit(i64)
 declare i32 @snprintf(ptr, i64, ptr, ...)
 declare void @abort()
 declare i32 @_setjmp(ptr)
@@ -84,6 +100,17 @@ copy:
   %data = getelementptr %AuraLlvmString, ptr %value, i32 0, i32 2, i64 0
   %copy_len = add i64 %len, 1
   %ignored = call ptr @memcpy(ptr %data, ptr %source, i64 %copy_len)
+  ret ptr %value
+}
+
+define ptr @aura_llvm_str_new_nullable(ptr %source) {
+entry:
+  %is_null = icmp eq ptr %source, null
+  br i1 %is_null, label %null, label %copy
+null:
+  ret ptr null
+copy:
+  %value = call ptr @aura_llvm_str_new(ptr %source)
   ret ptr %value
 }
 
@@ -613,6 +640,27 @@ entry:
 "#;
 
 pub(crate) const MISC_RUNTIME: &str = r#"
+define ptr @aura_llvm_args() {
+entry:
+  %count = call i64 @aura_args_count()
+  %array = call ptr @aura_llvm_array_alloc(i64 %count, i64 1)
+  br label %loop
+loop:
+  %index = phi i64 [0, %entry], [%next, %body]
+  %done = icmp uge i64 %index, %count
+  br i1 %done, label %finish, label %body
+body:
+  %raw = call ptr @aura_args_get(i64 %index)
+  %value = call ptr @aura_llvm_str_new(ptr %raw)
+  %encoded = ptrtoint ptr %value to i64
+  call void @aura_llvm_array_set(ptr %array, i64 %index, i64 %encoded)
+  call void @aura_llvm_str_release(ptr %value)
+  %next = add i64 %index, 1
+  br label %loop
+finish:
+  ret ptr %array
+}
+
 define void @aura_llvm_assert(i1 %condition) {
 entry:
   br i1 %condition, label %done, label %failed
