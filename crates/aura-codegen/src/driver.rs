@@ -897,20 +897,17 @@ mod tests {
     }
 
     #[test]
-    fn strict_backend_rejects_partial_mir_before_emission() {
+    fn strict_backend_accepts_lowered_async_mir_before_emission() {
         let source =
             parse_file("package demo\nasync fun work(): Int { while (true) { break } return 1 }\n")
                 .expect("parse");
         let driver = Driver::new(FailingBackend {
             compile_calls: Rc::new(Cell::new(0)),
         });
-        let error = driver
+        let output = driver
             .emit(&source, EmitOptions::default())
-            .expect_err("strict backend must reject compatibility lowering");
-        assert!(matches!(
-            error,
-            CodegenError::Configuration(message) if message.contains("requires complete MIR")
-        ));
+            .expect("lowered async MIR should reach the strict backend");
+        assert!(output.is_empty());
     }
 
     #[test]
