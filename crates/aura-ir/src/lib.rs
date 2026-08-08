@@ -73,6 +73,11 @@ pub mod mir {
             to: Place,
             action: ownership::Action,
         },
+        StoreField {
+            object: Place,
+            field: String,
+            value: Place,
+        },
         Drop(Place),
         EnterTry {
             handler: usize,
@@ -268,6 +273,10 @@ pub mod mir {
                         Statement::ExtractVariantField { operand, to, .. } => {
                             self.check_place(block, *operand)?;
                             self.check_place(block, *to)?;
+                        }
+                        Statement::StoreField { object, value, .. } => {
+                            self.check_place(block, *object)?;
+                            self.check_place(block, *value)?;
                         }
                         Statement::LoadIndex {
                             collection,
@@ -1606,7 +1615,25 @@ pub mod lowering {
             Expr::Bool(value) => Ok(Rvalue::ConstBool(value.value)),
             Expr::String(value) => Ok(Rvalue::ConstString(value.value.clone())),
             Expr::Null(_) => Ok(Rvalue::ConstNull),
-            Expr::Ident(_) | Expr::This(_) => Ok(Rvalue::Use(place_for_expr(expr, locals)?)),
+            Expr::Ident(value) => match place_for_expr(expr, locals) {
+                Ok(place) => Ok(Rvalue::Use(place)),
+                Err(_) => {
+                    let object = place_for_expr(&Expr::This(value.span), locals)?;
+                    let object_ty = locals_out[object.local].ty.clone();
+                    if field_type_for_ty(&object_ty, &value.name, checked).is_some() {
+                        Ok(Rvalue::Field {
+                            object,
+                            field: value.name.clone(),
+                        })
+                    } else {
+                        Err(LowerError::UnknownLocal {
+                            span: value.span,
+                            name: value.name.clone(),
+                        })
+                    }
+                }
+            },
+            Expr::This(_) => Ok(Rvalue::Use(place_for_expr(expr, locals)?)),
             Expr::Group(value, _) => lower_rvalue(value, locals_out, statements, locals, checked),
             Expr::ForceUnwrap(value) => Ok(Rvalue::Unwrap {
                 operand: place_or_temp(&value.expr, locals_out, statements, locals, checked)?,
@@ -2067,14 +2094,34 @@ pub mod lowering {
         locals: &mut Vec<Local>,
         checked: Option<&CheckedFile>,
     ) -> Result<(), LowerError> {
-        let destination = bindings
+        let Some(destination) = bindings
             .get(&assignment.name.name)
             .copied()
             .map(|local| Place { local })
-            .ok_or_else(|| LowerError::UnknownLocal {
-                span: assignment.name.span,
-                name: assignment.name.name.clone(),
-            })?;
+        else {
+            let object = bindings
+                .get("this")
+                .copied()
+                .map(|local| Place { local })
+                .ok_or_else(|| LowerError::UnknownLocal {
+                    span: assignment.name.span,
+                    name: assignment.name.name.clone(),
+                })?;
+            let object_ty = locals[object.local].ty.clone();
+            if field_type_for_ty(&object_ty, &assignment.name.name, checked).is_none() {
+                return Err(LowerError::UnknownLocal {
+                    span: assignment.name.span,
+                    name: assignment.name.name.clone(),
+                });
+            }
+            let value = place_or_temp(&assignment.value, locals, statements, bindings, checked)?;
+            statements.push(Statement::StoreField {
+                object,
+                field: assignment.name.name.clone(),
+                value,
+            });
+            return Ok(());
+        };
         let value = lower_rvalue(&assignment.value, locals, statements, bindings, checked)?;
         let action = ownership::plan_for_ty(&locals[destination.local].ty).assign;
         if let Rvalue::Use(source) = value {
@@ -2131,6 +2178,9 @@ pub mod lowering {
         returned: Option<Place>,
     ) {
         for (local, value) in locals.iter().enumerate().skip(first_local).rev() {
+            if value.name == "this" {
+                continue;
+            }
             if returned.is_some_and(|place| place.local == local) {
                 continue;
             }
@@ -2155,6 +2205,9 @@ pub mod lowering {
             let Some(value) = locals.get(local) else {
                 continue;
             };
+            if value.name == "this" {
+                continue;
+            }
             if ownership::plan_for_ty(&value.ty).scope_exit == ownership::Action::Drop {
                 statements.push(Statement::Drop(Place { local }));
             }
@@ -3008,6 +3061,23 @@ pub mod lowering {
             })
     }
 
+    fn field_type_for_ty(ty: &Ty, field: &str, checked: Option<&CheckedFile>) -> Option<Ty> {
+        let checked = checked?;
+        let class_name = match ty {
+            Ty::Class(name) => name,
+            Ty::ClassApp { name, .. } => name,
+            _ => return None,
+        };
+        let simple_name = class_name.split('@').next().unwrap_or(class_name);
+        let class = checked
+            .ast
+            .classes
+            .iter()
+            .find(|class| class.name.name == simple_name)?;
+        let declaration = class.fields.iter().find(|value| value.name.name == field)?;
+        type_ref_to_ty(&declaration.ty, &HashMap::new(), checked)
+    }
+
     fn place_or_temp(
         expr: &Expr,
         locals: &mut Vec<Local>,
@@ -3024,14 +3094,45 @@ pub mod lowering {
                 Expr::This(_) => "this",
                 _ => unreachable!("guarded above"),
             };
-            return bindings
-                .get(name)
-                .copied()
-                .map(|local| Place { local })
-                .ok_or_else(|| LowerError::UnknownLocal {
+            if let Some(local) = bindings.get(name).copied() {
+                return Ok(Place { local });
+            }
+            let Expr::Ident(identifier) = expr else {
+                return Err(LowerError::UnknownLocal {
                     span: expr.span(),
                     name: name.to_string(),
                 });
+            };
+            let object = bindings
+                .get("this")
+                .copied()
+                .ok_or_else(|| LowerError::UnknownLocal {
+                    span: identifier.span,
+                    name: identifier.name.clone(),
+                })?;
+            let object_ty = locals[object].ty.clone();
+            let field_ty =
+                field_type_for_ty(&object_ty, &identifier.name, checked).ok_or_else(|| {
+                    LowerError::UnknownLocal {
+                        span: identifier.span,
+                        name: identifier.name.clone(),
+                    }
+                })?;
+            let local = locals.len();
+            let ownership = ownership::mode_for_ty(&field_ty);
+            locals.push(Local {
+                name: format!("__field_{local}"),
+                ty: field_ty,
+                ownership,
+            });
+            statements.push(Statement::Assign {
+                place: Place { local },
+                value: Rvalue::Field {
+                    object: Place { local: object },
+                    field: identifier.name.clone(),
+                },
+            });
+            return Ok(Place { local });
         }
         if let Some(ty) = checked.and_then(|file| {
             file.expr_tys
@@ -4139,7 +4240,7 @@ impl LoweredProgram {
                 Effect::Pure
             }
         };
-        let functions: Vec<FunctionIr> = source
+        let mut functions: Vec<FunctionIr> = source
             .functions
             .iter()
             .map(|fun| {
@@ -4191,6 +4292,83 @@ impl LoweredProgram {
                 }
             })
             .collect();
+        for class in &source.ast.classes {
+            let package = if class.origin_package.is_empty() {
+                source.package.clone()
+            } else {
+                class.origin_package.clone()
+            };
+            let receiver_ty = Ty::Class(class.name.name.clone());
+            for method in &class.methods {
+                if !method.type_params.is_empty()
+                    || method
+                        .return_type
+                        .as_ref()
+                        .is_some_and(|ty| ty.name.name == "Task")
+                {
+                    continue;
+                }
+                let substitutions = HashMap::new();
+                let mut params = vec![("this".into(), receiver_ty.clone())];
+                let Some(method_params) = method
+                    .params
+                    .iter()
+                    .map(|param| {
+                        lowering::type_ref_to_ty(&param.ty, &substitutions, &source)
+                            .map(|ty| (param.name.name.clone(), ty))
+                    })
+                    .collect::<Option<Vec<_>>>()
+                else {
+                    continue;
+                };
+                params.extend(method_params);
+                let ret = method
+                    .return_type
+                    .as_ref()
+                    .and_then(|ty| lowering::type_ref_to_ty(ty, &substitutions, &source))
+                    .unwrap_or(Ty::Unit);
+                let name = format!("{}::{}", class.name.name, method.name.name);
+                let body = lowering::lower_body(
+                    &name,
+                    &method.body,
+                    &params,
+                    ret.clone(),
+                    Some(&source),
+                    if block_throws(&method.body) {
+                        Effect::Throws
+                    } else {
+                        Effect::Pure
+                    },
+                )
+                .ok();
+                functions.push(FunctionIr {
+                    name,
+                    package: package.clone(),
+                    params: params
+                        .iter()
+                        .map(|(_, ty)| ValueFact {
+                            ty: ty.clone(),
+                            ownership: ownership_of(ty),
+                            span: method.name.span,
+                        })
+                        .collect(),
+                    ret: ValueFact {
+                        ty: ret.clone(),
+                        ownership: ownership_of(&ret),
+                        span: method.name.span,
+                    },
+                    type_params: Vec::new(),
+                    bounds: HashMap::new(),
+                    effect: if block_throws(&method.body) {
+                        Effect::Throws
+                    } else {
+                        Effect::Pure
+                    },
+                    body,
+                    span: method.span,
+                });
+            }
+        }
         let function_mir_unlowered = functions
             .iter()
             .filter(|function| function.body.is_none())

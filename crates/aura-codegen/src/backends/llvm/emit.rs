@@ -402,6 +402,7 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
     module.push_str(ENUM_RUNTIME);
     module.push_str(CLASS_RUNTIME);
     module.push_str(ARRAY_RUNTIME);
+    emit_class_destructors(&mut module, &context.classes);
     for function in program
         .checked()
         .functions
@@ -563,7 +564,16 @@ fn emit_statement(
                 writeln!(out, "  store ptr null, ptr %slot{}", place.local).unwrap();
             } else if is_class_type(&body.locals[place.local].ty) {
                 let value = load_place(out, *place, body)?;
-                writeln!(out, "  call void @aura_llvm_class_release(ptr {value})").unwrap();
+                let helper = class_type_name(&body.locals[place.local].ty)
+                    .filter(|name| {
+                        context
+                            .classes
+                            .get(*name)
+                            .is_some_and(class_has_pointer_fields)
+                    })
+                    .map(class_release_symbol)
+                    .unwrap_or_else(|| "aura_llvm_class_release".into());
+                writeln!(out, "  call void @{helper}(ptr {value})").unwrap();
                 writeln!(out, "  store ptr null, ptr %slot{}", place.local).unwrap();
             } else if is_array_type(&body.locals[place.local].ty) {
                 let value = load_place(out, *place, body)?;
@@ -640,6 +650,55 @@ fn emit_statement(
             } else {
                 return Err(unsupported("indexing non-String/Array values"));
             }
+        }
+        Statement::StoreField {
+            object,
+            field,
+            value,
+        } => {
+            let object_ty = &body.locals[object.local].ty;
+            let class_name = class_type_name(object_ty)
+                .ok_or_else(|| unsupported("field stores outside classes"))?;
+            let fields = context
+                .classes
+                .get(class_name)
+                .ok_or_else(|| unsupported(&format!("class {class_name}")))?;
+            let (index, field_ty) = fields
+                .iter()
+                .enumerate()
+                .find(|(_, (name, _))| name == field)
+                .map(|(index, (_, ty))| (index, ty))
+                .ok_or_else(|| unsupported(&format!("class field {class_name}.{field}")))?;
+            if !matches!(
+                field_ty,
+                Ty::Int
+                    | Ty::Bool
+                    | Ty::Float
+                    | Ty::String
+                    | Ty::Class(_)
+                    | Ty::ClassApp { .. }
+                    | Ty::Enum(_)
+                    | Ty::EnumApp { .. }
+            ) || body.locals[value.local].ty != *field_ty
+            {
+                return Err(unsupported("non-primitive class field store"));
+            }
+            let object = load_place(out, *object, body)?;
+            let value = load_place(out, *value, body)?;
+            let raw = array_raw_value(out, &value, field_ty)?;
+            let address = next_temp(out);
+            writeln!(
+                out,
+                "  {address} = getelementptr %AuraLlvmClass, ptr {object}, i32 0, i32 1, i64 {index}"
+            )
+            .unwrap();
+            if is_pointer_value_type(field_ty) {
+                let old = next_temp(out);
+                writeln!(out, "  {old} = load i64, ptr {address}").unwrap();
+                release_raw_value(out, &old, field_ty)?;
+                retain_pointer_value(out, &value, field_ty)?;
+            }
+            writeln!(out, "  store i64 {raw}, ptr {address}").unwrap();
         }
     }
     Ok(())
@@ -882,7 +941,6 @@ fn emit_rvalue(
                 .iter()
                 .map(|place| load_place(out, *place, body))
                 .collect::<Result<Vec<_>, _>>()?;
-            let name = symbol_name(&target.package, &target.name);
             if let Some(variant) = &target.variant {
                 let info = context
                     .enum_variants
@@ -964,11 +1022,21 @@ fn emit_rvalue(
                     .get(&target.name)
                     .ok_or_else(|| unsupported(&format!("class {}", target.name)))?;
                 if fields.len() != args.len()
-                    || fields
-                        .iter()
-                        .any(|(_, ty)| !matches!(ty, Ty::Int | Ty::Bool | Ty::Float))
+                    || fields.iter().any(|(_, ty)| {
+                        !matches!(
+                            ty,
+                            Ty::Int
+                                | Ty::Bool
+                                | Ty::Float
+                                | Ty::String
+                                | Ty::Class(_)
+                                | Ty::ClassApp { .. }
+                                | Ty::Enum(_)
+                                | Ty::EnumApp { .. }
+                        )
+                    })
                 {
-                    return Err(unsupported("non-primitive class fields"));
+                    return Err(unsupported("class field type"));
                 }
                 let value = next_temp(out);
                 writeln!(
@@ -996,7 +1064,17 @@ fn emit_rvalue(
                             writeln!(out, "  {raw} = bitcast double {argument} to i64").unwrap();
                             raw
                         }
-                        _ => unreachable!("validated primitive fields"),
+                        Ty::String
+                        | Ty::Class(_)
+                        | Ty::ClassApp { .. }
+                        | Ty::Enum(_)
+                        | Ty::EnumApp { .. } => {
+                            retain_pointer_value(out, argument, ty)?;
+                            let raw = next_temp(out);
+                            writeln!(out, "  {raw} = ptrtoint ptr {argument} to i64").unwrap();
+                            raw
+                        }
+                        _ => unreachable!("validated class field type"),
                     };
                     writeln!(out, "  store i64 {raw}, ptr {address}").unwrap();
                 }
@@ -1015,6 +1093,8 @@ fn emit_rvalue(
                 .unwrap();
                 return Ok(String::new());
             }
+            let method_name = method_symbol_for(&context.signatures, target, args, body, package);
+            let name = method_name.unwrap_or_else(|| symbol_name(&target.package, &target.name));
             if is_print_call(target) {
                 if args.len() != 1 || !is_string_type(&body.locals[args[0].local].ty) {
                     return Err(unsupported(&format!("{} argument shape", target.name)));
@@ -1108,9 +1188,8 @@ fn emit_rvalue(
         }
         Rvalue::Field { object, field } => {
             let object_ty = &body.locals[object.local].ty;
-            let Ty::Class(name) = object_ty else {
-                return Err(unsupported("fields outside classes"));
-            };
+            let name =
+                class_type_name(object_ty).ok_or_else(|| unsupported("fields outside classes"))?;
             let fields = context
                 .classes
                 .get(name)
@@ -1142,7 +1221,17 @@ fn emit_rvalue(
                     writeln!(out, "  {value} = bitcast i64 {raw} to double").unwrap();
                     Ok(value)
                 }
-                _ => Err(unsupported("non-primitive class field")),
+                Ty::String
+                | Ty::Class(_)
+                | Ty::ClassApp { .. }
+                | Ty::Enum(_)
+                | Ty::EnumApp { .. } => {
+                    let value = next_temp(out);
+                    writeln!(out, "  {value} = inttoptr i64 {raw} to ptr").unwrap();
+                    retain_pointer_value(out, &value, field_ty)?;
+                    Ok(value)
+                }
+                _ => Err(unsupported("class field type")),
             }
         }
         Rvalue::Intrinsic(_) | Rvalue::AsyncOp(_) => Err(unsupported("non-scalar MIR operation")),
@@ -1226,6 +1315,37 @@ fn array_raw_value(out: &mut String, value: &str, ty: &Ty) -> Result<String, Cod
         }
         _ => Err(unsupported("Array element type")),
     }
+}
+
+fn is_pointer_value_type(ty: &Ty) -> bool {
+    matches!(
+        ty,
+        Ty::String | Ty::Class(_) | Ty::ClassApp { .. } | Ty::Enum(_) | Ty::EnumApp { .. }
+    )
+}
+
+fn retain_pointer_value(out: &mut String, value: &str, ty: &Ty) -> Result<(), CodegenError> {
+    let helper = match ty {
+        Ty::String => "aura_llvm_str_retain",
+        Ty::Class(_) | Ty::ClassApp { .. } => "aura_llvm_class_retain",
+        Ty::Enum(_) | Ty::EnumApp { .. } => "aura_llvm_enum_retain",
+        _ => return Err(unsupported("non-pointer value")),
+    };
+    writeln!(out, "  call void @{helper}(ptr {value})").unwrap();
+    Ok(())
+}
+
+fn release_raw_value(out: &mut String, raw: &str, ty: &Ty) -> Result<(), CodegenError> {
+    let helper = match ty {
+        Ty::String => "aura_llvm_str_release",
+        Ty::Class(_) | Ty::ClassApp { .. } => "aura_llvm_class_release",
+        Ty::Enum(_) | Ty::EnumApp { .. } => "aura_llvm_enum_release",
+        _ => return Err(unsupported("non-pointer value")),
+    };
+    let pointer = next_temp(out);
+    writeln!(out, "  {pointer} = inttoptr i64 {raw} to ptr").unwrap();
+    writeln!(out, "  call void @{helper}(ptr {pointer})").unwrap();
+    Ok(())
 }
 
 fn array_value_from_raw(out: &mut String, raw: String, ty: &Ty) -> Result<String, CodegenError> {
@@ -1319,6 +1439,56 @@ fn signature_for<'a>(
                 .find(|((_, name), _)| name == &target.name)
                 .map(|(_, signature)| signature)
         })
+        .or_else(|| {
+            signatures
+                .iter()
+                .find(|((_, name), _)| name.rsplit("::").next() == Some(target.name.as_str()))
+                .map(|(_, signature)| signature)
+        })
+}
+
+fn method_symbol_for(
+    signatures: &Signatures,
+    target: &aura_ir::mir::CallTarget,
+    args: &[Place],
+    body: &MirBody,
+    package: &str,
+) -> Option<String> {
+    let receiver_ty = args
+        .first()
+        .and_then(|place| body.locals.get(place.local))
+        .map(|local| &local.ty)?;
+    signatures
+        .iter()
+        .find_map(|((owner_package, name), (_, params))| {
+            let method_name = name.rsplit("::").next()?;
+            if method_name != target.name
+                || (owner_package != package && owner_package != &target.package)
+                || !params
+                    .first()
+                    .is_some_and(|candidate| compatible_receiver(candidate, receiver_ty))
+            {
+                return None;
+            }
+            Some(symbol_name(owner_package, name))
+        })
+}
+
+fn compatible_receiver(left: &Ty, right: &Ty) -> bool {
+    match (left, right) {
+        (Ty::Class(left), Ty::Class(right)) => left.split('@').next() == right.split('@').next(),
+        (
+            Ty::ClassApp {
+                name: left,
+                args: left_args,
+            },
+            Ty::ClassApp {
+                name: right,
+                args: right_args,
+            },
+        ) => left.split('@').next() == right.split('@').next() && left_args == right_args,
+        _ => left == right,
+    }
 }
 
 fn is_string_type(ty: &Ty) -> bool {
@@ -1335,6 +1505,16 @@ fn is_enum_type(ty: &Ty) -> bool {
 
 fn is_class_type(ty: &Ty) -> bool {
     matches!(ty, Ty::Class(_)) || matches!(ty, Ty::ClassApp { name, .. } if name != "Array")
+}
+
+fn class_type_name(ty: &Ty) -> Option<&str> {
+    match ty {
+        Ty::Class(name) => Some(name.split('@').next().unwrap_or(name)),
+        Ty::ClassApp { name, .. } if name != "Array" => {
+            Some(name.split('@').next().unwrap_or(name))
+        }
+        _ => None,
+    }
 }
 
 fn is_array_type(ty: &Ty) -> bool {
@@ -1396,6 +1576,70 @@ fn classes(program: &LoweredProgram) -> HashMap<String, Vec<(String, Ty)>> {
         .collect()
 }
 
+fn class_has_pointer_fields(fields: &Vec<(String, Ty)>) -> bool {
+    fields.iter().any(|(_, ty)| is_pointer_value_type(ty))
+}
+
+fn class_release_symbol(name: &str) -> String {
+    format!(
+        "aura_llvm_class_release_{}",
+        name.chars()
+            .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+            .collect::<String>()
+    )
+}
+
+fn emit_class_destructors(out: &mut String, classes: &HashMap<String, Vec<(String, Ty)>>) {
+    for (name, fields) in classes {
+        if !class_has_pointer_fields(fields) {
+            continue;
+        }
+        let symbol = class_release_symbol(name);
+        writeln!(out, "define void @{symbol}(ptr %value) {{").unwrap();
+        out.push_str("entry:\n");
+        out.push_str("  %is_null = icmp eq ptr %value, null\n");
+        out.push_str("  br i1 %is_null, label %done, label %release\n");
+        out.push_str("release:\n");
+        out.push_str("  %refs = getelementptr %AuraLlvmClass, ptr %value, i32 0, i32 0\n");
+        out.push_str("  %current = load i64, ptr %refs\n");
+        out.push_str("  %next = sub i64 %current, 1\n");
+        out.push_str("  store i64 %next, ptr %refs\n");
+        out.push_str("  %last = icmp eq i64 %next, 0\n");
+        out.push_str("  br i1 %last, label %destroy, label %done\n");
+        out.push_str("destroy:\n");
+        for (index, (_, ty)) in fields.iter().enumerate() {
+            if !is_pointer_value_type(ty) {
+                continue;
+            }
+            writeln!(
+                out,
+                "  %field_address{index} = getelementptr %AuraLlvmClass, ptr %value, i32 0, i32 1, i64 {index}"
+            )
+            .unwrap();
+            writeln!(
+                out,
+                "  %field_raw{index} = load i64, ptr %field_address{index}"
+            )
+            .unwrap();
+            let helper = match ty {
+                Ty::String => "aura_llvm_str_release",
+                Ty::Class(_) | Ty::ClassApp { .. } => "aura_llvm_class_release",
+                Ty::Enum(_) | Ty::EnumApp { .. } => "aura_llvm_enum_release",
+                _ => unreachable!("pointer field type checked above"),
+            };
+            writeln!(
+                out,
+                "  %field_ptr{index} = inttoptr i64 %field_raw{index} to ptr"
+            )
+            .unwrap();
+            writeln!(out, "  call void @{helper}(ptr %field_ptr{index})").unwrap();
+        }
+        out.push_str("  call void @free(ptr %value)\n");
+        out.push_str("  br label %done\n");
+        out.push_str("done:\n  ret void\n}\n\n");
+    }
+}
+
 fn is_print_call(target: &aura_ir::mir::CallTarget) -> bool {
     matches!(
         target.name.as_str(),
@@ -1426,10 +1670,14 @@ fn escape_llvm_bytes(bytes: &[u8]) -> String {
 }
 
 fn symbol_name(package: &str, name: &str) -> String {
-    let package = package
-        .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
-        .collect::<String>();
+    let sanitize = |value: &str| {
+        value
+            .chars()
+            .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+            .collect::<String>()
+    };
+    let package = sanitize(package);
+    let name = sanitize(name);
     format!("aura_{}_{}", package, name)
 }
 
