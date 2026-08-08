@@ -121,6 +121,40 @@ expect_output 'aura run' 'Hello, Aura' run corpus/generic/id.aura
 expect_output 'forwarded CLI args' 'args ok' run corpus/std_io/args -- hello
 expect_output 'aura test' 'Passed: 3 tests' test corpus/test/smoke.aura
 
+printf '%s\n' '== Executable corpus matrix =='
+expect_output 'array push and iteration' 'array push ok' run corpus/generic/array_push.aura
+expect_output 'struct copy semantics' 'copy' run corpus/struct/point.aura
+expect_output 'enum match' 'green' run corpus/enum/color.aura
+expect_output 'exclusive range loop' 'for-range ok' run corpus/control/for_range.aura
+expect_output 'inclusive range loop' 'for-inclusive ok' run corpus/control/for_inclusive.aura
+expect_output 'break and continue' 'while-hit' run corpus/control/break_continue.aura
+expect_output 'string split' 'ok' run corpus/expr/string_split.aura
+expect_output 'string trimming' 'ok' run corpus/expr/string_trim.aura
+expect_output 'string integer parsing' 'ov-' run corpus/expr/string_toint.aura
+expect_output 'string interpolation' 'mid' run corpus/expr/string_interp.aura
+expect_output 'string concatenation' 'mix' run corpus/expr/string_concat.aura
+expect_output 'class greeting' 'Hello, Aura' run corpus/class/greeter.aura
+expect_output 'class identity' 'distinct' run corpus/class/identity.aura
+expect_output 'nullable safe call' 'null' run corpus/class/safe_call.aura
+expect_output 'primitive optional values' 'xnone' run corpus/types/opt_prim.aura
+expect_output 'null coalescing' 'hi' run corpus/types/coalesce.aura
+expect_success 'higher-order lambda execution' run corpus/fun/lambda_hof.aura
+expect_success 'captured lambda execution' run corpus/fun/lambda_capture.aura
+expect_success 'captured class lambda execution' run corpus/fun/lambda_capture_class.aura
+expect_success 'captured array lambda execution' run corpus/fun/lambda_capture_array.aura
+expect_success 'mutable capture lambda execution' run corpus/fun/lambda_capture_var.aura
+expect_output 'async no-await execution' 'async' run corpus/async/no_await.aura
+expect_output 'async task lifecycle' 'resumed' run corpus/async/task_lifecycle.aura
+expect_output 'async multi-await execution' 'four-await-ok' run corpus/async/multi_await_four.aura
+expect_output 'async mutable capture execution' $'2\n2' run corpus/async/mutable_spawn_capture.aura
+expect_output 'std.test assertions' 'tests-ok' run corpus/std_test/assertions
+expect_output 'std.json validation' 'invalid' run corpus/std_json/basic
+
+expect_output 'generic collection live-entry returns' 'generic-int-entry-iteration-ok' run corpus/std_collections/hashmap_int
+expect_output 'generic string-map live-entry returns' 'generic-string-entry-iteration-ok' run corpus/std_collections/hashmap_str
+expect_output 'generic hashset generic returns' 'generic-set-hof-ok' run corpus/std_collections/hashset_int
+expect_output 'generic collection join' 'ok' run corpus/std_collections/join
+
 build_dir="$(mktemp -d "${TMPDIR:-/tmp}/aura-regression.XXXXXX")"
 trap 'rm -rf "$build_dir"' EXIT
 expect_success 'aura build' build corpus/hello/main.aura -o "$build_dir/hello"

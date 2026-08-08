@@ -1169,7 +1169,16 @@ pub(crate) fn type_ref_local_key_expand(
             return key;
         }
     }
-    type_ref_local_key(ty, params, args)
+    // Preserve substitutions through nested generic return types. Nullable
+    // reference-like values share their inner C representation, so only
+    // primitive optionals retain the `Opt_` key. Keep the local-key path here
+    // because it preserves the established unqualified generic ABI names.
+    let key = type_ref_local_key(ty, params, args);
+    if ty.nullable && !matches!(key.as_str(), "Opt_Int" | "Opt_Float" | "Opt_Bool") {
+        key.strip_prefix("Opt_").unwrap_or(&key).to_string()
+    } else {
+        key
+    }
 }
 
 pub(crate) fn param_local_key_expand(
