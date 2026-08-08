@@ -3,7 +3,99 @@ use std::collections::HashMap;
 use aura_ir::{mir::MirBody, LoweredProgram};
 use aura_sema::Ty;
 
-use super::{symbol_name, CodegenError, EnumVariantInfo, Signatures};
+use super::{symbol_name, unsupported, CodegenError, EnumVariantInfo, Signatures};
+
+pub(super) fn llvm_zero(ty: &Ty) -> Result<&'static str, CodegenError> {
+    match ty {
+        Ty::Unit => Err(unsupported("unit local")),
+        Ty::Bool => Ok("false"),
+        Ty::Float => Ok("0.0"),
+        Ty::Int => Ok("0"),
+        Ty::String | Ty::Null => Ok("null"),
+        Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::String) => Ok("null"),
+        Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Int) => Ok("{ i1 false, i64 0 }"),
+        Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Bool) => Ok("{ i1 false, i1 false }"),
+        Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Float) => {
+            Ok("{ i1 false, double 0.0 }")
+        }
+        Ty::Nullable(inner)
+            if matches!(
+                inner.as_ref(),
+                Ty::Class(_)
+                    | Ty::ClassApp { .. }
+                    | Ty::Enum(_)
+                    | Ty::EnumApp { .. }
+                    | Ty::Interface(_)
+                    | Ty::InterfaceApp { .. }
+                    | Ty::Fun { .. }
+                    | Ty::Channel(_)
+                    | Ty::ForeignHandle(_)
+            ) =>
+        {
+            Ok("null")
+        }
+        Ty::Interface(_) | Ty::InterfaceApp { .. } | Ty::Fun { .. } => Ok("null"),
+        Ty::Enum(_)
+        | Ty::EnumApp { .. }
+        | Ty::Class(_)
+        | Ty::ClassApp { .. }
+        | Ty::ForeignHandle(_) => Ok("null"),
+        Ty::Task(inner) | Ty::TaskHandle(inner) => {
+            if matches!(inner.as_ref(), Ty::Unit) {
+                Ok("null")
+            } else {
+                llvm_zero(inner)
+            }
+        }
+        Ty::Channel(_) => Ok("null"),
+        _ => Err(unsupported(&format!("type {}", ty.display()))),
+    }
+}
+
+pub(crate) fn llvm_type(ty: &Ty) -> Result<&'static str, CodegenError> {
+    match ty {
+        Ty::Unit => Ok("void"),
+        Ty::Int => Ok("i64"),
+        Ty::Bool => Ok("i1"),
+        Ty::Float => Ok("double"),
+        Ty::String | Ty::Null => Ok("ptr"),
+        Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::String) => Ok("ptr"),
+        Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Int) => Ok("%AuraLlvmOptInt"),
+        Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Bool) => Ok("%AuraLlvmOptBool"),
+        Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Float) => Ok("%AuraLlvmOptFloat"),
+        Ty::Nullable(inner)
+            if matches!(
+                inner.as_ref(),
+                Ty::Class(_)
+                    | Ty::ClassApp { .. }
+                    | Ty::Enum(_)
+                    | Ty::EnumApp { .. }
+                    | Ty::Interface(_)
+                    | Ty::InterfaceApp { .. }
+                    | Ty::Fun { .. }
+                    | Ty::Channel(_)
+                    | Ty::ForeignHandle(_)
+            ) =>
+        {
+            Ok("ptr")
+        }
+        Ty::Interface(_) | Ty::InterfaceApp { .. } | Ty::Fun { .. } => Ok("ptr"),
+        Ty::Enum(_)
+        | Ty::EnumApp { .. }
+        | Ty::Class(_)
+        | Ty::ClassApp { .. }
+        | Ty::ForeignHandle(_) => Ok("ptr"),
+        Ty::Task(inner) | Ty::TaskHandle(inner) => {
+            if matches!(inner.as_ref(), Ty::Unit) {
+                Ok("ptr")
+            } else {
+                llvm_type(inner)
+            }
+        }
+        Ty::Channel(_) => Ok("ptr"),
+        _ => Err(unsupported(&format!("type {}", ty.display()))),
+    }
+}
 
 pub(crate) fn task_payload_type(ty: &Ty) -> Option<&Ty> {
     match ty {

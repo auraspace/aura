@@ -18,8 +18,9 @@ mod types;
 mod values;
 use runtime::*;
 use statements::emit_statement;
+pub(super) use types::llvm_type;
 use types::*;
-pub(super) use values::*;
+use values::*;
 
 type Signatures = HashMap<(String, String), (Ty, Vec<Ty>)>;
 
