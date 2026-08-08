@@ -5295,33 +5295,17 @@ impl LoweredProgram {
                     .iter()
                     .find(|function| function.name.name == instance.owner)?;
                 let closed = generic_lowering::close_function(decl, &instance.args, &source);
-                let empty_substitutions = HashMap::new();
                 let params = closed
                     .params
                     .iter()
-                    .map(|param| {
-                        lowering::type_ref_to_ty(&param.ty, &empty_substitutions, &source)
-                            .map(|ty| (param.name.name.clone(), ty))
-                    })
+                    .map(|param| Some((param.name.name.clone(), type_ref_builtin(&param.ty)?)))
                     .collect::<Option<Vec<_>>>()?;
                 let ret = closed
                     .return_type
                     .as_ref()
-                    .map(|ty| lowering::type_ref_to_ty(ty, &empty_substitutions, &source))
+                    .map(type_ref_builtin)
                     .unwrap_or(Some(Ty::Unit))?;
                 let ret_ownership = ownership_of(&ret);
-                let substitutions = decl
-                    .type_params
-                    .iter()
-                    .map(|param| param.name.name.clone())
-                    .zip(instance.args.iter().cloned())
-                    .collect::<HashMap<_, _>>();
-                let mut specialized_source = source.clone();
-                specialized_source.expr_tys = source
-                    .expr_tys
-                    .iter()
-                    .map(|(span, ty)| (*span, subst_ty(ty, &substitutions)))
-                    .collect();
                 let body = lowering::lower_body(
                     &format!(
                         "{}_{}",
@@ -5336,7 +5320,7 @@ impl LoweredProgram {
                     &closed.body,
                     &params,
                     ret.clone(),
-                    Some(&specialized_source),
+                    Some(&source),
                     Effect::Pure,
                 )
                 .ok();
