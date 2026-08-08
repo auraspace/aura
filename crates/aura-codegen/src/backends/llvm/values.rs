@@ -219,6 +219,7 @@ pub(super) fn emit_rvalue(
             .unwrap();
             Ok(value)
         }
+        Rvalue::Function { name } => Ok(format!("@{}", symbol_name(package, name))),
         Rvalue::Unary { op, operand } => {
             let value = load_place(out, *operand, body)?;
             let operand_ty = &body.locals[operand.local].ty;
@@ -451,6 +452,39 @@ pub(super) fn emit_rvalue(
             )
             .unwrap();
             Ok(temp)
+        }
+        Rvalue::CallIndirect { callee, args } => {
+            let Ty::Fun { params, ret } = &body.locals[callee.local].ty else {
+                return Err(unsupported("indirect call through non-function value"));
+            };
+            if params.len() != args.len() {
+                return Err(unsupported("indirect call arity"));
+            }
+            let callee = load_place(out, *callee, body)?;
+            let values = args
+                .iter()
+                .map(|place| load_place(out, *place, body))
+                .collect::<Result<Vec<_>, _>>()?;
+            let arguments = values
+                .iter()
+                .zip(params)
+                .map(|(value, ty)| Ok(format!("{} {value}", llvm_type(ty)?)))
+                .collect::<Result<Vec<_>, CodegenError>>()?
+                .join(", ");
+            let return_ty = result_ty.unwrap_or(ret.as_ref());
+            let llvm_return_ty = llvm_type(return_ty)?;
+            if *return_ty == Ty::Unit {
+                writeln!(out, "  call void {callee}({arguments})").unwrap();
+                Ok(String::new())
+            } else {
+                let value = next_temp(out);
+                writeln!(
+                    out,
+                    "  {value} = call {llvm_return_ty} {callee}({arguments})"
+                )
+                .unwrap();
+                Ok(value)
+            }
         }
         Rvalue::Call { target, args } => {
             let values = args
@@ -2101,7 +2135,7 @@ pub(super) fn llvm_zero(ty: &Ty) -> Result<&'static str, CodegenError> {
         {
             Ok("null")
         }
-        Ty::Interface(_) | Ty::InterfaceApp { .. } => Ok("null"),
+        Ty::Interface(_) | Ty::InterfaceApp { .. } | Ty::Fun { .. } => Ok("null"),
         Ty::Enum(_)
         | Ty::EnumApp { .. }
         | Ty::Class(_)
@@ -2170,7 +2204,7 @@ pub(crate) fn llvm_type(ty: &Ty) -> Result<&'static str, CodegenError> {
         {
             Ok("ptr")
         }
-        Ty::Interface(_) | Ty::InterfaceApp { .. } => Ok("ptr"),
+        Ty::Interface(_) | Ty::InterfaceApp { .. } | Ty::Fun { .. } => Ok("ptr"),
         Ty::Enum(_)
         | Ty::EnumApp { .. }
         | Ty::Class(_)

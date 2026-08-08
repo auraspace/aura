@@ -141,9 +141,17 @@ pub mod mir {
             field: String,
         },
         Intrinsic(Intrinsic),
+        /// A non-capturing first-class function value identified by its source span.
+        Function {
+            name: String,
+        },
         AsyncOp(AsyncOp),
         Call {
             target: CallTarget,
+            args: Vec<Place>,
+        },
+        CallIndirect {
+            callee: Place,
             args: Vec<Place>,
         },
     }
@@ -383,6 +391,12 @@ pub mod mir {
                         self.check_place(block, *place)?;
                     }
                 }
+                Rvalue::CallIndirect { callee, args } => {
+                    self.check_place(block, *callee)?;
+                    for place in args {
+                        self.check_place(block, *place)?;
+                    }
+                }
                 Rvalue::Unary { operand, .. } => self.check_place(block, *operand)?,
                 Rvalue::Binary { left, right, .. } => {
                     self.check_place(block, *left)?;
@@ -430,6 +444,7 @@ pub mod mir {
                 | Rvalue::ConstBool(_)
                 | Rvalue::ConstString(_)
                 | Rvalue::ConstNull
+                | Rvalue::Function { .. }
                 | Rvalue::Intrinsic(_) => {}
             }
             Ok(())
@@ -2095,6 +2110,21 @@ pub mod lowering {
                     else_value,
                 })
             }
+            Expr::Lambda(lambda) => {
+                let captures = checked
+                    .and_then(|file| file.lambda_captures.get(&lambda.span.start))
+                    .map(|captures| !captures.is_empty())
+                    .unwrap_or(false);
+                if captures {
+                    return Err(LowerError::Unsupported {
+                        span: lambda.span,
+                        construct: "capturing lambda in neutral MIR",
+                    });
+                }
+                Ok(Rvalue::Function {
+                    name: format!("__lambda_{}", lambda.span.start),
+                })
+            }
             Expr::Async(async_expr) => match async_expr {
                 AsyncExpr::Spawn(value) => {
                     let result_ty = checked
@@ -2201,6 +2231,29 @@ pub mod lowering {
                 ))),
             },
             Expr::Call(value) => {
+                let callee_ty = checked.and_then(|file| {
+                    file.expr_tys
+                        .get(&(value.callee.span().start, value.callee.span().end))
+                });
+                let local_callee_ty = match value.callee.as_ref() {
+                    Expr::Ident(identifier) => locals
+                        .get(&identifier.name)
+                        .and_then(|local| locals_out.get(*local))
+                        .map(|local| &local.ty),
+                    _ => None,
+                };
+                if matches!(callee_ty, Some(Ty::Fun { .. }))
+                    || matches!(local_callee_ty, Some(Ty::Fun { .. }))
+                {
+                    let callee =
+                        place_or_temp(&value.callee, locals_out, statements, locals, checked)?;
+                    let args = value
+                        .args
+                        .iter()
+                        .map(|arg| place_or_temp(arg, locals_out, statements, locals, checked))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    return Ok(Rvalue::CallIndirect { callee, args });
+                }
                 if matches!(
                     value.callee.as_ref(),
                     Expr::Ident(function) if function.name == "gc_collect"

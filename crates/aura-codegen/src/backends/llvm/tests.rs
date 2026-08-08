@@ -631,6 +631,15 @@ fn runs_interface_dispatch_through_an_array() {
 }
 
 #[test]
+fn runs_non_capturing_lambda_function_values() {
+    assert_llvm_source_runs(
+        "package demo\nfun main() { val f = (x: Int) => x + 1 println(f(41).toString()) }\n",
+        "lambda-basic",
+        "42\n",
+    );
+}
+
+#[test]
 fn runs_generic_class_methods_with_owned_array_fields() {
     assert_llvm_source_runs(
         include_str!("../../../../../corpus/generic/array_field_return.aura"),

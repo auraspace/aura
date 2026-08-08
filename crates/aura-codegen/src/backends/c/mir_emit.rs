@@ -166,6 +166,7 @@ fn rvalue_supported(value: &mir::Rvalue) -> bool {
                 && target.variant.as_deref() != Some("__iterable_protocol")
                 && !matches!(target.name.as_str(), "gc_collect" | "gc_mark")
         }
+        mir::Rvalue::Function { .. } | mir::Rvalue::CallIndirect { .. } => false,
         // Runtime intrinsics need a backend capability before they can be
         // rendered as C; never guess a free-function ABI here.
         mir::Rvalue::Intrinsic(_) => false,
@@ -301,7 +302,9 @@ fn rvalue(value: &mir::Rvalue, body: &mir::MirBody, package: &str) -> String {
         }
         mir::Rvalue::ConstString(_) | mir::Rvalue::ConstNull => "0".into(),
         mir::Rvalue::Intrinsic(_) => "0".into(),
-        mir::Rvalue::AsyncOp(_) => "0".into(),
+        mir::Rvalue::AsyncOp(_)
+        | mir::Rvalue::Function { .. }
+        | mir::Rvalue::CallIndirect { .. } => "0".into(),
     }
 }
 

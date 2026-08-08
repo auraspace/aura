@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
-use aura_ast::Span;
+use aura_ast::{Block, Expr, File, LambdaBody, LambdaExpr, ReturnStmt, Span, Stmt};
 use aura_ir::mir::{BinaryOp, Intrinsic, MirBody, Place, Rvalue, Statement, Terminator, UnaryOp};
 use aura_ir::{FunctionIr, LoweredProgram};
 use aura_sema::Ty;
@@ -115,6 +115,7 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
         string_literals: Vec::new(),
     };
     let mut extra_functions = async_functions(program);
+    extra_functions.extend(lambda_functions(program)?);
     extra_functions.extend(generic_method_functions(program));
     let mut seen_spawns = extra_functions
         .iter()
@@ -341,6 +342,200 @@ fn synthetic_function(body: &MirBody, package: String, parameter_count: usize) -
         effect: body.effect,
         body: Some(body.clone()),
         span: Span::new(0, 0),
+    }
+}
+
+fn lambda_functions(program: &LoweredProgram) -> Result<Vec<FunctionIr>, CodegenError> {
+    let mut functions = Vec::new();
+    let mut lambdas = collect_lambdas(&program.source().ast);
+    lambdas.sort_by_key(|lambda| lambda.span.start);
+    for lambda in lambdas {
+        let captures = program
+            .source()
+            .lambda_captures
+            .get(&lambda.span.start)
+            .map(|captures| !captures.is_empty())
+            .unwrap_or(false);
+        if captures {
+            return Err(unsupported("capturing lambda"));
+        }
+        let Some(Ty::Fun { params, ret }) = program.source().lambda_tys.get(&lambda.span.start)
+        else {
+            return Err(unsupported("lambda type"));
+        };
+        if params.len() != lambda.params.len() {
+            return Err(unsupported("lambda parameter metadata"));
+        }
+        let body = match &lambda.body {
+            LambdaBody::Expr(expression) => Block {
+                stmts: vec![Stmt::Return(ReturnStmt {
+                    value: Some(expression.as_ref().clone()),
+                    span: lambda.span,
+                })],
+                span: lambda.span,
+            },
+            LambdaBody::Block(body) => body.clone(),
+        };
+        let parameters = lambda
+            .params
+            .iter()
+            .zip(params)
+            .map(|(parameter, ty)| (parameter.name.name.clone(), ty.clone()))
+            .collect::<Vec<_>>();
+        let name = format!("__lambda_{}", lambda.span.start);
+        let body = aura_ir::lowering::lower_body(
+            &name,
+            &body,
+            &parameters,
+            (**ret).clone(),
+            Some(program.source()),
+            aura_ir::Effect::Pure,
+        )
+        .map_err(|_| unsupported("lambda body"))?;
+        functions.push(FunctionIr {
+            name,
+            package: program.checked().package.clone(),
+            params: parameters
+                .iter()
+                .map(|(_, ty)| aura_ir::ValueFact {
+                    ty: ty.clone(),
+                    ownership: aura_ir::ownership::mode_for_ty(ty),
+                    span: lambda.span,
+                })
+                .collect(),
+            ret: aura_ir::ValueFact {
+                ty: (**ret).clone(),
+                ownership: aura_ir::ownership::mode_for_ty(ret),
+                span: lambda.span,
+            },
+            type_params: Vec::new(),
+            bounds: HashMap::new(),
+            effect: aura_ir::Effect::Pure,
+            body: Some(body),
+            span: lambda.span,
+        });
+    }
+    Ok(functions)
+}
+
+fn collect_lambdas(file: &File) -> Vec<&LambdaExpr> {
+    let mut output = Vec::new();
+    for function in &file.functions {
+        walk_block_lambdas(&function.body, &mut output);
+    }
+    for function in &file.async_functions {
+        walk_block_lambdas(&function.body, &mut output);
+    }
+    for class in &file.classes {
+        for constructor in &class.constructors {
+            walk_block_lambdas(&constructor.body, &mut output);
+            for argument in &constructor.delegation_args {
+                walk_expr_lambdas(argument, &mut output);
+            }
+        }
+        for method in &class.methods {
+            walk_block_lambdas(&method.body, &mut output);
+        }
+    }
+    for constant in &file.consts {
+        walk_expr_lambdas(&constant.value, &mut output);
+    }
+    output
+}
+
+fn walk_block_lambdas<'a>(block: &'a Block, output: &mut Vec<&'a LambdaExpr>) {
+    for statement in &block.stmts {
+        walk_stmt_lambdas(statement, output);
+    }
+}
+
+fn walk_stmt_lambdas<'a>(statement: &'a Stmt, output: &mut Vec<&'a LambdaExpr>) {
+    match statement {
+        Stmt::Var(value) => walk_expr_lambdas(&value.init, output),
+        Stmt::If(value) => {
+            walk_expr_lambdas(&value.cond, output);
+            walk_block_lambdas(&value.then_block, output);
+            if let Some(block) = &value.else_block {
+                walk_block_lambdas(block, output);
+            }
+        }
+        Stmt::While(value) => {
+            walk_expr_lambdas(&value.cond, output);
+            walk_block_lambdas(&value.body, output);
+        }
+        Stmt::ForRange(value) => {
+            walk_expr_lambdas(&value.start, output);
+            walk_expr_lambdas(&value.end, output);
+            walk_block_lambdas(&value.body, output);
+        }
+        Stmt::ForIn(value) => {
+            walk_expr_lambdas(&value.iterable, output);
+            walk_block_lambdas(&value.body, output);
+        }
+        Stmt::Match(value) => {
+            walk_expr_lambdas(&value.scrutinee, output);
+            for arm in &value.arms {
+                walk_block_lambdas(&arm.body, output);
+            }
+        }
+        Stmt::Try(value) => {
+            walk_block_lambdas(&value.try_block, output);
+            if let Some(catch) = &value.catch {
+                walk_block_lambdas(&catch.body, output);
+            }
+            if let Some(finally) = &value.finally {
+                walk_block_lambdas(finally, output);
+            }
+        }
+        Stmt::Throw(value) => walk_expr_lambdas(&value.value, output),
+        Stmt::Return(value) => {
+            if let Some(expression) = &value.value {
+                walk_expr_lambdas(expression, output);
+            }
+        }
+        Stmt::Expr(expression) => walk_expr_lambdas(expression, output),
+        Stmt::Break(_) | Stmt::Continue(_) => {}
+    }
+}
+
+fn walk_expr_lambdas<'a>(expression: &'a Expr, output: &mut Vec<&'a LambdaExpr>) {
+    match expression {
+        Expr::Lambda(lambda) => {
+            output.push(lambda);
+            match &lambda.body {
+                LambdaBody::Expr(body) => walk_expr_lambdas(body, output),
+                LambdaBody::Block(block) => walk_block_lambdas(block, output),
+            }
+        }
+        Expr::Call(call) => {
+            walk_expr_lambdas(&call.callee, output);
+            for argument in &call.args {
+                walk_expr_lambdas(argument, output);
+            }
+        }
+        Expr::Field(field) => walk_expr_lambdas(&field.object, output),
+        Expr::Assign(assign) => walk_expr_lambdas(&assign.value, output),
+        Expr::Binary(binary) => {
+            walk_expr_lambdas(&binary.left, output);
+            walk_expr_lambdas(&binary.right, output);
+        }
+        Expr::Unary(unary) => walk_expr_lambdas(&unary.expr, output),
+        Expr::ForceUnwrap(value) => walk_expr_lambdas(&value.expr, output),
+        Expr::Is(value) => walk_expr_lambdas(&value.expr, output),
+        Expr::Group(value, _) => walk_expr_lambdas(value, output),
+        Expr::If(value) => {
+            walk_expr_lambdas(&value.cond, output);
+            walk_block_lambdas(&value.then_block, output);
+            walk_block_lambdas(&value.else_block, output);
+        }
+        Expr::Async(_) => {}
+        Expr::Ident(_)
+        | Expr::This(_)
+        | Expr::Int(_)
+        | Expr::Float(_)
+        | Expr::Bool(_)
+        | Expr::String(_)
+        | Expr::Null(_) => {}
     }
 }
 
