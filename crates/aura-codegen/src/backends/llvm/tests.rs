@@ -679,6 +679,11 @@ fn runs_generic_free_function_and_nested_class_monomorphs() {
         "generic-nested",
         "nested\nnested\ndeep\nfrom maker\n",
     );
+    assert_llvm_source_runs(
+        include_str!("../../../../../corpus/generic/nested_array_transform.aura"),
+        "generic-nested-array",
+        "nested-array-ok\n",
+    );
 }
 
 #[test]

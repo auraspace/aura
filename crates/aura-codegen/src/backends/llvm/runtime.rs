@@ -421,6 +421,7 @@ load_item:
     i64 1, label %release_string
     i64 2, label %release_class
     i64 3, label %release_enum
+    i64 4, label %release_array
   ]
 release_string:
   %string = inttoptr i64 %raw to ptr
@@ -433,6 +434,10 @@ release_class:
 release_enum:
   %enum = inttoptr i64 %raw to ptr
   call void @aura_llvm_enum_release(ptr %enum)
+  br label %continue
+release_array:
+  %array = inttoptr i64 %raw to ptr
+  call void @aura_llvm_array_release(ptr %array)
   br label %continue
 continue:
   %next_index = add i64 %index, 1
@@ -478,6 +483,7 @@ entry:
     i64 1, label %replace_string
     i64 2, label %replace_class
     i64 3, label %replace_enum
+    i64 4, label %replace_array
   ]
 replace_string:
   %old_string = inttoptr i64 %old to ptr
@@ -496,6 +502,12 @@ replace_enum:
   call void @aura_llvm_enum_release(ptr %old_enum)
   %new_enum = inttoptr i64 %raw to ptr
   call void @aura_llvm_enum_retain(ptr %new_enum)
+  br label %store
+replace_array:
+  %old_array = inttoptr i64 %old to ptr
+  call void @aura_llvm_array_release(ptr %old_array)
+  %new_array = inttoptr i64 %raw to ptr
+  call void @aura_llvm_array_retain(ptr %new_array)
   br label %store
 store:
   store i64 %raw, ptr %address

@@ -2016,6 +2016,10 @@ pub(super) fn retain_pointer_value(
     if let Ty::Nullable(inner) = ty {
         return retain_pointer_value(out, value, inner);
     }
+    if is_array_type(ty) {
+        writeln!(out, "  call void @aura_llvm_array_retain(ptr {value})").unwrap();
+        return Ok(());
+    }
     let helper = match ty {
         Ty::String => "aura_llvm_str_retain",
         Ty::Class(_)
@@ -2033,6 +2037,12 @@ pub(super) fn retain_pointer_value(
 pub(super) fn release_raw_value(out: &mut String, raw: &str, ty: &Ty) -> Result<(), CodegenError> {
     if let Ty::Nullable(inner) = ty {
         return release_raw_value(out, raw, inner);
+    }
+    if is_array_type(ty) {
+        let pointer = next_temp(out);
+        writeln!(out, "  {pointer} = inttoptr i64 {raw} to ptr").unwrap();
+        writeln!(out, "  call void @aura_llvm_array_release(ptr {pointer})").unwrap();
+        return Ok(());
     }
     let helper = match ty {
         Ty::String => "aura_llvm_str_release",

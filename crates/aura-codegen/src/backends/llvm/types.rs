@@ -296,11 +296,15 @@ pub(crate) fn array_element_type(ty: &Ty) -> Option<&Ty> {
 
 pub(crate) fn array_kind(ty: &Ty) -> Result<i64, CodegenError> {
     match ty {
+        Ty::ClassApp { name, args } if name == "Array" && args.len() == 1 => Ok(4),
         Ty::String => Ok(1),
         Ty::Class(_) | Ty::ClassApp { .. } | Ty::Interface(_) | Ty::InterfaceApp { .. } => Ok(2),
         Ty::Enum(_) | Ty::EnumApp { .. } => Ok(3),
         Ty::Int | Ty::Bool | Ty::Float => Ok(0),
-        _ => Err(super::unsupported("Array element type")),
+        _ => Err(super::unsupported(&format!(
+            "Array element type {}",
+            ty.display()
+        ))),
     }
 }
 
