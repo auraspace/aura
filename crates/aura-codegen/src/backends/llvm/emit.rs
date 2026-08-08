@@ -376,8 +376,11 @@ fn emit_terminator(
             if ret == "void" {
                 out.push_str("  ret void\n");
             } else {
-                let value = value.ok_or_else(|| unsupported("missing return value"))?;
-                let loaded = load_place(out, value, body)?;
+                let Some(value) = value else {
+                    out.push_str("  unreachable\n");
+                    return Ok(());
+                };
+                let loaded = load_place(out, *value, body)?;
                 writeln!(out, "  ret {ret} {loaded}").unwrap();
             }
         }
