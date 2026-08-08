@@ -397,7 +397,7 @@ fn compiles_integer_main_as_process_status() {
 #[test]
 fn runs_nullable_string_unwrap() {
     let file = parse_file(
-        "package demo\nfun unwrap(value: String?): String { return value!! }\nfun main() { println(unwrap(\"value\")) }\n",
+        "package demo\nfun unwrap(value: String?): String { return value!! }\nfun main() { val optional: String? = \"value\" assert(optional == \"value\") println(unwrap(optional)) }\n",
     )
     .unwrap();
     let checked = check_file(&file).unwrap();

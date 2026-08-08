@@ -46,6 +46,9 @@ pub(super) fn extract_optional_payload(
     value: &str,
     ty: &Ty,
 ) -> Result<String, CodegenError> {
+    if !is_tagged_nullable(ty) {
+        return Ok(value.to_owned());
+    }
     let payload = next_temp(out);
     writeln!(
         out,
@@ -77,7 +80,9 @@ pub(super) fn emit_use_value(
             "double",
             &value,
         )),
-        (Ty::Nullable(inner), Some(destination)) if inner.as_ref() == destination => {
+        (Ty::Nullable(inner), Some(destination))
+            if inner.as_ref() == destination && is_tagged_nullable(source_ty) =>
+        {
             let value_slot = next_temp(out);
             writeln!(
                 out,
