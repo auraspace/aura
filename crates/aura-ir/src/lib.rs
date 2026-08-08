@@ -1905,7 +1905,13 @@ pub mod lowering {
                 let target = checked
                     .and_then(|file| file.call_instantiations.get(&value.span.start))
                     .map(|call| CallTarget {
-                        name: call.name.clone(),
+                        // Nested calls can share a start offset; the AST
+                        // callee remains authoritative for non-constructors.
+                        name: if call.is_constructor {
+                            call.name.clone()
+                        } else {
+                            function_name.clone()
+                        },
                         package: call.package.clone(),
                         type_args: call.type_args.clone(),
                         method_type_args: call.method_type_args.clone(),
