@@ -1,0 +1,14 @@
+// Nested loops with independent mutable accumulators.
+package demo.control
+
+fun main() {
+    var total: Int = 0
+    for (i in 0..3) {
+        for (j in 0..2) {
+            total = total + i + j
+        }
+    }
+    if (total == 9) {
+        println("nested")
+    }
+}

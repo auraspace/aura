@@ -1,0 +1,10 @@
+// Lambda return ownership for String parameters and concatenation.
+package demo.lambda_string_return
+
+fun main() {
+    val suffix = (value: String) => value + "!"
+    val identity: (String) -> String = (value: String) => value
+    assert_eq(suffix("aura"), "aura!")
+    assert_eq(identity("space"), "space")
+    println("lambda-string")
+}

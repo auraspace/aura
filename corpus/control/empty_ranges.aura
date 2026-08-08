@@ -1,0 +1,14 @@
+// Empty exclusive and inclusive ranges must skip their bodies.
+package demo.empty_ranges
+
+fun main() {
+    var hits: Int = 0
+    for (value in 3..3) {
+        hits = hits + value
+    }
+    for (value in 4..=3) {
+        hits = hits + value
+    }
+    assert_eq(hits, 0)
+    println("empty")
+}

@@ -1,0 +1,21 @@
+// Exception recovery from a function with a return value.
+package demo.try_return
+
+fun safeDivide(value: Int): Int {
+    try {
+        if (value == 0) {
+            throw "zero"
+        }
+        return 100 / value
+    } catch (reason: String) {
+        return -1
+    } finally {
+        val marker: Int = 1
+    }
+}
+
+fun main() {
+    if (safeDivide(4) == 25 && safeDivide(0) == -1) {
+        println("recover")
+    }
+}

@@ -1,0 +1,21 @@
+// Nullable class method call after flow narrowing.
+package demo.nullable_method
+
+class Counter(val value: Int) {
+    fun doubled(): Int {
+        return this.value * 2
+    }
+}
+
+fun compute(counter: Counter?): Int {
+    if (counter == null) {
+        return -1
+    }
+    return counter.doubled()
+}
+
+fun main() {
+    assert_eq(compute(null), -1)
+    assert_eq(compute(Counter(6)), 12)
+    println("nullable-method")
+}

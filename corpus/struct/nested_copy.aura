@@ -1,0 +1,26 @@
+// Nested value structs and copy-by-value parameter passing.
+package demo.nested_copy
+
+struct Point(val x: Int, val y: Int) {
+    fun sum(): Int {
+        return this.x + this.y
+    }
+}
+
+struct Box(val point: Point, val scale: Int) {
+    fun total(): Int {
+        return this.point.sum() * this.scale
+    }
+}
+
+fun adjust(box: Box): Box {
+    return Box(Point(box.point.x + 1, box.point.y + 1), box.scale)
+}
+
+fun main() {
+    val original = Box(Point(1, 2), 3)
+    val changed = adjust(original)
+    assert_eq(original.total(), 9)
+    assert_eq(changed.total(), 15)
+    println("nested-struct")
+}

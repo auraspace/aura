@@ -1,0 +1,6 @@
+// Expected fail: break is only valid inside a loop.
+package demo.diag
+
+fun main() {
+    break
+}

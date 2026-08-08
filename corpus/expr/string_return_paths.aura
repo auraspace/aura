@@ -1,0 +1,21 @@
+// String ownership across literal, parameter, and concatenation returns.
+package demo.string_returns
+
+fun literal(): String {
+    return "literal"
+}
+
+fun keep(value: String): String {
+    return value
+}
+
+fun decorate(value: String): String {
+    return value + "!"
+}
+
+fun main() {
+    assert_eq(literal(), "literal")
+    assert_eq(keep("owned"), "owned")
+    assert_eq(decorate("hello"), "hello!")
+    println("returns")
+}

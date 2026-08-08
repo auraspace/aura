@@ -1,0 +1,21 @@
+// Interface flow and virtual method return.
+package demo.nullable_interface
+
+interface Labelled {
+    fun label(): String
+}
+
+class Item(val text: String) : Labelled {
+    fun label(): String {
+        return this.text
+    }
+}
+
+fun show(item: Labelled): String {
+    return item.label()
+}
+
+fun main() {
+    assert_eq(show(Item("item")), "item")
+    println("nullable-interface")
+}

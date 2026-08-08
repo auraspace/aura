@@ -1,0 +1,10 @@
+// Expected fail: non-Unit functions must return on every path.
+package demo.diag
+
+fun missing(value: Int): Int {
+    if (value > 0) {
+        return value
+    }
+}
+
+fun main() {}

@@ -1,0 +1,19 @@
+// Nullable Float flow, coalescing, and force unwrap.
+package demo.opt_float_branch
+
+fun classify(input: Float?): String {
+    if (input == null) {
+        return "none"
+    }
+    if (input!! == 0.0) {
+        return "zero"
+    }
+    return "some"
+}
+
+fun main() {
+    assert_eq(classify(null), "none")
+    assert_eq(classify(0.0), "zero")
+    assert_eq(classify(2.25), "some")
+    println("opt-float")
+}

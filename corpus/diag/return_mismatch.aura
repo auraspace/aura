@@ -1,0 +1,8 @@
+// Expected fail: return expression type must match the declared result.
+package demo.diag
+
+fun wrong(): Int {
+    return "not an int"
+}
+
+fun main() {}

@@ -1,0 +1,16 @@
+// Mutable class field read-after-write and method return value.
+package demo.field_update
+
+class Score(var value: Int) {
+    fun add(amount: Int): Int {
+        this.value = this.value + amount
+        return this.value
+    }
+}
+
+fun main() {
+    val score: Score = Score(4)
+    if (score.add(3) == 7 && score.value == 7) {
+        println("field")
+    }
+}

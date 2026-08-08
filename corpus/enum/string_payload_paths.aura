@@ -1,0 +1,24 @@
+// String payload returns from both enum match arms.
+package demo.enum_string_paths
+
+enum Message {
+    case Stop
+    case Text(value: String)
+}
+
+fun render(message: Message): String {
+    match (message) {
+        case Stop => {
+            return "stop"
+        }
+        case Text(value) => {
+            return value
+        }
+    }
+}
+
+fun main() {
+    assert_eq(render(Stop()), "stop")
+    assert_eq(render(Text("text")), "text")
+    println("paths")
+}

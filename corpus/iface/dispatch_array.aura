@@ -1,0 +1,25 @@
+// Interface method dispatch through an Array of interface values.
+package demo.dispatch_array
+
+interface Renderable {
+    fun render(): String
+}
+
+class Word(val value: String) : Renderable {
+    fun render(): String {
+        return this.value
+    }
+}
+
+fun main() {
+    val items: Array<Renderable> = Array(0)
+    items.push(Word("a"))
+    items.push(Word("b"))
+    var result: String = ""
+    for (item in items) {
+        result = result + item.render()
+    }
+    if (result == "ab") {
+        println("dispatch")
+    }
+}

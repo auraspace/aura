@@ -1,0 +1,20 @@
+// Array mutation through a function parameter and a returned owned value.
+package demo.array_transform
+
+fun doubled(values: Array<Int>): Array<Int> {
+    val result: Array<Int> = Array(0)
+    for (value in values) {
+        result.push(value * 2)
+    }
+    return result
+}
+
+fun main() {
+    val source: Array<Int> = Array(0)
+    source.push(1)
+    source.push(3)
+    val result = doubled(source)
+    if (result.len == 2 && result.get(0) == 2 && result.get(1) == 6) {
+        println("transform")
+    }
+}

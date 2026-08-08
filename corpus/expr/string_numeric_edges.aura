@@ -1,0 +1,11 @@
+// String numeric conversion around signs, zero, and invalid input.
+package demo.string_numeric_edges
+
+fun main() {
+    assert_eq("+0".toInt()!!, 0)
+    assert_eq("-0".toInt()!!, 0)
+    assert_eq("00042".toInt()!!, 42)
+    assert("4x".toInt() == null)
+    assert("".toInt() == null)
+    println("numeric")
+}

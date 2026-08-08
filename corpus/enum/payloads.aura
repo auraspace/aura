@@ -1,0 +1,34 @@
+// Enum matching with unit, single-payload, and multi-payload cases.
+package demo.enum_payloads
+
+enum Signal {
+    case Stop
+    case Value(value: Int)
+    case Pair(left: Int, right: Int)
+}
+
+fun label(signal: Signal): Int {
+    match (signal) {
+        case Stop => {
+            return 0
+        }
+        case Value(value) => {
+            return value
+        }
+        case Pair(left, right) => {
+            return left * 10 + right
+        }
+    }
+}
+
+fun main() {
+    if (label(Stop()) == 0) {
+        println("unit")
+    }
+    if (label(Value(7)) == 7) {
+        println("value")
+    }
+    if (label(Pair(2, 3)) == 23) {
+        println("pair")
+    }
+}

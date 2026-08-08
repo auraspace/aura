@@ -1,0 +1,18 @@
+// Test runner coverage for boolean and string assertion helpers.
+package demo.test_edges
+
+@test
+fun boolean_assertions() {
+    assert(true)
+    assert(!false)
+}
+
+@test
+fun value_assertions() {
+    assert_eq(2 * 3, 6)
+    assert_eq("Aura".toLower(), "aura")
+}
+
+fun main() {
+    println("test-fixture")
+}

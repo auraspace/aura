@@ -1,0 +1,20 @@
+// Array<Bool> set/get, iteration, and clear.
+package demo.array_bool_paths
+
+fun main() {
+    val flags: Array<Bool> = Array(2)
+    flags.set(0, true)
+    flags.set(1, false)
+    var enabled: Int = 0
+    for (flag in flags) {
+        if (flag) {
+            enabled = enabled + 1
+        }
+    }
+    assert_eq(enabled, 1)
+    assert(flags.get(0))
+    assert(!flags.get(1))
+    flags.clear()
+    assert_eq(flags.len, 0)
+    println("array-bool")
+}

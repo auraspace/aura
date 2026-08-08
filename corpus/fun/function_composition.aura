@@ -1,0 +1,14 @@
+// Function-valued parameters composed with expression-body functions.
+package demo.function_composition
+
+fun apply(value: Int, operation: (Int) -> Int): Int {
+    return operation(value)
+}
+
+fun main() {
+    val inc = (value: Int) => value + 1
+    val twice = (value: Int) => value * 2
+    assert_eq(apply(4, inc), 5)
+    assert_eq(apply(apply(4, inc), twice), 10)
+    println("compose")
+}

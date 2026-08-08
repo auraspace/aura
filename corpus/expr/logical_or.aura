@@ -1,0 +1,13 @@
+// Logical OR with a false left operand and a true right operand.
+package demo.expr
+
+fun main() {
+    val left: Bool = false
+    val right: Bool = true
+    if (left || right) {
+        println("or")
+    }
+    if (!(left && right)) {
+        println("and")
+    }
+}

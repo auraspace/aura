@@ -1,0 +1,15 @@
+// Empty strings and boundary-oriented String helpers.
+package demo.expr
+
+fun main() {
+    val empty: String = ""
+    if (empty.isEmpty() && !empty.contains("x")) {
+        println("empty")
+    }
+    if ("Aura".startsWith("A") && "Aura".endsWith("ra")) {
+        println("edges")
+    }
+    if ("Aura".substring(0, 0) == "") {
+        println("slice")
+    }
+}

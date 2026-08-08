@@ -1,0 +1,15 @@
+// Owned String elements through Array access and transformation.
+package demo.array_string_transform
+
+fun firstUpper(values: Array<String>): String {
+    val item: String = values.get(1)
+    return item.toUpper()
+}
+
+fun main() {
+    val values: Array<String> = Array(0)
+    values.push("aura")
+    values.push("space")
+    assert_eq(firstUpper(values), "SPACE")
+    println("strings")
+}

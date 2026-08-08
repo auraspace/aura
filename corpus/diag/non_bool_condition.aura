@@ -1,0 +1,8 @@
+// Expected fail: if conditions must be Bool.
+package demo.diag
+
+fun main() {
+    if (1) {
+        println("never")
+    }
+}

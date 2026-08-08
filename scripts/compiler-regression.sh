@@ -125,6 +125,7 @@ printf '%s\n' '== Executable corpus matrix =='
 expect_output 'array push and iteration' 'array push ok' run corpus/generic/array_push.aura
 expect_output 'struct copy semantics' 'copy' run corpus/struct/point.aura
 expect_output 'enum match' 'green' run corpus/enum/color.aura
+expect_output 'enum String payload cleanup' 'enum-string' run corpus/enum/string_payload_cleanup.aura
 expect_output 'exclusive range loop' 'for-range ok' run corpus/control/for_range.aura
 expect_output 'inclusive range loop' 'for-inclusive ok' run corpus/control/for_inclusive.aura
 expect_output 'break and continue' 'while-hit' run corpus/control/break_continue.aura
@@ -170,5 +171,9 @@ expect_success 'array interface' check corpus/diag/array_interface.aura
 expect_diagnostic 'generic interface arity' 'interface `Iterable` expects 1 type argument(s)' check corpus/diag/generic_iface.aura
 expect_diagnostic 'multiple declaration errors' 'duplicate field `a`' check corpus/diag/multi_decl.aura
 expect_diagnostic 'multiple body errors' 'undefined name `missing_one`' check corpus/diag/multi_error.aura
+expect_diagnostic 'missing return' 'missing return: expected Int' check corpus/diag/missing_return.aura
+expect_diagnostic 'return type mismatch' 'return type mismatch: expected Int, got String' check corpus/diag/return_mismatch.aura
+expect_diagnostic 'non-bool condition' 'if condition must be Bool, got Int' check corpus/diag/non_bool_condition.aura
+expect_diagnostic 'break outside loop' '`break` is only valid inside a loop' check corpus/diag/break_outside_loop.aura
 
 printf 'compiler regression matrix passed: %d checks\n' "$pass_count"

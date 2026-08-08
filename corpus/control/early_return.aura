@@ -1,0 +1,24 @@
+// Return from both branches and from a nested call.
+package demo.control
+
+fun classify(value: Int): String {
+    if (value < 0) {
+        return "negative"
+    }
+    if (value == 0) {
+        return "zero"
+    }
+    return "positive"
+}
+
+fun main() {
+    if (classify(-1) == "negative") {
+        println("neg")
+    }
+    if (classify(0) == "zero") {
+        println("zero")
+    }
+    if (classify(1) == "positive") {
+        println("pos")
+    }
+}

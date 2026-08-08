@@ -1,0 +1,17 @@
+// Inherited method and subclass-specific method dispatch.
+package demo.inheritance_dispatch
+
+open class Base(val value: Int) {
+    fun doubled(): Int {
+        return this.value * 2
+    }
+}
+
+class Child(val extra: Int) : Base(5) {
+}
+
+fun main() {
+    val child = Child(3)
+    assert_eq(child.doubled(), 10)
+    println("inheritance")
+}

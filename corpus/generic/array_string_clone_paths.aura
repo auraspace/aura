@@ -1,0 +1,16 @@
+// Array<String> clone, mutation, and independent ownership.
+package demo.array_string_clone_paths
+
+fun main() {
+    val source: Array<String> = Array(0)
+    source.push("one")
+    source.push("two")
+    val copy = source.clone()
+    source.set(0, "changed")
+    copy.set(1, "updated")
+    assert_eq(source.get(0), "changed")
+    assert_eq(source.get(1), "two")
+    assert_eq(copy.get(0), "one")
+    assert_eq(copy.get(1), "updated")
+    println("clone-strings")
+}

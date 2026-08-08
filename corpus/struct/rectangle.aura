@@ -1,0 +1,20 @@
+// Struct construction, field access, and value copying.
+package demo.rectangle
+
+struct Size(val width: Int, val height: Int) {
+    fun area(): Int {
+        return this.width * this.height
+    }
+}
+
+fun grow(size: Size): Size {
+    return Size(size.width + 1, size.height + 1)
+}
+
+fun main() {
+    val original: Size = Size(2, 3)
+    val larger: Size = grow(original)
+    if (original.area() == 6 && larger.area() == 12) {
+        println("struct")
+    }
+}

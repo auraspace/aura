@@ -1609,9 +1609,11 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         } else {
                             coerce_expr(e, &expected, ctx)
                         };
+                        let borrowed_string_ident = matches!(e, Expr::Ident(id)
+                            if !ctx.is_string_owner(&id.name));
                         let val = if expected == "String"
-                            && !matches!(e, Expr::Ident(_) | Expr::Null(_))
-                            && !string_expr_is_owned_temp(e, ctx)
+                            && !matches!(e, Expr::Null(_))
+                            && (borrowed_string_ident || !string_expr_is_owned_temp(e, ctx))
                         {
                             // String returns are owned at the ABI boundary; copy borrowed
                             // literals/expressions before the caller releases the result.

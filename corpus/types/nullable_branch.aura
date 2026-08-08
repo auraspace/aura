@@ -1,0 +1,18 @@
+// Nullable primitive flow through both null and non-null branches.
+package demo.nullable_branch
+
+fun describe(value: Int?): String {
+    if (value == null) {
+        return "none"
+    }
+    return value!!.toString()
+}
+
+fun main() {
+    if (describe(null) == "none") {
+        println("null")
+    }
+    if (describe(7) == "7") {
+        println("value")
+    }
+}

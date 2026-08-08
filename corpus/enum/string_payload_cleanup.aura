@@ -1,0 +1,25 @@
+// Regression: String payloads must be owned exactly once across enum match/return.
+package demo.enum_string_cleanup
+
+enum Message {
+    case Stop
+    case Text(value: String)
+}
+
+fun textOf(message: Message): String {
+    match (message) {
+        case Stop => {
+            return "stop"
+        }
+        case Text(value) => {
+            return value
+        }
+    }
+}
+
+fun main() {
+    val message: Message = Text("hello")
+    if (textOf(message) == "hello") {
+        println("enum-string")
+    }
+}
