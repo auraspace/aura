@@ -2,6 +2,21 @@ package aura.web
 
 import std.http
 
+pub class Router23() {
+    pub fun a(): Router23 {
+        return this
+    }
+
+    pub fun b(): Router23 {
+        return this
+    }
+
+    pub fun c(): Router23 {
+        return this.a()
+                   .b()
+    }
+}
+
 pub class Router(private val routes: Array<Route>, private val middlewares: Array<Middleware>,
                  private val mounted: Array<MountedMiddleware>, private val bodyLimit: Int,
                  private val matcher: RouteMatcher,
@@ -13,13 +28,18 @@ pub class Router(private val routes: Array<Route>, private val middlewares: Arra
                  private val onSendHandlers: Array<Middleware>,
                  private val onResponseHandlers: Array<Middleware>) {
     constructor(bodyLimit: Int = 1048576): this(
-        Array<Route>(0), Array<Middleware>(0), Array<MountedMiddleware>(0),
-        bodyLimit, DefaultRouteMatcher(),
+        Array<Route>(0),
+        Array<Middleware>(0),
+        Array<MountedMiddleware>(0),
+        bodyLimit,
+        DefaultRouteMatcher(),
         (error: String, context: Context) => emptyErrorHandler(error, context),
         false,
         Array<Middleware>(0),
         Array<Middleware>(0),
-        Array<Middleware>(0), Array<Middleware>(0), Array<Middleware>(0)
+        Array<Middleware>(0),
+        Array<Middleware>(0),
+        Array<Middleware>(0)
     ) {}
 
     pub fun use(vararg handlers: WebHandler): Router {
@@ -129,7 +149,7 @@ pub class Router(private val routes: Array<Route>, private val middlewares: Arra
 
     fun methodMatches(routeMethod: String, requestMethod: String): Bool {
         return routeMethod == "*" || routeMethod == requestMethod ||
-               (requestMethod == "HEAD" && routeMethod == "GET")
+        (requestMethod == "HEAD" && routeMethod == "GET")
     }
 
     async fun dispatch(request: Request, response: Response): Unit {

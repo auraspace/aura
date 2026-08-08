@@ -257,7 +257,9 @@ fn render(tokens: &[Token]) -> String {
     let mut previous_was_generic_open = false;
     let mut inline_blocks = Vec::new();
     let mut paren_continuation_columns = Vec::new();
+    let mut initializer_parens = Vec::new();
     let mut pending_continuation_column = None;
+    let mut chain_continuation_column = None;
     for (index, token) in tokens.iter().enumerate() {
         let t = token.text.as_str();
         let after_unary_minus = previous_was_unary_minus;
@@ -265,12 +267,50 @@ fn render(tokens: &[Token]) -> String {
         let after_generic_open = previous_was_generic_open;
         previous_was_generic_open = false;
         if token.kind == Kind::LineBreak {
+            let next_is_chain = tokens
+                .get(index + 1)
+                .is_some_and(|next| matches!(next.text.as_str(), "." | "?."));
             if !line_start {
+                if next_is_chain && chain_continuation_column.is_none() {
+                    // Align a named receiver with its token; calls keep the chain column.
+                    let named_receiver = index
+                        .checked_sub(1)
+                        .and_then(|receiver| tokens.get(receiver))
+                        .is_some_and(|token| {
+                            token.kind == Kind::Word
+                                && !matches!(token.text.as_str(), "return" | "throw")
+                        });
+                    chain_continuation_column = if named_receiver {
+                        Some(current_line_len(&out))
+                    } else {
+                        Some(indent * 4 + 2)
+                    };
+                }
                 newline(&mut out);
             }
             line_start = true;
-            if previous == Some(",") {
-                pending_continuation_column = paren_continuation_columns.last().copied();
+            if next_is_chain {
+                pending_continuation_column = chain_continuation_column;
+            } else if previous == Some(",") {
+                chain_continuation_column = None;
+                pending_continuation_column = if initializer_parens.last().copied() == Some(true) {
+                    Some(indent * 4 + 4)
+                } else {
+                    paren_continuation_columns.last().copied()
+                };
+            } else if previous == Some("(") {
+                chain_continuation_column = None;
+                // Constructor initializer arguments use the surrounding block indent.
+                let opener_is_initializer = index >= 2
+                    && tokens[index - 2].kind == Kind::Word
+                    && tokens[index - 2].text == "this";
+                if opener_is_initializer {
+                    pending_continuation_column = Some(indent * 4 + 4);
+                } else {
+                    pending_continuation_column = paren_continuation_columns.last().copied();
+                }
+            } else {
+                chain_continuation_column = None;
             }
             if !matches!(
                 previous,
@@ -364,7 +404,10 @@ fn render(tokens: &[Token]) -> String {
             continue;
         }
         if line_start {
-            if let Some(column) = pending_continuation_column.take() {
+            if t == ")" {
+                pending_continuation_column = None;
+                write_indent(&mut out, indent);
+            } else if let Some(column) = pending_continuation_column.take() {
                 out.push_str(&" ".repeat(column));
                 previous = None;
             } else {
@@ -403,7 +446,15 @@ fn render(tokens: &[Token]) -> String {
                 out.push_str(": ");
             }
         } else if t == "." || t == "?." || t == "!!" || t == ")" || t == "]" {
-            trim_space(&mut out);
+            if t == "."
+                && previous
+                    .is_some_and(|value| value != "return" && value != "throw" && value != ")")
+            {
+                chain_continuation_column = Some(current_line_len(&out));
+            }
+            if previous.is_some() {
+                trim_space(&mut out);
+            }
             out.push_str(t);
         } else if t == "(" || t == "[" {
             let keep_space = matches!(
@@ -430,7 +481,7 @@ fn render(tokens: &[Token]) -> String {
                         | "return"
                 )
             );
-            if !keep_space {
+            if !keep_space && previous.is_some() {
                 trim_space(&mut out);
             } else if previous == Some("return") {
                 out.push(' ');
@@ -447,6 +498,7 @@ fn render(tokens: &[Token]) -> String {
             if t == "(" {
                 // Align manually broken parameters with the first parameter.
                 paren_continuation_columns.push(current_line_len(&out));
+                initializer_parens.push(previous == Some("this"));
             }
         } else if t == "-" && is_unary_minus(previous) {
             trim_space(&mut out);
@@ -508,6 +560,7 @@ fn render(tokens: &[Token]) -> String {
         }
         if t == ")" {
             paren_continuation_columns.pop();
+            initializer_parens.pop();
         }
         previous = Some(t);
     }
@@ -675,7 +728,7 @@ fun main() {
   println("http-health-cli: passed")
 }
 "#;
-        let formatted = format_source(source).unwrap();
+        let formatted = format_source(&source).unwrap();
 
         assert!(formatted.contains("package http_health_cli\n"));
         assert!(formatted.contains("package http_health_cli\n\nimport std.io as Io\n"));
@@ -816,6 +869,44 @@ class Context(pub val request: Request, pub val response: Response,
 fun short(a: Int, b: Int, c: Int): Int { return a }
 "#;
         assert_eq!(formatted, expected);
+        assert_eq!(formatted, format_source(&formatted).unwrap());
+    }
+
+    #[test]
+    fn preserves_router_style_class_and_constructor_layout() {
+        let source = r#"package demo
+
+pub class Router(
+                 private val routes: Array<Route>, private val middlewares: Array<Middleware>,
+                 private val mounted: Array<MountedMiddleware>, private val bodyLimit: Int,
+                 private val matcher: RouteMatcher) {
+    constructor(bodyLimit: Int = 1048576): this(
+        Array<Route>(0), Array<Middleware>(0), Array<MountedMiddleware>(0),
+        bodyLimit,
+        DefaultRouteMatcher(),
+        (error: String, context: Context) => emptyErrorHandler(error, context),
+        false,
+        Array<Middleware>(0),
+        Array<Middleware>(0),
+        Array<Middleware>(0), Array<Middleware>(0), Array<Middleware>(0)
+    ) {}
+}
+"#;
+        let formatted = format_source(source).unwrap();
+        assert_eq!(formatted, source);
+        assert_eq!(formatted, format_source(&formatted).unwrap());
+    }
+
+    #[test]
+    fn preserves_method_chain_continuation_indent() {
+        let source = format!(
+            "package demo\nfun main() {{\n    app()\n      .a()\n      .b()\n    return this.a()\n{}.b()\n    return this\n{}.a()\n{}.b()\n}}\n",
+            " ".repeat(15),
+            " ".repeat(15),
+            " ".repeat(15)
+        );
+        let formatted = format_source(&source).unwrap();
+        assert_eq!(formatted, source);
         assert_eq!(formatted, format_source(&formatted).unwrap());
     }
 
