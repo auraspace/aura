@@ -5188,8 +5188,7 @@ impl LoweredProgram {
             };
             let receiver_ty = Ty::Class(class.name.name.clone());
             for method in &class.methods {
-                if !class.type_params.is_empty()
-                    || !method.type_params.is_empty()
+                if !method.type_params.is_empty()
                     || method
                         .return_type
                         .as_ref()
@@ -5296,17 +5295,33 @@ impl LoweredProgram {
                     .iter()
                     .find(|function| function.name.name == instance.owner)?;
                 let closed = generic_lowering::close_function(decl, &instance.args, &source);
+                let empty_substitutions = HashMap::new();
                 let params = closed
                     .params
                     .iter()
-                    .map(|param| Some((param.name.name.clone(), type_ref_builtin(&param.ty)?)))
+                    .map(|param| {
+                        lowering::type_ref_to_ty(&param.ty, &empty_substitutions, &source)
+                            .map(|ty| (param.name.name.clone(), ty))
+                    })
                     .collect::<Option<Vec<_>>>()?;
                 let ret = closed
                     .return_type
                     .as_ref()
-                    .map(type_ref_builtin)
+                    .map(|ty| lowering::type_ref_to_ty(ty, &empty_substitutions, &source))
                     .unwrap_or(Some(Ty::Unit))?;
                 let ret_ownership = ownership_of(&ret);
+                let substitutions = decl
+                    .type_params
+                    .iter()
+                    .map(|param| param.name.name.clone())
+                    .zip(instance.args.iter().cloned())
+                    .collect::<HashMap<_, _>>();
+                let mut specialized_source = source.clone();
+                specialized_source.expr_tys = source
+                    .expr_tys
+                    .iter()
+                    .map(|(span, ty)| (*span, subst_ty(ty, &substitutions)))
+                    .collect();
                 let body = lowering::lower_body(
                     &format!(
                         "{}_{}",
@@ -5321,7 +5336,7 @@ impl LoweredProgram {
                     &closed.body,
                     &params,
                     ret.clone(),
-                    Some(&source),
+                    Some(&specialized_source),
                     Effect::Pure,
                 )
                 .ok();
