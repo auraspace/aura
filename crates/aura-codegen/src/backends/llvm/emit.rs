@@ -145,10 +145,63 @@ result_join:
 
 "#;
 
+const ENUM_RUNTIME: &str = r#"
+%AuraLlvmEnum = type { i64, i64, [0 x i64] }
+
+define ptr @aura_llvm_enum_alloc(i64 %fields) {
+entry:
+  %field_bytes = mul i64 %fields, 8
+  %size = add i64 %field_bytes, 24
+  %value = call ptr @malloc(i64 %size)
+  %refs = getelementptr %AuraLlvmEnum, ptr %value, i32 0, i32 0
+  store i64 1, ptr %refs
+  ret ptr %value
+}
+
+define void @aura_llvm_enum_retain(ptr %value) {
+entry:
+  %is_null = icmp eq ptr %value, null
+  br i1 %is_null, label %done, label %retain
+retain:
+  %refs = getelementptr %AuraLlvmEnum, ptr %value, i32 0, i32 0
+  %current = load i64, ptr %refs
+  %next = add i64 %current, 1
+  store i64 %next, ptr %refs
+  br label %done
+done:
+  ret void
+}
+
+define void @aura_llvm_enum_release(ptr %value) {
+entry:
+  %is_null = icmp eq ptr %value, null
+  br i1 %is_null, label %done, label %release
+release:
+  %refs = getelementptr %AuraLlvmEnum, ptr %value, i32 0, i32 0
+  %current = load i64, ptr %refs
+  %next = sub i64 %current, 1
+  store i64 %next, ptr %refs
+  %last = icmp eq i64 %next, 0
+  br i1 %last, label %destroy, label %done
+destroy:
+  call void @free(ptr %value)
+  br label %done
+done:
+  ret void
+}
+
+"#;
+
 struct EmitContext {
     signatures: Signatures,
-    enum_tags: HashMap<String, i64>,
+    enum_variants: HashMap<String, EnumVariantInfo>,
     string_literals: Vec<String>,
+}
+
+#[derive(Clone)]
+struct EnumVariantInfo {
+    tag: i64,
+    fields: Vec<(String, Ty)>,
 }
 
 pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
@@ -156,10 +209,11 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
     let mut module = String::from("; ModuleID = 'aura'\nsource_filename = \"aura\"\n\n");
     let mut context = EmitContext {
         signatures: signatures(program),
-        enum_tags: enum_tags(program),
+        enum_variants: enum_variants(program),
         string_literals: Vec::new(),
     };
     module.push_str(STRING_RUNTIME);
+    module.push_str(ENUM_RUNTIME);
     for function in program
         .checked()
         .functions
@@ -314,11 +368,61 @@ fn emit_statement(
             if is_string_type(&body.locals[place.local].ty) {
                 let value = load_place(out, *place, body)?;
                 writeln!(out, "  call void @aura_llvm_str_release(ptr {value})").unwrap();
+                writeln!(out, "  store ptr null, ptr %slot{}", place.local).unwrap();
+            } else if is_enum_type(&body.locals[place.local].ty) {
+                let value = load_place(out, *place, body)?;
+                writeln!(out, "  call void @aura_llvm_enum_release(ptr {value})").unwrap();
+                writeln!(out, "  store ptr null, ptr %slot{}", place.local).unwrap();
             }
         }
         Statement::EnterTry { .. } | Statement::LeaveTry => {}
-        Statement::ExtractVariantField { .. } => {
-            return Err(unsupported("aggregate field extraction"));
+        Statement::ExtractVariantField {
+            operand,
+            variant,
+            field,
+            to,
+            ..
+        } => {
+            let object = load_place(out, *operand, body)?;
+            let info = context
+                .enum_variants
+                .get(variant)
+                .ok_or_else(|| unsupported(&format!("enum variant {variant}")))?;
+            let (field_index, (_, field_ty)) = info
+                .fields
+                .iter()
+                .enumerate()
+                .find(|(_, (name, _))| name == field)
+                .ok_or_else(|| unsupported(&format!("enum field {variant}.{field}")))?;
+            if !matches!(field_ty, Ty::Int | Ty::Bool | Ty::Float)
+                || body.locals[to.local].ty != *field_ty
+            {
+                return Err(unsupported("non-primitive enum payload"));
+            }
+            let address = next_temp(out);
+            writeln!(
+                out,
+                "  {address} = getelementptr %AuraLlvmEnum, ptr {object}, i32 0, i32 2, i64 {field_index}"
+            )
+            .unwrap();
+            let raw = next_temp(out);
+            writeln!(out, "  {raw} = load i64, ptr {address}").unwrap();
+            let value = match field_ty {
+                Ty::Int => raw,
+                Ty::Bool => {
+                    let value = next_temp(out);
+                    writeln!(out, "  {value} = trunc i64 {raw} to i1").unwrap();
+                    value
+                }
+                Ty::Float => {
+                    let value = next_temp(out);
+                    writeln!(out, "  {value} = bitcast i64 {raw} to double").unwrap();
+                    value
+                }
+                _ => unreachable!("validated primitive payload"),
+            };
+            let ty = llvm_type(field_ty)?;
+            writeln!(out, "  store {ty} {value}, ptr %slot{}", to.local).unwrap();
         }
         Statement::LoadIndex {
             collection,
@@ -348,6 +452,8 @@ fn copy_place(
     let value = load_place(out, from, body)?;
     if retain && is_string_type(&body.locals[from.local].ty) {
         writeln!(out, "  call void @aura_llvm_str_retain(ptr {value})").unwrap();
+    } else if retain && is_enum_type(&body.locals[from.local].ty) {
+        writeln!(out, "  call void @aura_llvm_enum_retain(ptr {value})").unwrap();
     }
     writeln!(out, "  store {ty} {value}, ptr %slot{}", to.local).unwrap();
     Ok(())
@@ -560,15 +666,60 @@ fn emit_rvalue(
                 .collect::<Result<Vec<_>, _>>()?;
             let name = symbol_name(&target.package, &target.name);
             if let Some(variant) = &target.variant {
-                if !args.is_empty() {
-                    return Err(unsupported("enum payload constructors"));
-                }
-                let tag = context
-                    .enum_tags
+                let info = context
+                    .enum_variants
                     .get(variant)
-                    .copied()
                     .ok_or_else(|| unsupported(&format!("enum variant {variant}")))?;
-                return Ok(tag.to_string());
+                if info.fields.len() != args.len() {
+                    return Err(unsupported(&format!("enum constructor {variant} arity")));
+                }
+                if info
+                    .fields
+                    .iter()
+                    .any(|(_, ty)| !matches!(ty, Ty::Int | Ty::Bool | Ty::Float))
+                {
+                    return Err(unsupported("non-primitive enum payload"));
+                }
+                let value = next_temp(out);
+                writeln!(
+                    out,
+                    "  {value} = call ptr @aura_llvm_enum_alloc(i64 {})",
+                    args.len()
+                )
+                .unwrap();
+                let tag_address = next_temp(out);
+                writeln!(
+                    out,
+                    "  {tag_address} = getelementptr %AuraLlvmEnum, ptr {value}, i32 0, i32 1"
+                )
+                .unwrap();
+                writeln!(out, "  store i64 {}, ptr {tag_address}", info.tag).unwrap();
+                for (index, ((_, ty), argument)) in
+                    info.fields.iter().zip(values.iter()).enumerate()
+                {
+                    let field_address = next_temp(out);
+                    writeln!(
+                        out,
+                        "  {field_address} = getelementptr %AuraLlvmEnum, ptr {value}, i32 0, i32 2, i64 {index}"
+                    )
+                    .unwrap();
+                    let raw = match ty {
+                        Ty::Int => argument.clone(),
+                        Ty::Bool => {
+                            let raw = next_temp(out);
+                            writeln!(out, "  {raw} = zext i1 {argument} to i64").unwrap();
+                            raw
+                        }
+                        Ty::Float => {
+                            let raw = next_temp(out);
+                            writeln!(out, "  {raw} = bitcast double {argument} to i64").unwrap();
+                            raw
+                        }
+                        _ => unreachable!("validated primitive payload"),
+                    };
+                    writeln!(out, "  store i64 {raw}, ptr {field_address}").unwrap();
+                }
+                return Ok(value);
             }
             if is_print_call(target) {
                 if args.len() != 1 || !is_string_type(&body.locals[args[0].local].ty) {
@@ -645,7 +796,15 @@ fn emit_rvalue(
             if !is_enum_type(&body.locals[operand.local].ty) {
                 return Err(unsupported("variant tags outside unit enums"));
             }
-            Ok(value)
+            let address = next_temp(out);
+            writeln!(
+                out,
+                "  {address} = getelementptr %AuraLlvmEnum, ptr {value}, i32 0, i32 1"
+            )
+            .unwrap();
+            let tag = next_temp(out);
+            writeln!(out, "  {tag} = load i64, ptr {address}").unwrap();
+            Ok(tag)
         }
         Rvalue::Intrinsic(_) | Rvalue::Field { .. } | Rvalue::AsyncOp(_) => {
             Err(unsupported("non-scalar MIR operation"))
@@ -697,7 +856,7 @@ fn llvm_zero(ty: &Ty) -> Result<&'static str, CodegenError> {
         Ty::Int => Ok("0"),
         Ty::String | Ty::Null => Ok("null"),
         Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::String) => Ok("null"),
-        Ty::Enum(_) | Ty::EnumApp { .. } => Ok("0"),
+        Ty::Enum(_) | Ty::EnumApp { .. } => Ok("null"),
         _ => Err(unsupported(&format!("type {}", ty.display()))),
     }
 }
@@ -717,7 +876,7 @@ pub(super) fn llvm_type(ty: &Ty) -> Result<&'static str, CodegenError> {
         Ty::Float => Ok("double"),
         Ty::String | Ty::Null => Ok("ptr"),
         Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::String) => Ok("ptr"),
-        Ty::Enum(_) | Ty::EnumApp { .. } => Ok("i64"),
+        Ty::Enum(_) | Ty::EnumApp { .. } => Ok("ptr"),
         _ => Err(unsupported(&format!("type {}", ty.display()))),
     }
 }
@@ -772,16 +931,21 @@ fn is_enum_type(ty: &Ty) -> bool {
     matches!(ty, Ty::Enum(_) | Ty::EnumApp { .. })
 }
 
-fn enum_tags(program: &LoweredProgram) -> HashMap<String, i64> {
+fn enum_variants(program: &LoweredProgram) -> HashMap<String, EnumVariantInfo> {
     program
         .source()
         .enums
         .iter()
         .flat_map(|enum_decl| {
-            enum_decl
-                .variants
-                .iter()
-                .map(|variant| (variant.name.clone(), variant.tag as i64))
+            enum_decl.variants.iter().map(|variant| {
+                (
+                    variant.name.clone(),
+                    EnumVariantInfo {
+                        tag: variant.tag as i64,
+                        fields: variant.fields.clone(),
+                    },
+                )
+            })
         })
         .collect()
 }
