@@ -9,7 +9,7 @@ use aura_sema::CheckedFile;
 use crate::ctx::EmitOptions;
 use crate::driver::{Artifact, CBackend, Driver};
 use crate::error::CodegenError;
-use crate::options::{Backend, CompileOptions, NativeSource, ProfileSettings};
+use crate::options::{CompileOptions, NativeSource};
 
 pub fn emit_c_from_ast(file: &File) -> Result<String, CodegenError> {
     Driver::new(CBackend).emit(file, EmitOptions::default())
@@ -96,16 +96,6 @@ pub fn build_from_checked_with_options(
         EmitOptions::default(),
     )
     .map(Artifact::into_path)
-}
-
-pub fn llvm_options() -> CompileOptions {
-    let mut options = CompileOptions::default();
-    options.backend = Backend::Llvm;
-    options.profile_settings = ProfileSettings {
-        backend: Backend::Llvm,
-        ..options.profile_settings
-    };
-    options
 }
 
 pub fn build_tests_from_file(

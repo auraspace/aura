@@ -22,12 +22,12 @@ pub(crate) use backends::c::{
 };
 
 pub use aura_ir::{CheckedIr, Effect, FunctionIr, LoweredProgram, OwnershipMode, ValueFact};
+pub use backends::llvm::options as llvm_options;
 pub use backends::llvm::LlvmBackend;
 pub use build::{
     build_from_checked, build_from_checked_with_native, build_from_checked_with_options,
     build_from_file, build_tests_from_checked, build_tests_from_checked_with_native,
     build_tests_from_file, emit_c_from_ast, emit_c_from_checked, emit_c_tests_from_ast,
-    llvm_options,
 };
 pub use cache::{ArtifactCache, ArtifactCacheKey, CacheError};
 pub use ctx::EmitOptions;

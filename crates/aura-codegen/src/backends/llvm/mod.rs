@@ -16,9 +16,21 @@ use aura_sema::Ty;
 use crate::ctx::EmitOptions;
 use crate::driver::{Artifact, Backend, BackendBuildOptions, BackendCapabilities};
 use crate::error::CodegenError;
+use crate::options::{Backend as BackendKind, CompileOptions, ProfileSettings};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct LlvmBackend;
+
+/// Build defaults for the LLVM backend without importing C backend helpers.
+pub fn options() -> CompileOptions {
+    let mut options = CompileOptions::default();
+    options.backend = BackendKind::Llvm;
+    options.profile_settings = ProfileSettings {
+        backend: BackendKind::Llvm,
+        ..options.profile_settings
+    };
+    options
+}
 
 impl LlvmBackend {
     pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
