@@ -96,6 +96,12 @@ pub(super) fn emit_statement(
                 )
                 .unwrap();
                 writeln!(out, "ex_rethrow{id}:").unwrap();
+                let cause = next_temp(out);
+                writeln!(
+                    out,
+                    "  {cause} = call i32 @aura_ex_add_cause(ptr {name}, i32 0, i32 0)"
+                )
+                .unwrap();
                 out.push_str("  call void @aura_ex_rethrow()\n");
                 out.push_str("  unreachable\n");
             } else {
@@ -104,6 +110,7 @@ pub(super) fn emit_statement(
             writeln!(out, "try_body{id}:").unwrap();
         }
         Statement::LeaveTry => {
+            out.push_str("  call void @aura_ex_clear()\n");
             out.push_str("  call void @aura_try_leave()\n");
         }
         Statement::ExtractVariantField {

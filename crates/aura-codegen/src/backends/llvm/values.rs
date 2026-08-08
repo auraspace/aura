@@ -483,6 +483,69 @@ pub(super) fn emit_rvalue(
                 writeln!(out, "  call void @aura_llvm_assert(i1 {equal})").unwrap();
                 return Ok(String::new());
             }
+            match (target.name.as_str(), values.len()) {
+                ("exception_cause_count", 0) => {
+                    let value = next_temp(out);
+                    writeln!(out, "  {value} = call i64 @aura_ex_cause_count()").unwrap();
+                    return Ok(value);
+                }
+                ("exception_source_span_start", 0) | ("exception_source_span_end", 0) => {
+                    let helper = if target.name == "exception_source_span_start" {
+                        "aura_ex_source_span_start"
+                    } else {
+                        "aura_ex_source_span_end"
+                    };
+                    let raw = next_temp(out);
+                    writeln!(out, "  {raw} = call i32 @{helper}()").unwrap();
+                    let value = next_temp(out);
+                    writeln!(out, "  {value} = zext i32 {raw} to i64").unwrap();
+                    return Ok(value);
+                }
+                ("exception_cause_type", 1) => {
+                    let raw = next_temp(out);
+                    writeln!(
+                        out,
+                        "  {raw} = call ptr @aura_ex_cause_type_copy(i64 {})",
+                        values[0]
+                    )
+                    .unwrap();
+                    let value = next_temp(out);
+                    writeln!(out, "  {value} = call ptr @aura_llvm_str_new(ptr {raw})").unwrap();
+                    return Ok(value);
+                }
+                ("exception_cause_span_start", 1) | ("exception_cause_span_end", 1) => {
+                    let helper = if target.name == "exception_cause_span_start" {
+                        "aura_ex_cause_span_start"
+                    } else {
+                        "aura_ex_cause_span_end"
+                    };
+                    let raw = next_temp(out);
+                    writeln!(out, "  {raw} = call i32 @{helper}(i64 {})", values[0]).unwrap();
+                    let value = next_temp(out);
+                    writeln!(out, "  {value} = zext i32 {raw} to i64").unwrap();
+                    return Ok(value);
+                }
+                ("exception_add_cause", 3) => {
+                    let data = next_temp(out);
+                    writeln!(
+                        out,
+                        "  {data} = call ptr @aura_llvm_str_data(ptr {})",
+                        values[0]
+                    )
+                    .unwrap();
+                    let start = next_temp(out);
+                    writeln!(out, "  {start} = trunc i64 {} to i32", values[1]).unwrap();
+                    let end = next_temp(out);
+                    writeln!(out, "  {end} = trunc i64 {} to i32", values[2]).unwrap();
+                    writeln!(
+                        out,
+                        "  call i32 @aura_ex_add_cause(ptr {data}, i32 {start}, i32 {end})"
+                    )
+                    .unwrap();
+                    return Ok(String::new());
+                }
+                _ => {}
+            }
             if (target.name == "toString" || target.name == "to_string") && values.len() == 1 {
                 let operand_ty = &body.locals[args[0].local].ty;
                 let value = next_temp(out);
@@ -700,7 +763,7 @@ pub(super) fn emit_rvalue(
                 let Ty::Channel(element_ty) = &body.locals[args[0].local].ty else {
                     return Err(unsupported("send target outside Channel"));
                 };
-                if body.locals[args[1].local].ty != **element_ty {
+                if !types_compatible(&body.locals[args[1].local].ty, element_ty) {
                     return Err(unsupported("channel send value type"));
                 }
                 let value = &values[1];
