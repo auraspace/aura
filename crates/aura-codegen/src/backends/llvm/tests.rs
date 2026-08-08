@@ -270,6 +270,38 @@ fn runs_primitive_enum_payloads() {
     )));
 }
 
+#[test]
+fn runs_class_identity_and_primitive_constructor_fields() {
+    let file = parse_file(include_str!("../../../../../corpus/class/identity.aura")).unwrap();
+    let checked = check_file(&file).unwrap();
+    let program = LoweredProgram::from_checked(checked);
+    assert!(program.mir_is_complete());
+    let out = PathBuf::from(format!("/tmp/aura-llvm-class-{}", std::process::id()));
+    let options = BackendBuildOptions {
+        backend: Backend::Llvm,
+        target: Target::Native,
+        profile: Profile::Debug,
+        optimization: OptimizationLevel::O0,
+        debug: false,
+        lto: Lto::Off,
+        panic: PanicStrategy::Abort,
+        output: OutputKind::Executable,
+        features: Vec::new(),
+    };
+    LlvmBackend::compile(&program, &out, &options).unwrap();
+    let output = std::process::Command::new(&out).output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "same\ndiff\ndistinct\n"
+    );
+    let _ = std::fs::remove_file(&out);
+    let _ = std::fs::remove_file(out.with_file_name(format!(
+        "{}.aura.ll",
+        out.file_name().unwrap().to_string_lossy()
+    )));
+}
+
 fn assert_llvm_compiles(module: &str, suffix: &str) {
     let ir_path = PathBuf::from(format!("/tmp/aura-llvm-{suffix}-{}.ll", std::process::id()));
     let object_path = ir_path.with_extension("o");

@@ -192,9 +192,57 @@ done:
 
 "#;
 
+const CLASS_RUNTIME: &str = r#"
+%AuraLlvmClass = type { i64, [0 x i64] }
+
+define ptr @aura_llvm_class_alloc(i64 %fields) {
+entry:
+  %field_bytes = mul i64 %fields, 8
+  %size = add i64 %field_bytes, 8
+  %value = call ptr @malloc(i64 %size)
+  %refs = getelementptr %AuraLlvmClass, ptr %value, i32 0, i32 0
+  store i64 1, ptr %refs
+  ret ptr %value
+}
+
+define void @aura_llvm_class_retain(ptr %value) {
+entry:
+  %is_null = icmp eq ptr %value, null
+  br i1 %is_null, label %done, label %retain
+retain:
+  %refs = getelementptr %AuraLlvmClass, ptr %value, i32 0, i32 0
+  %current = load i64, ptr %refs
+  %next = add i64 %current, 1
+  store i64 %next, ptr %refs
+  br label %done
+done:
+  ret void
+}
+
+define void @aura_llvm_class_release(ptr %value) {
+entry:
+  %is_null = icmp eq ptr %value, null
+  br i1 %is_null, label %done, label %release
+release:
+  %refs = getelementptr %AuraLlvmClass, ptr %value, i32 0, i32 0
+  %current = load i64, ptr %refs
+  %next = sub i64 %current, 1
+  store i64 %next, ptr %refs
+  %last = icmp eq i64 %next, 0
+  br i1 %last, label %destroy, label %done
+destroy:
+  call void @free(ptr %value)
+  br label %done
+done:
+  ret void
+}
+
+"#;
+
 struct EmitContext {
     signatures: Signatures,
     enum_variants: HashMap<String, EnumVariantInfo>,
+    classes: HashMap<String, Vec<(String, Ty)>>,
     string_literals: Vec<String>,
 }
 
@@ -210,10 +258,12 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
     let mut context = EmitContext {
         signatures: signatures(program),
         enum_variants: enum_variants(program),
+        classes: classes(program),
         string_literals: Vec::new(),
     };
     module.push_str(STRING_RUNTIME);
     module.push_str(ENUM_RUNTIME);
+    module.push_str(CLASS_RUNTIME);
     for function in program
         .checked()
         .functions
@@ -373,6 +423,10 @@ fn emit_statement(
                 let value = load_place(out, *place, body)?;
                 writeln!(out, "  call void @aura_llvm_enum_release(ptr {value})").unwrap();
                 writeln!(out, "  store ptr null, ptr %slot{}", place.local).unwrap();
+            } else if is_class_type(&body.locals[place.local].ty) {
+                let value = load_place(out, *place, body)?;
+                writeln!(out, "  call void @aura_llvm_class_release(ptr {value})").unwrap();
+                writeln!(out, "  store ptr null, ptr %slot{}", place.local).unwrap();
             }
         }
         Statement::EnterTry { .. } | Statement::LeaveTry => {}
@@ -454,6 +508,8 @@ fn copy_place(
         writeln!(out, "  call void @aura_llvm_str_retain(ptr {value})").unwrap();
     } else if retain && is_enum_type(&body.locals[from.local].ty) {
         writeln!(out, "  call void @aura_llvm_enum_retain(ptr {value})").unwrap();
+    } else if retain && is_class_type(&body.locals[from.local].ty) {
+        writeln!(out, "  call void @aura_llvm_class_retain(ptr {value})").unwrap();
     }
     writeln!(out, "  store {ty} {value}, ptr %slot{}", to.local).unwrap();
     Ok(())
@@ -610,6 +666,16 @@ fn emit_rvalue(
                 }
                 return Ok(temp);
             }
+            if is_class_type(left_ty) && matches!(op, BinaryOp::Eq | BinaryOp::Ne) {
+                let temp = next_temp(out);
+                let instruction = if matches!(op, BinaryOp::Eq) {
+                    "eq"
+                } else {
+                    "ne"
+                };
+                writeln!(out, "  {temp} = icmp {instruction} ptr {left}, {right}").unwrap();
+                return Ok(temp);
+            }
             let operand_ty = llvm_type(left_ty)?;
             let instruction = match (op, left_ty) {
                 (BinaryOp::Add, Ty::Float) => "fadd",
@@ -721,6 +787,50 @@ fn emit_rvalue(
                 }
                 return Ok(value);
             }
+            if target.is_constructor {
+                let fields = context
+                    .classes
+                    .get(&target.name)
+                    .ok_or_else(|| unsupported(&format!("class {}", target.name)))?;
+                if fields.len() != args.len()
+                    || fields
+                        .iter()
+                        .any(|(_, ty)| !matches!(ty, Ty::Int | Ty::Bool | Ty::Float))
+                {
+                    return Err(unsupported("non-primitive class fields"));
+                }
+                let value = next_temp(out);
+                writeln!(
+                    out,
+                    "  {value} = call ptr @aura_llvm_class_alloc(i64 {})",
+                    args.len()
+                )
+                .unwrap();
+                for (index, ((_, ty), argument)) in fields.iter().zip(values.iter()).enumerate() {
+                    let address = next_temp(out);
+                    writeln!(
+                        out,
+                        "  {address} = getelementptr %AuraLlvmClass, ptr {value}, i32 0, i32 1, i64 {index}"
+                    )
+                    .unwrap();
+                    let raw = match ty {
+                        Ty::Int => argument.clone(),
+                        Ty::Bool => {
+                            let raw = next_temp(out);
+                            writeln!(out, "  {raw} = zext i1 {argument} to i64").unwrap();
+                            raw
+                        }
+                        Ty::Float => {
+                            let raw = next_temp(out);
+                            writeln!(out, "  {raw} = bitcast double {argument} to i64").unwrap();
+                            raw
+                        }
+                        _ => unreachable!("validated primitive fields"),
+                    };
+                    writeln!(out, "  store i64 {raw}, ptr {address}").unwrap();
+                }
+                return Ok(value);
+            }
             if is_print_call(target) {
                 if args.len() != 1 || !is_string_type(&body.locals[args[0].local].ty) {
                     return Err(unsupported(&format!("{} argument shape", target.name)));
@@ -806,9 +916,46 @@ fn emit_rvalue(
             writeln!(out, "  {tag} = load i64, ptr {address}").unwrap();
             Ok(tag)
         }
-        Rvalue::Intrinsic(_) | Rvalue::Field { .. } | Rvalue::AsyncOp(_) => {
-            Err(unsupported("non-scalar MIR operation"))
+        Rvalue::Field { object, field } => {
+            let object_ty = &body.locals[object.local].ty;
+            let Ty::Class(name) = object_ty else {
+                return Err(unsupported("fields outside classes"));
+            };
+            let fields = context
+                .classes
+                .get(name)
+                .ok_or_else(|| unsupported(&format!("class {name}")))?;
+            let (index, field_ty) = fields
+                .iter()
+                .enumerate()
+                .find(|(_, (candidate, _))| candidate == field)
+                .map(|(index, (_, ty))| (index, ty))
+                .ok_or_else(|| unsupported(&format!("class field {name}.{field}")))?;
+            let object = load_place(out, *object, body)?;
+            let address = next_temp(out);
+            writeln!(
+                out,
+                "  {address} = getelementptr %AuraLlvmClass, ptr {object}, i32 0, i32 1, i64 {index}"
+            )
+            .unwrap();
+            let raw = next_temp(out);
+            writeln!(out, "  {raw} = load i64, ptr {address}").unwrap();
+            match field_ty {
+                Ty::Int => Ok(raw),
+                Ty::Bool => {
+                    let value = next_temp(out);
+                    writeln!(out, "  {value} = trunc i64 {raw} to i1").unwrap();
+                    Ok(value)
+                }
+                Ty::Float => {
+                    let value = next_temp(out);
+                    writeln!(out, "  {value} = bitcast i64 {raw} to double").unwrap();
+                    Ok(value)
+                }
+                _ => Err(unsupported("non-primitive class field")),
+            }
         }
+        Rvalue::Intrinsic(_) | Rvalue::AsyncOp(_) => Err(unsupported("non-scalar MIR operation")),
     }
 }
 
@@ -856,7 +1003,7 @@ fn llvm_zero(ty: &Ty) -> Result<&'static str, CodegenError> {
         Ty::Int => Ok("0"),
         Ty::String | Ty::Null => Ok("null"),
         Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::String) => Ok("null"),
-        Ty::Enum(_) | Ty::EnumApp { .. } => Ok("null"),
+        Ty::Enum(_) | Ty::EnumApp { .. } | Ty::Class(_) | Ty::ClassApp { .. } => Ok("null"),
         _ => Err(unsupported(&format!("type {}", ty.display()))),
     }
 }
@@ -876,7 +1023,7 @@ pub(super) fn llvm_type(ty: &Ty) -> Result<&'static str, CodegenError> {
         Ty::Float => Ok("double"),
         Ty::String | Ty::Null => Ok("ptr"),
         Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::String) => Ok("ptr"),
-        Ty::Enum(_) | Ty::EnumApp { .. } => Ok("ptr"),
+        Ty::Enum(_) | Ty::EnumApp { .. } | Ty::Class(_) | Ty::ClassApp { .. } => Ok("ptr"),
         _ => Err(unsupported(&format!("type {}", ty.display()))),
     }
 }
@@ -931,6 +1078,10 @@ fn is_enum_type(ty: &Ty) -> bool {
     matches!(ty, Ty::Enum(_) | Ty::EnumApp { .. })
 }
 
+fn is_class_type(ty: &Ty) -> bool {
+    matches!(ty, Ty::Class(_) | Ty::ClassApp { .. })
+}
+
 fn enum_variants(program: &LoweredProgram) -> HashMap<String, EnumVariantInfo> {
     program
         .source()
@@ -946,6 +1097,25 @@ fn enum_variants(program: &LoweredProgram) -> HashMap<String, EnumVariantInfo> {
                     },
                 )
             })
+        })
+        .collect()
+}
+
+fn classes(program: &LoweredProgram) -> HashMap<String, Vec<(String, Ty)>> {
+    program
+        .source()
+        .classes
+        .iter()
+        .map(|class| {
+            (
+                class.name.clone(),
+                class
+                    .fields
+                    .clone()
+                    .into_iter()
+                    .map(|field| (field.name, field.ty))
+                    .collect(),
+            )
         })
         .collect()
 }
