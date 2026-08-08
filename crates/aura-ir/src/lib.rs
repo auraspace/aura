@@ -686,7 +686,8 @@ pub mod lowering {
                             .is_some_and(|catch| catch.body.stmts.len() <= 1) =>
                 {
                     let handler = blocks.len() + 1;
-                    let finally_target = handler + 1;
+                    let cleanup = handler + 1;
+                    let finally_target = cleanup + 1;
                     let join = finally_target + 1;
                     let try_block = blocks.len();
                     blocks.push(BasicBlock {
@@ -701,8 +702,18 @@ pub mod lowering {
                         terminator: Terminator::Unreachable,
                     });
                     blocks.push(BasicBlock {
-                        statements: Vec::new(),
+                        statements: vec![Statement::LeaveTry],
                         terminator: Terminator::Unreachable,
+                    });
+                    blocks.push(BasicBlock {
+                        statements: vec![Statement::LeaveTry],
+                        terminator: if value.finally.is_some() {
+                            Terminator::Goto {
+                                target: finally_target,
+                            }
+                        } else {
+                            Terminator::Goto { target: join }
+                        },
                     });
                     blocks.push(BasicBlock {
                         statements: Vec::new(),
@@ -710,7 +721,7 @@ pub mod lowering {
                     });
                     blocks.push(BasicBlock {
                         statements: Vec::new(),
-                        terminator: Terminator::Goto { target: join },
+                        terminator: Terminator::Unreachable,
                     });
                     blocks[current].terminator = Terminator::Goto { target: try_block };
                     let Stmt::Throw(throw) = &value.try_block.stmts[0] else {
@@ -731,7 +742,11 @@ pub mod lowering {
                         lower_branch_terminal(
                             &catch.body,
                             handler,
-                            finally_target,
+                            if value.finally.is_some() {
+                                finally_target
+                            } else {
+                                join
+                            },
                             &mut blocks,
                             &mut locals,
                             &local_ids,
@@ -742,6 +757,20 @@ pub mod lowering {
                         blocks[handler].terminator = Terminator::Goto {
                             target: finally_target,
                         };
+                    }
+                    if let Some(finally) = &value.finally {
+                        lower_branch_terminal(
+                            finally,
+                            finally_target,
+                            join,
+                            &mut blocks,
+                            &mut locals,
+                            &local_ids,
+                            checked,
+                            None,
+                        )?;
+                    } else {
+                        blocks[finally_target].terminator = Terminator::Goto { target: join };
                     }
                     current = join;
                 }
@@ -5918,6 +5947,38 @@ mod tests {
                 if target.name == "touch" && target.package.is_empty() && args.is_empty()
         ));
         assert_eq!(body.effect, Effect::Pure);
+    }
+
+    #[test]
+    fn try_catch_without_finally_reaches_join_block() {
+        let file = aura_parser::parse_file(
+            "package demo\nfun main() { try { throw 42 } catch (n: Int) { println(\"caught\") } }\n",
+        )
+        .expect("parse");
+        let checked = aura_sema::check_file(&file).expect("check");
+        let program = LoweredProgram::from_checked(checked);
+        let body = program
+            .checked()
+            .functions
+            .iter()
+            .find(|function| function.name == "main")
+            .and_then(|function| function.body.as_ref())
+            .expect("main MIR");
+
+        assert!(body.validate().is_ok());
+        assert!(body.blocks.iter().enumerate().all(|(index, block)| {
+            !matches!(block.terminator, mir::Terminator::Goto { target } if target == index)
+        }));
+        assert!(body.blocks.iter().any(|block| {
+            block
+                .statements
+                .iter()
+                .any(|statement| matches!(statement, mir::Statement::EnterTry { .. }))
+        }));
+        assert!(body
+            .blocks
+            .iter()
+            .any(|block| matches!(block.terminator, mir::Terminator::Return { value: None })));
     }
 
     #[test]

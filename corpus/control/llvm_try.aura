@@ -1,0 +1,9 @@
+package demo.llvm_try
+
+fun main() {
+    try {
+        throw 42
+    } catch (n: Int) {
+        println("caught")
+    }
+}

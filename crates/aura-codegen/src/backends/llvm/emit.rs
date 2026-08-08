@@ -466,8 +466,23 @@ fn emit_terminator(
                 return Err(unsupported("async unwind edges"));
             }
         }
-        Terminator::Throw { .. } | Terminator::Cancel => {
-            return Err(unsupported("exception or cancellation control flow"));
+        Terminator::Throw { value, .. } => {
+            let ty = &body.locals[value.local].ty;
+            let loaded = load_place(out, *value, body)?;
+            match ty {
+                Ty::String => {
+                    let data = next_temp(out);
+                    writeln!(out, "  {data} = call ptr @aura_llvm_str_data(ptr {loaded})").unwrap();
+                    writeln!(out, "  call void @aura_throw_string(ptr {data})").unwrap();
+                }
+                Ty::Int => writeln!(out, "  call void @aura_throw_int(i64 {loaded})").unwrap(),
+                Ty::Bool => writeln!(out, "  call void @aura_throw_bool(i1 {loaded})").unwrap(),
+                _ => return Err(unsupported("non-primitive LLVM throw payload")),
+            }
+            out.push_str("  unreachable\n");
+        }
+        Terminator::Cancel => {
+            return Err(unsupported("cancellation control flow"));
         }
     }
     Ok(())

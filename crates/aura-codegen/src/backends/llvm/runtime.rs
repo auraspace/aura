@@ -14,6 +14,12 @@ declare i32 @strcmp(ptr, ptr)
 declare i32 @puts(ptr)
 declare i32 @snprintf(ptr, i64, ptr, ...)
 declare void @abort()
+declare i32 @_setjmp(ptr)
+declare void @aura_try_enter(ptr)
+declare void @aura_try_leave()
+declare void @aura_throw_string(ptr)
+declare void @aura_throw_int(i64)
+declare void @aura_throw_bool(i1)
 
 @.aura_int_fmt = private unnamed_addr constant [4 x i8] c"%ld\00", align 1
 @.aura_float_fmt = private unnamed_addr constant [3 x i8] c"%g\00", align 1

@@ -39,7 +39,36 @@ impl LlvmBackend {
         if options.lto != crate::options::Lto::Off {
             command.arg("-flto");
         }
-        command.arg(&ir_path).arg("-o").arg(out_bin);
+        command.arg(&ir_path);
+        let exceptions =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime/src/core/exceptions.c");
+        let exceptions_header =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime/llvm_exceptions.h");
+        if !exceptions.is_file() {
+            return Err(CodegenError::Configuration(
+                "LLVM exception runtime source is missing".into(),
+            ));
+        }
+        if !exceptions_header.is_file() {
+            return Err(CodegenError::Configuration(
+                "LLVM exception runtime header is missing".into(),
+            ));
+        }
+        command
+            .arg("-x")
+            .arg("c")
+            .args(["-include", "stdio.h"])
+            .args(["-include", "stdlib.h"])
+            .args(["-include", "string.h"])
+            .args(["-include", "setjmp.h"])
+            .args(["-include", "stdint.h"])
+            .args(["-include", "stdbool.h"])
+            .arg("-Wno-implicit-function-declaration")
+            .arg("-include")
+            .arg(exceptions_header)
+            .arg(exceptions)
+            .arg("-o")
+            .arg(out_bin);
         for foreign in program.foreign_libraries() {
             command.arg(format!("-l{}", foreign.library));
         }

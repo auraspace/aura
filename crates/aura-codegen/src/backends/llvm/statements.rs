@@ -60,7 +60,22 @@ pub(super) fn emit_statement(
                 writeln!(out, "  store ptr null, ptr %slot{}", place.local).unwrap();
             }
         }
-        Statement::EnterTry { .. } | Statement::LeaveTry => {}
+        Statement::EnterTry { handler, .. } => {
+            let id = out.lines().count();
+            writeln!(out, "  %ex_buf{id} = alloca [256 x i8], align 16").unwrap();
+            writeln!(out, "  call void @aura_try_enter(ptr %ex_buf{id})").unwrap();
+            writeln!(out, "  %ex_jump{id} = call i32 @_setjmp(ptr %ex_buf{id})").unwrap();
+            writeln!(out, "  %ex_thrown{id} = icmp ne i32 %ex_jump{id}, 0").unwrap();
+            writeln!(
+                out,
+                "  br i1 %ex_thrown{id}, label %bb{handler}, label %try_body{id}"
+            )
+            .unwrap();
+            writeln!(out, "try_body{id}:").unwrap();
+        }
+        Statement::LeaveTry => {
+            out.push_str("  call void @aura_try_leave()\n");
+        }
         Statement::ExtractVariantField {
             operand,
             variant,
