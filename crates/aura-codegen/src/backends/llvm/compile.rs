@@ -63,6 +63,7 @@ impl LlvmBackend {
             .args(["-include", "setjmp.h"])
             .args(["-include", "stdint.h"])
             .args(["-include", "stdbool.h"])
+            .args(["-include", "errno.h"])
             .arg("-Wno-implicit-function-declaration")
             .arg("-include")
             .arg(exceptions_header)

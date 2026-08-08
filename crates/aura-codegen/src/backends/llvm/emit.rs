@@ -643,6 +643,10 @@ fn dynamic_method_targets(
         return Vec::new();
     };
     let base = base.split('@').next().unwrap_or(base);
+    let receiver_args = match receiver_ty {
+        Ty::ClassApp { args, .. } => args.as_slice(),
+        _ => &[],
+    };
     let mut descendants = context
         .class_superclasses
         .iter()
@@ -665,12 +669,24 @@ fn dynamic_method_targets(
         .into_iter()
         .filter_map(|class| {
             let method = format!("{class}::{}", target.name);
-            let (package, _) = context
-                .signatures
-                .keys()
-                .find(|(_, name)| name == &method)?;
+            let method_args = if target.type_args.is_empty() {
+                receiver_args
+            } else {
+                target.type_args.as_slice()
+            };
+            let suffix = method_args
+                .iter()
+                .map(Ty::mono_suffix)
+                .collect::<Vec<_>>()
+                .join("_");
+            let generic_prefix = format!("{class}_{}_", target.name);
+            let (package, name) = context.signatures.keys().find(|(_, name)| {
+                (!suffix.is_empty() && *name == format!("{generic_prefix}{suffix}"))
+                    || (!suffix.is_empty() && name.starts_with(&generic_prefix))
+                    || (suffix.is_empty() && *name == method)
+            })?;
             let type_id = *context.class_type_ids.get(&class)?;
-            Some((type_id, symbol_name(package, &method)))
+            Some((type_id, symbol_name(package, name)))
         })
         .collect()
 }

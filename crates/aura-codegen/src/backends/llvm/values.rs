@@ -591,8 +591,21 @@ pub(super) fn emit_rvalue(
                         Ok(value)
                     }
                     Ty::Int => Ok(values[0].clone()),
+                    Ty::String => {
+                        let value = next_temp(out);
+                        writeln!(
+                            out,
+                            "  {value} = call %AuraLlvmOptInt @aura_llvm_str_to_int(ptr {})",
+                            values[0]
+                        )
+                        .unwrap();
+                        Ok(value)
+                    }
                     _ => Err(unsupported("toInt operand type")),
                 };
+            }
+            if let Some(value) = emit_builtin_method(out, target, args, &values, body)? {
+                return Ok(value);
             }
             if let Some(variant) = target
                 .variant
@@ -1109,6 +1122,12 @@ pub(super) fn emit_rvalue(
         }
         Rvalue::Field { object, field } => {
             let object_ty = &body.locals[object.local].ty;
+            if field == "len" && is_string_type(object_ty) {
+                let object = load_place(out, *object, body)?;
+                let value = next_temp(out);
+                writeln!(out, "  {value} = call i64 @aura_llvm_str_len(ptr {object})").unwrap();
+                return Ok(value);
+            }
             if field == "len" && is_array_type(object_ty) {
                 let object = load_place(out, *object, body)?;
                 let value = next_temp(out);
@@ -1199,6 +1218,152 @@ pub(super) fn emit_rvalue(
             emit_async_op(out, operation, body, result_ty, package, context)
         }
     }
+}
+
+fn emit_builtin_method(
+    out: &mut String,
+    target: &aura_ir::mir::CallTarget,
+    args: &[Place],
+    values: &[String],
+    body: &MirBody,
+) -> Result<Option<String>, CodegenError> {
+    let Some(receiver) = args.first() else {
+        return Ok(None);
+    };
+    let receiver_ty = &body.locals[receiver.local].ty;
+    if is_string_type(receiver_ty) {
+        let helper = match (target.name.as_str(), values.len()) {
+            ("isEmpty", 1) => "aura_llvm_str_is_empty",
+            ("startsWith", 2) => "aura_llvm_str_starts_with",
+            ("contains", 2) => "aura_llvm_str_contains",
+            ("endsWith", 2) => "aura_llvm_str_ends_with",
+            ("charAt", 2) => "aura_llvm_str_char_at",
+            ("indexOf", 2) => "aura_llvm_str_index_of",
+            ("substring", 3) => "aura_llvm_str_substring",
+            ("trim", 1) => "aura_llvm_str_trim",
+            ("trimStart", 1) => "aura_llvm_str_trim",
+            ("trimEnd", 1) => "aura_llvm_str_trim",
+            ("toLower", 1) => "aura_llvm_str_case",
+            ("toUpper", 1) => "aura_llvm_str_case",
+            ("split", 2) => "aura_llvm_str_split",
+            _ => return Ok(None),
+        };
+        let result = next_temp(out);
+        match target.name.as_str() {
+            "isEmpty" | "startsWith" | "contains" | "endsWith" => {
+                let arguments = values.join(", ");
+                writeln!(
+                    out,
+                    "  {result} = call i1 @{helper}(ptr {})",
+                    arguments.replace(", ", ", ptr ")
+                )
+                .unwrap();
+            }
+            "charAt" => {
+                writeln!(
+                    out,
+                    "  {result} = call i64 @{helper}(ptr {}, i64 {})",
+                    values[0], values[1]
+                )
+                .unwrap();
+            }
+            "indexOf" => {
+                writeln!(
+                    out,
+                    "  {result} = call i64 @{helper}(ptr {}, ptr {})",
+                    values[0], values[1]
+                )
+                .unwrap();
+            }
+            "substring" => {
+                writeln!(
+                    out,
+                    "  {result} = call ptr @{helper}(ptr {}, i64 {}, i64 {})",
+                    values[0], values[1], values[2]
+                )
+                .unwrap();
+            }
+            "trim" | "trimStart" | "trimEnd" => {
+                let mode = match target.name.as_str() {
+                    "trimStart" => 1,
+                    "trimEnd" => 2,
+                    _ => 0,
+                };
+                writeln!(
+                    out,
+                    "  {result} = call ptr @{helper}(ptr {}, i64 {mode})",
+                    values[0]
+                )
+                .unwrap();
+            }
+            "toLower" | "toUpper" => {
+                let upper = i32::from(target.name == "toUpper");
+                writeln!(
+                    out,
+                    "  {result} = call ptr @{helper}(ptr {}, i1 {})",
+                    values[0], upper
+                )
+                .unwrap();
+            }
+            "split" => {
+                writeln!(
+                    out,
+                    "  {result} = call ptr @{helper}(ptr {}, ptr {})",
+                    values[0], values[1]
+                )
+                .unwrap();
+            }
+            _ => unreachable!("builtin string helper shape checked above"),
+        }
+        return Ok(Some(result));
+    }
+    if let Some(element_ty) = array_element_type(receiver_ty) {
+        let helper = match (target.name.as_str(), values.len()) {
+            ("clone", 1) => "clone",
+            ("clear", 1) => "clear",
+            ("reserve", 2) => "reserve",
+            ("isEmpty", 1) => "is_empty",
+            _ => return Ok(None),
+        };
+        let _ = array_kind(element_ty)?;
+        match helper {
+            "clone" => {
+                let result = next_temp(out);
+                writeln!(
+                    out,
+                    "  {result} = call ptr @aura_llvm_array_clone(ptr {})",
+                    values[0]
+                )
+                .unwrap();
+                return Ok(Some(result));
+            }
+            "clear" => {
+                writeln!(out, "  call void @aura_llvm_array_clear(ptr {})", values[0]).unwrap();
+                return Ok(Some(String::new()));
+            }
+            "reserve" => {
+                writeln!(
+                    out,
+                    "  call void @aura_llvm_array_reserve(ptr {}, i64 {})",
+                    values[0], values[1]
+                )
+                .unwrap();
+                return Ok(Some(String::new()));
+            }
+            "is_empty" => {
+                let result = next_temp(out);
+                writeln!(
+                    out,
+                    "  {result} = call i1 @aura_llvm_array_is_empty(ptr {})",
+                    values[0]
+                )
+                .unwrap();
+                return Ok(Some(result));
+            }
+            _ => unreachable!("builtin array helper shape checked above"),
+        }
+    }
+    Ok(None)
 }
 
 fn emit_superclass_arg(
@@ -1664,11 +1829,28 @@ pub(super) fn llvm_zero(ty: &Ty) -> Result<&'static str, CodegenError> {
     }
 }
 
-pub(super) fn next_temp(out: &str) -> String {
-    format!(
-        "%t{}",
-        out.lines().filter(|line| line.contains(" = ")).count()
-    )
+pub(super) fn next_temp(out: &mut String) -> String {
+    let mut next = 0;
+    let bytes = out.as_bytes();
+    let mut index = 0;
+    while index + 2 < bytes.len() {
+        if bytes[index] == b'%' && bytes[index + 1] == b't' && bytes[index + 2].is_ascii_digit() {
+            let start = index + 2;
+            let mut end = start;
+            while end < bytes.len() && bytes[end].is_ascii_digit() {
+                end += 1;
+            }
+            if let Ok(value) = out[start..end].parse::<usize>() {
+                next = next.max(value + 1);
+            }
+            index = end;
+        } else {
+            index += 1;
+        }
+    }
+    let temp = format!("%t{next}");
+    writeln!(out, "; reserve {temp}").unwrap();
+    temp
 }
 
 pub(crate) fn llvm_type(ty: &Ty) -> Result<&'static str, CodegenError> {

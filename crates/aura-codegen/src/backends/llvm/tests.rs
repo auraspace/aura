@@ -65,7 +65,7 @@ fn emits_and_runs_string_operations() {
     };
     LlvmBackend::compile(&program, &out, &options).unwrap();
     let output = std::process::Command::new(&out).output().unwrap();
-    assert!(output.status.success());
+    assert!(output.status.success(), "{output:?}");
     assert_eq!(String::from_utf8_lossy(&output.stdout), "ok\nlit\nmix\n");
     let _ = std::fs::remove_file(&out);
     let _ = std::fs::remove_file(out.with_file_name(format!(
@@ -622,6 +622,40 @@ fn runs_overridden_method_through_base_reference() {
 }
 
 #[test]
+fn runs_string_and_array_builtin_methods() {
+    assert_llvm_source_runs(
+        r#"package demo
+fun main() {
+    val value = " Hello, Aura "
+    assert(value.trim() == "Hello, Aura")
+    assert(value.trimStart() == "Hello, Aura ")
+    assert(value.trimEnd() == " Hello, Aura")
+    assert(value.toLower() == " hello, aura ")
+    assert(value.toUpper() == " HELLO, AURA ")
+    assert(value.startsWith(" Hello"))
+    assert(value.contains("Aura"))
+    assert(value.endsWith(" "))
+    assert(value.indexOf("Aura") == 8)
+    assert(value.charAt(1) == 72)
+    assert(value.substring(1, 6) == "Hello")
+    val parts = "a,b".split(",")
+    assert(parts.len == 2)
+    val values = Array<Int>(0)
+    values.push(1)
+    values.reserve(4)
+    val copy = values.clone()
+    values.clear()
+    assert(values.isEmpty())
+    assert(copy.get(0) == 1)
+    println("ok")
+}
+"#,
+        "builtins",
+        "ok\n",
+    );
+}
+
+#[test]
 fn emits_foreign_declarations_without_lowering_bodies() {
     let file = parse_file(include_str!(
         "../../../../../corpus/alpha/ffi_declaration.aura"
@@ -653,4 +687,32 @@ fn assert_llvm_compiles(module: &str, suffix: &str) {
     );
     let _ = std::fs::remove_file(ir_path);
     let _ = std::fs::remove_file(object_path);
+}
+
+fn assert_llvm_source_runs(source: &str, suffix: &str, expected: &str) {
+    let file = parse_file(source).unwrap();
+    let checked = check_file(&file).unwrap();
+    let program = LoweredProgram::from_checked(checked);
+    assert!(program.mir_is_complete());
+    let out = PathBuf::from(format!("/tmp/aura-llvm-{suffix}-{}", std::process::id()));
+    let options = BackendBuildOptions {
+        backend: Backend::Llvm,
+        target: Target::Native,
+        profile: Profile::Debug,
+        optimization: OptimizationLevel::O0,
+        debug: false,
+        lto: Lto::Off,
+        panic: PanicStrategy::Abort,
+        output: OutputKind::Executable,
+        features: Vec::new(),
+    };
+    LlvmBackend::compile(&program, &out, &options).unwrap();
+    let output = std::process::Command::new(&out).output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
+    let _ = std::fs::remove_file(&out);
+    let _ = std::fs::remove_file(out.with_file_name(format!(
+        "{}.aura.ll",
+        out.file_name().unwrap().to_string_lossy()
+    )));
 }

@@ -43,6 +43,264 @@ void aura_assert_eq_bool(bool a, bool b)
   }
 }
 
+/* ---- LLVM backend builtins ----
+ * These helpers intentionally use the same prefix/layout as the textual LLVM
+ * runtime. They are linked in this translation unit so the backend can reuse
+ * the platform C library for bounds checks and string parsing. */
+
+typedef struct {
+  int64_t refs;
+  int64_t length;
+  char data[];
+} AuraLlvmString;
+
+typedef struct {
+  int64_t refs;
+  int64_t length;
+  int64_t kind;
+  int64_t capacity;
+  int64_t *data;
+} AuraLlvmArray;
+
+static char *aura_llvm_string_data(void *value)
+{
+  return value == NULL ? NULL : ((AuraLlvmString *)value)->data;
+}
+
+static void *aura_llvm_string_copy_span(const char *source, size_t length)
+{
+  void *value = aura_llvm_str_alloc((int64_t)length);
+  if (value == NULL)
+  {
+    aura_throw_string("LLVM string allocation failed");
+  }
+  if (length > 0)
+  {
+    memcpy(aura_llvm_string_data(value), source, length);
+  }
+  aura_llvm_string_data(value)[length] = '\0';
+  return value;
+}
+
+bool aura_llvm_str_is_empty(void *value)
+{
+  char *data = aura_llvm_string_data(value);
+  return data == NULL || data[0] == '\0';
+}
+
+bool aura_llvm_str_starts_with(void *value, void *prefix)
+{
+  char *data = aura_llvm_string_data(value);
+  char *needle = aura_llvm_string_data(prefix);
+  size_t length = data == NULL ? 0 : strlen(data);
+  size_t prefix_length = needle == NULL ? 0 : strlen(needle);
+  return prefix_length <= length &&
+         (prefix_length == 0 || memcmp(data, needle, prefix_length) == 0);
+}
+
+bool aura_llvm_str_contains(void *value, void *needle)
+{
+  char *data = aura_llvm_string_data(value);
+  char *part = aura_llvm_string_data(needle);
+  return strstr(data == NULL ? "" : data, part == NULL ? "" : part) != NULL;
+}
+
+bool aura_llvm_str_ends_with(void *value, void *suffix)
+{
+  char *data = aura_llvm_string_data(value);
+  char *tail = aura_llvm_string_data(suffix);
+  size_t length = data == NULL ? 0 : strlen(data);
+  size_t suffix_length = tail == NULL ? 0 : strlen(tail);
+  return suffix_length <= length &&
+         (suffix_length == 0 ||
+          memcmp(data + length - suffix_length, tail, suffix_length) == 0);
+}
+
+int64_t aura_llvm_str_char_at(void *value, int64_t index)
+{
+  char *data = aura_llvm_string_data(value);
+  size_t length = data == NULL ? 0 : strlen(data);
+  if (data == NULL || index < 0 || (size_t)index >= length)
+  {
+    aura_throw_string("String charAt out of bounds");
+  }
+  return (int64_t)(unsigned char)data[index];
+}
+
+int64_t aura_llvm_str_index_of(void *value, void *needle)
+{
+  char *data = aura_llvm_string_data(value);
+  char *part = aura_llvm_string_data(needle);
+  char *found = strstr(data == NULL ? "" : data, part == NULL ? "" : part);
+  return found == NULL ? -1 : (int64_t)(found - (data == NULL ? (char *)"" : data));
+}
+
+void *aura_llvm_str_substring(void *value, int64_t start, int64_t end)
+{
+  char *data = aura_llvm_string_data(value);
+  size_t length = data == NULL ? 0 : strlen(data);
+  if (data == NULL || start < 0 || end < start || (size_t)end > length)
+  {
+    aura_throw_string("String substring out of bounds");
+  }
+  return aura_llvm_string_copy_span(data + start, (size_t)(end - start));
+}
+
+void *aura_llvm_str_trim(void *value, int64_t mode)
+{
+  char *data = aura_llvm_string_data(value);
+  size_t length = data == NULL ? 0 : strlen(data);
+  size_t start = 0;
+  size_t end = length;
+  if (mode != 2)
+  {
+    while (start < end && strchr(" \t\n\r", data[start]) != NULL)
+    {
+      start++;
+    }
+  }
+  if (mode != 1)
+  {
+    while (end > start && strchr(" \t\n\r", data[end - 1]) != NULL)
+    {
+      end--;
+    }
+  }
+  return aura_llvm_string_copy_span(data == NULL ? "" : data + start, end - start);
+}
+
+void *aura_llvm_str_case(void *value, bool upper)
+{
+  char *data = aura_llvm_string_data(value);
+  size_t length = data == NULL ? 0 : strlen(data);
+  void *result = aura_llvm_string_copy_span(data == NULL ? "" : data, length);
+  char *out = aura_llvm_string_data(result);
+  for (size_t index = 0; index < length; index++)
+  {
+    if (upper && out[index] >= 'a' && out[index] <= 'z')
+    {
+      out[index] = (char)(out[index] - ('a' - 'A'));
+    }
+    else if (!upper && out[index] >= 'A' && out[index] <= 'Z')
+    {
+      out[index] = (char)(out[index] + ('a' - 'A'));
+    }
+  }
+  return result;
+}
+
+AuraLlvmOptInt aura_llvm_str_to_int(void *value)
+{
+  AuraLlvmOptInt result = {false, 0};
+  char *data = aura_llvm_string_data(value);
+  if (data == NULL || data[0] == '\0')
+  {
+    return result;
+  }
+  char *end = NULL;
+  errno = 0;
+  long long parsed = strtoll(data, &end, 10);
+  if (errno == 0 && end != data && *end == '\0')
+  {
+    result.has = true;
+    result.value = (int64_t)parsed;
+  }
+  return result;
+}
+
+void *aura_llvm_str_split(void *value, void *separator)
+{
+  char *data = aura_llvm_string_data(value);
+  char *sep = aura_llvm_string_data(separator);
+  data = data == NULL ? "" : data;
+  sep = sep == NULL ? "" : sep;
+  size_t separator_length = strlen(sep);
+  if (separator_length == 0)
+  {
+    aura_throw_string("String split empty separator");
+  }
+  size_t count = 1;
+  for (char *cursor = data; (cursor = strstr(cursor, sep)) != NULL; cursor += separator_length)
+  {
+    count++;
+  }
+  void *array = aura_llvm_array_alloc((int64_t)count, 1);
+  char *start = data;
+  for (size_t index = 0; index < count; index++)
+  {
+    char *found = strstr(start, sep);
+    size_t length = found == NULL ? strlen(start) : (size_t)(found - start);
+    void *part = aura_llvm_string_copy_span(start, length);
+    aura_llvm_array_set(array, (int64_t)index, (int64_t)(intptr_t)part);
+    aura_llvm_str_release(part);
+    if (found == NULL)
+    {
+      break;
+    }
+    start = found + separator_length;
+  }
+  return array;
+}
+
+static void aura_llvm_array_release_item(int64_t kind, int64_t raw)
+{
+  if (kind == 1)
+  {
+    aura_llvm_str_release((void *)(intptr_t)raw);
+  }
+}
+
+void *aura_llvm_array_clone(void *value)
+{
+  AuraLlvmArray *source = (AuraLlvmArray *)value;
+  if (source == NULL)
+  {
+    return NULL;
+  }
+  void *copy = aura_llvm_array_alloc(source->length, source->kind);
+  for (int64_t index = 0; index < source->length; index++)
+  {
+    aura_llvm_array_set(copy, index, source->data[index]);
+  }
+  return copy;
+}
+
+void aura_llvm_array_clear(void *value)
+{
+  AuraLlvmArray *array = (AuraLlvmArray *)value;
+  if (array == NULL)
+  {
+    return;
+  }
+  for (int64_t index = 0; index < array->length; index++)
+  {
+    aura_llvm_array_release_item(array->kind, array->data[index]);
+    array->data[index] = 0;
+  }
+  array->length = 0;
+}
+
+void aura_llvm_array_reserve(void *value, int64_t capacity)
+{
+  AuraLlvmArray *array = (AuraLlvmArray *)value;
+  if (array == NULL || capacity <= array->capacity)
+  {
+    return;
+  }
+  int64_t *data = realloc(array->data, (size_t)capacity * sizeof(int64_t));
+  if (data == NULL)
+  {
+    aura_throw_string("Array reserve out of memory");
+  }
+  array->data = data;
+  array->capacity = capacity;
+}
+
+bool aura_llvm_array_is_empty(void *value)
+{
+  return value == NULL || ((AuraLlvmArray *)value)->length == 0;
+}
+
 /* ---- Unchecked exceptions (setjmp / longjmp) ---- */
 
 #define AURA_EX_MAX 64
