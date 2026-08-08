@@ -2700,9 +2700,11 @@ pub mod lowering {
             Ty::String => Rvalue::Intrinsic(Intrinsic::ExceptionString),
             Ty::Int => Rvalue::Intrinsic(Intrinsic::ExceptionInt),
             Ty::Bool => Rvalue::Intrinsic(Intrinsic::ExceptionBool),
-            Ty::Class(_) | Ty::ClassApp { .. } | Ty::Enum(_) | Ty::EnumApp { .. } => {
-                Rvalue::Intrinsic(Intrinsic::ExceptionObject)
-            }
+            Ty::Class(_)
+            | Ty::ClassApp { .. }
+            | Ty::Enum(_)
+            | Ty::EnumApp { .. }
+            | Ty::ForeignHandle(_) => Rvalue::Intrinsic(Intrinsic::ExceptionObject),
             _ => unreachable!("exception payload is restricted to primitive types"),
         }
     }
