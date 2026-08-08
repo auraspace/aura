@@ -4762,6 +4762,11 @@ impl LoweredProgram {
         &self.ir
     }
 
+    /// Exposes checked declarations needed by backends for nominal layout.
+    pub fn source(&self) -> &CheckedFile {
+        &self.source
+    }
+
     pub fn async_mir(&self) -> &[mir::MirBody] {
         &self.ir.async_mir
     }

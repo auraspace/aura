@@ -147,6 +147,7 @@ result_join:
 
 struct EmitContext {
     signatures: Signatures,
+    enum_tags: HashMap<String, i64>,
     string_literals: Vec<String>,
 }
 
@@ -155,6 +156,7 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
     let mut module = String::from("; ModuleID = 'aura'\nsource_filename = \"aura\"\n\n");
     let mut context = EmitContext {
         signatures: signatures(program),
+        enum_tags: enum_tags(program),
         string_literals: Vec::new(),
     };
     module.push_str(STRING_RUNTIME);
@@ -384,10 +386,19 @@ fn emit_terminator(
             }
         }
         Terminator::Unreachable => out.push_str("  unreachable\n"),
-        Terminator::SwitchTag { .. }
-        | Terminator::Await { .. }
-        | Terminator::Throw { .. }
-        | Terminator::Cancel => {
+        Terminator::SwitchTag {
+            discriminant,
+            targets,
+            otherwise,
+        } => {
+            let value = load_place(out, *discriminant, body)?;
+            writeln!(out, "  switch i64 {value}, label %bb{otherwise} [").unwrap();
+            for (tag, target) in targets {
+                writeln!(out, "    i64 {tag}, label %bb{target}").unwrap();
+            }
+            out.push_str("  ]\n");
+        }
+        Terminator::Await { .. } | Terminator::Throw { .. } | Terminator::Cancel => {
             return Err(unsupported(
                 "tag switch, async, exception, or cancellation control flow",
             ));
@@ -548,6 +559,17 @@ fn emit_rvalue(
                 .map(|place| load_place(out, *place, body))
                 .collect::<Result<Vec<_>, _>>()?;
             let name = symbol_name(&target.package, &target.name);
+            if let Some(variant) = &target.variant {
+                if !args.is_empty() {
+                    return Err(unsupported("enum payload constructors"));
+                }
+                let tag = context
+                    .enum_tags
+                    .get(variant)
+                    .copied()
+                    .ok_or_else(|| unsupported(&format!("enum variant {variant}")))?;
+                return Ok(tag.to_string());
+            }
             if is_print_call(target) {
                 if args.len() != 1 || !is_string_type(&body.locals[args[0].local].ty) {
                     return Err(unsupported(&format!("{} argument shape", target.name)));
@@ -618,10 +640,16 @@ fn emit_rvalue(
             }
             load_string_byte(out, *collection, *index, body)
         }
-        Rvalue::Intrinsic(_)
-        | Rvalue::VariantTag { .. }
-        | Rvalue::Field { .. }
-        | Rvalue::AsyncOp(_) => Err(unsupported("non-scalar MIR operation")),
+        Rvalue::VariantTag { operand } => {
+            let value = load_place(out, *operand, body)?;
+            if !is_enum_type(&body.locals[operand.local].ty) {
+                return Err(unsupported("variant tags outside unit enums"));
+            }
+            Ok(value)
+        }
+        Rvalue::Intrinsic(_) | Rvalue::Field { .. } | Rvalue::AsyncOp(_) => {
+            Err(unsupported("non-scalar MIR operation"))
+        }
     }
 }
 
@@ -669,6 +697,7 @@ fn llvm_zero(ty: &Ty) -> Result<&'static str, CodegenError> {
         Ty::Int => Ok("0"),
         Ty::String | Ty::Null => Ok("null"),
         Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::String) => Ok("null"),
+        Ty::Enum(_) | Ty::EnumApp { .. } => Ok("0"),
         _ => Err(unsupported(&format!("type {}", ty.display()))),
     }
 }
@@ -688,6 +717,7 @@ pub(super) fn llvm_type(ty: &Ty) -> Result<&'static str, CodegenError> {
         Ty::Float => Ok("double"),
         Ty::String | Ty::Null => Ok("ptr"),
         Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::String) => Ok("ptr"),
+        Ty::Enum(_) | Ty::EnumApp { .. } => Ok("i64"),
         _ => Err(unsupported(&format!("type {}", ty.display()))),
     }
 }
@@ -736,6 +766,24 @@ fn is_string_type(ty: &Ty) -> bool {
         Ty::Nullable(inner) => matches!(inner.as_ref(), Ty::String),
         _ => false,
     }
+}
+
+fn is_enum_type(ty: &Ty) -> bool {
+    matches!(ty, Ty::Enum(_) | Ty::EnumApp { .. })
+}
+
+fn enum_tags(program: &LoweredProgram) -> HashMap<String, i64> {
+    program
+        .source()
+        .enums
+        .iter()
+        .flat_map(|enum_decl| {
+            enum_decl
+                .variants
+                .iter()
+                .map(|variant| (variant.name.clone(), variant.tag as i64))
+        })
+        .collect()
 }
 
 fn is_print_call(target: &aura_ir::mir::CallTarget) -> bool {
