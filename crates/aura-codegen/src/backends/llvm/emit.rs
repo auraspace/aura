@@ -1320,6 +1320,11 @@ fn coerce_llvm_argument(
     if types_compatible(source_ty, expected_ty) {
         return Ok(value.to_owned());
     }
+    if is_pointer_value_type(source_ty) && is_pointer_value_type(expected_ty) {
+        // Nominal class conversions have already been checked by sema; all
+        // heap values cross the LLVM ABI as opaque pointers.
+        return Ok(value.to_owned());
+    }
     match (source_ty, expected_ty) {
         (Ty::Null, Ty::Nullable(inner)) if matches!(inner.as_ref(), Ty::Int) => {
             Ok("{ i1 false, i64 0 }".into())

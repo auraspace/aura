@@ -91,17 +91,7 @@ pub(crate) fn compatible_receiver(left: &Ty, right: &Ty) -> bool {
         return compatible_receiver(left, inner);
     }
     match (left, right) {
-        (Ty::Class(left), Ty::Class(right)) => left.split('@').next() == right.split('@').next(),
-        (
-            Ty::ClassApp {
-                name: left,
-                args: left_args,
-            },
-            Ty::ClassApp {
-                name: right,
-                args: right_args,
-            },
-        ) => left.split('@').next() == right.split('@').next() && left_args == right_args,
+        (left, right) if is_class_type(left) && is_class_type(right) => true,
         _ => left == right,
     }
 }
