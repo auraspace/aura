@@ -151,7 +151,10 @@ fn statement_supported(statement: &mir::Statement) -> bool {
 
 fn rvalue_supported(value: &mir::Rvalue) -> bool {
     match value {
-        mir::Rvalue::ConstInt(_) | mir::Rvalue::ConstBool(_) | mir::Rvalue::Use(_) => true,
+        mir::Rvalue::ConstInt(_)
+        | mir::Rvalue::ConstFloat(_)
+        | mir::Rvalue::ConstBool(_)
+        | mir::Rvalue::Use(_) => true,
         mir::Rvalue::Unary { .. } => true,
         mir::Rvalue::Binary { op, .. } => !matches!(op, mir::BinaryOp::Coalesce),
         mir::Rvalue::Select { .. } => true,
@@ -208,6 +211,7 @@ fn rvalue(value: &mir::Rvalue, body: &mir::MirBody, package: &str) -> String {
     match value {
         mir::Rvalue::Use(value) => place(value, body),
         mir::Rvalue::ConstInt(value) => value.to_string(),
+        mir::Rvalue::ConstFloat(value) => f64::from_bits(*value).to_string(),
         mir::Rvalue::ConstBool(value) => if *value { "1" } else { "0" }.into(),
         mir::Rvalue::Unary { op, operand } => {
             let op = match op {

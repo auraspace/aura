@@ -248,7 +248,10 @@ impl CompileOptions {
         self.profile_settings
             .validate()
             .map_err(OptionsError::InvalidProfileSettings)?;
-        if self.output == OutputKind::Executable && self.runtime_abi.is_none() {
+        if self.backend == Backend::C
+            && self.output == OutputKind::Executable
+            && self.runtime_abi.is_none()
+        {
             return Err(OptionsError::MissingRuntimeAbi {
                 output: self.output,
             });

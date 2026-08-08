@@ -97,6 +97,8 @@ pub mod mir {
     pub enum Rvalue {
         Use(Place),
         ConstInt(i64),
+        /// IEEE-754 bits keep MIR equality/hash behavior deterministic.
+        ConstFloat(u64),
         ConstBool(bool),
         ConstString(String),
         ConstNull,
@@ -411,6 +413,7 @@ pub mod mir {
                     }
                 },
                 Rvalue::ConstInt(_)
+                | Rvalue::ConstFloat(_)
                 | Rvalue::ConstBool(_)
                 | Rvalue::ConstString(_)
                 | Rvalue::ConstNull
@@ -1586,6 +1589,7 @@ pub mod lowering {
     ) -> Result<Rvalue, LowerError> {
         match expr {
             Expr::Int(value) => Ok(Rvalue::ConstInt(value.value)),
+            Expr::Float(value) => Ok(Rvalue::ConstFloat(value.value.to_bits())),
             Expr::Bool(value) => Ok(Rvalue::ConstBool(value.value)),
             Expr::String(value) => Ok(Rvalue::ConstString(value.value.clone())),
             Expr::Null(_) => Ok(Rvalue::ConstNull),

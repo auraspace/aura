@@ -1037,6 +1037,7 @@ fn cmd_build(args: &[String]) -> ExitCode {
     let compiled = if backend == Backend::Llvm {
         let mut options = llvm_options();
         options.profile_settings = pkg.profile_settings.clone();
+        options.profile_settings.backend = Backend::Llvm;
         options.backend = Backend::Llvm;
         build_from_checked_with_options(&checked, &out, &runtime, options, native)
     } else {
