@@ -245,7 +245,14 @@ fn emit_function(
     out.push_str("entry:\n");
     for (index, local) in body.locals.iter().enumerate() {
         if local.ty != Ty::Unit {
-            writeln!(out, "  %slot{index} = alloca {}", llvm_type(&local.ty)?).unwrap();
+            let ty = llvm_type(&local.ty)?;
+            writeln!(out, "  %slot{index} = alloca {ty}").unwrap();
+            writeln!(
+                out,
+                "  store {ty} {}, ptr %slot{index}",
+                llvm_zero(&local.ty)?
+            )
+            .unwrap();
         }
     }
     for (index, local) in body.locals.iter().take(function.params.len()).enumerate() {
@@ -309,8 +316,21 @@ fn emit_statement(
             }
         }
         Statement::EnterTry { .. } | Statement::LeaveTry => {}
-        Statement::ExtractVariantField { .. } | Statement::LoadIndex { .. } => {
-            return Err(unsupported("aggregate extraction/indexing"));
+        Statement::ExtractVariantField { .. } => {
+            return Err(unsupported("aggregate field extraction"));
+        }
+        Statement::LoadIndex {
+            collection,
+            index,
+            to,
+            ..
+        } => {
+            let collection_ty = &body.locals[collection.local].ty;
+            if !is_string_type(collection_ty) || body.locals[to.local].ty != Ty::Int {
+                return Err(unsupported("indexing non-String values"));
+            }
+            let value = load_string_byte(out, *collection, *index, body)?;
+            writeln!(out, "  store i64 {value}, ptr %slot{}", to.local).unwrap();
         }
     }
     Ok(())
@@ -416,9 +436,21 @@ fn emit_rvalue(
             let value = load_place(out, *operand, body)?;
             let operand_ty = &body.locals[operand.local].ty;
             match (op, operand_ty) {
-                (UnaryOp::Neg, Ty::Float) => Ok(format!("fneg double {value}")),
-                (UnaryOp::Neg, _) => Ok(format!("sub i64 0, {value}")),
-                (UnaryOp::Not, Ty::Bool) => Ok(format!("xor i1 {value}, true")),
+                (UnaryOp::Neg, Ty::Float) => {
+                    let temp = next_temp(out);
+                    writeln!(out, "  {temp} = fneg double {value}").unwrap();
+                    Ok(temp)
+                }
+                (UnaryOp::Neg, _) => {
+                    let temp = next_temp(out);
+                    writeln!(out, "  {temp} = sub i64 0, {value}").unwrap();
+                    Ok(temp)
+                }
+                (UnaryOp::Not, Ty::Bool) => {
+                    let temp = next_temp(out);
+                    writeln!(out, "  {temp} = xor i1 {value}, true").unwrap();
+                    Ok(temp)
+                }
                 (UnaryOp::Not, _) => Err(unsupported("logical not on non-bool")),
             }
         }
@@ -445,6 +477,15 @@ fn emit_rvalue(
                             writeln!(out, "  {inverted} = xor i1 {temp}, true").unwrap();
                             return Ok(inverted);
                         }
+                    }
+                    BinaryOp::Coalesce => {
+                        let present = next_temp(out);
+                        writeln!(out, "  {present} = icmp ne ptr {left}, null").unwrap();
+                        writeln!(
+                            out,
+                            "  {temp} = select i1 {present}, ptr {left}, ptr {right}"
+                        )
+                        .unwrap();
                     }
                     _ => return Err(unsupported("String binary operation")),
                 }
@@ -544,12 +585,33 @@ fn emit_rvalue(
             .unwrap();
             Ok(temp)
         }
+        Rvalue::Unwrap { operand } => load_place(out, *operand, body),
+        Rvalue::TypeTest { operand, .. } => {
+            let value = load_place(out, *operand, body)?;
+            if !is_string_type(&body.locals[operand.local].ty) {
+                return Err(unsupported("type tests outside nullable String"));
+            }
+            let temp = next_temp(out);
+            writeln!(out, "  {temp} = icmp ne ptr {value}, null").unwrap();
+            Ok(temp)
+        }
+        Rvalue::Length(place) => {
+            if !is_string_type(&body.locals[place.local].ty) {
+                return Err(unsupported("length outside String"));
+            }
+            let value = load_place(out, *place, body)?;
+            let temp = next_temp(out);
+            writeln!(out, "  {temp} = call i64 @aura_llvm_str_len(ptr {value})").unwrap();
+            Ok(temp)
+        }
+        Rvalue::Index { collection, index } => {
+            if !is_string_type(&body.locals[collection.local].ty) {
+                return Err(unsupported("indexing non-String values"));
+            }
+            load_string_byte(out, *collection, *index, body)
+        }
         Rvalue::Intrinsic(_)
-        | Rvalue::Unwrap { .. }
-        | Rvalue::TypeTest { .. }
         | Rvalue::VariantTag { .. }
-        | Rvalue::Length(_)
-        | Rvalue::Index { .. }
         | Rvalue::Field { .. }
         | Rvalue::AsyncOp(_) => Err(unsupported("non-scalar MIR operation")),
     }
@@ -563,6 +625,44 @@ fn load_place(out: &mut String, place: Place, body: &MirBody) -> Result<String, 
     let temp = next_temp(out);
     writeln!(out, "  {temp} = load {ty}, ptr %slot{}", place.local).unwrap();
     Ok(temp)
+}
+
+fn load_string_byte(
+    out: &mut String,
+    collection: Place,
+    index: Place,
+    body: &MirBody,
+) -> Result<String, CodegenError> {
+    if body.locals[index.local].ty != Ty::Int {
+        return Err(unsupported("String index is not Int"));
+    }
+    let value = load_place(out, collection, body)?;
+    let offset = load_place(out, index, body)?;
+    let data = next_temp(out);
+    writeln!(out, "  {data} = call ptr @aura_llvm_str_data(ptr {value})").unwrap();
+    let address = next_temp(out);
+    writeln!(
+        out,
+        "  {address} = getelementptr i8, ptr {data}, i64 {offset}"
+    )
+    .unwrap();
+    let byte = next_temp(out);
+    writeln!(out, "  {byte} = load i8, ptr {address}").unwrap();
+    let result = next_temp(out);
+    writeln!(out, "  {result} = zext i8 {byte} to i64").unwrap();
+    Ok(result)
+}
+
+fn llvm_zero(ty: &Ty) -> Result<&'static str, CodegenError> {
+    match ty {
+        Ty::Unit => Err(unsupported("unit local")),
+        Ty::Bool => Ok("false"),
+        Ty::Float => Ok("0.0"),
+        Ty::Int => Ok("0"),
+        Ty::String | Ty::Null => Ok("null"),
+        Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::String) => Ok("null"),
+        _ => Err(unsupported(&format!("type {}", ty.display()))),
+    }
 }
 
 fn next_temp(out: &str) -> String {

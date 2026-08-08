@@ -75,6 +75,19 @@ fn emits_and_runs_string_operations() {
 }
 
 #[test]
+fn emits_string_length_and_indexing() {
+    let file = parse_file(include_str!(
+        "../../../../../corpus/control/for_in_string.aura"
+    ))
+    .unwrap();
+    let checked = check_file(&file).unwrap();
+    let module = LlvmBackend::emit_module(&LoweredProgram::from_checked(checked)).unwrap();
+    assert!(module.contains("call i64 @aura_llvm_str_len"));
+    assert!(module.contains("zext i8"));
+    assert_llvm_compiles(&module, "string-index");
+}
+
+#[test]
 fn rejects_async_mir_before_emitting_partial_ir() {
     let file = parse_file("package demo\nasync fun tick(): Int { return 1 }\n").unwrap();
     let checked = check_file(&file).unwrap();
