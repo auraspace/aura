@@ -251,14 +251,24 @@ done:
 pub(crate) const CLASS_RUNTIME: &str = r#"
 %AuraLlvmClass = type { i64, [0 x i64] }
 
-define ptr @aura_llvm_class_alloc(i64 %fields) {
+define ptr @aura_llvm_class_alloc(i64 %fields, i64 %type_id) {
 entry:
   %field_bytes = mul i64 %fields, 8
   %size = add i64 %field_bytes, 8
   %value = call ptr @malloc(i64 %size)
   %refs = getelementptr %AuraLlvmClass, ptr %value, i32 0, i32 0
-  store i64 1, ptr %refs
+  %tag = shl i64 %type_id, 32
+  %initial = or i64 %tag, 1
+  store i64 %initial, ptr %refs
   ret ptr %value
+}
+
+define i64 @aura_llvm_class_type(ptr %value) {
+entry:
+  %refs = getelementptr %AuraLlvmClass, ptr %value, i32 0, i32 0
+  %encoded = load i64, ptr %refs
+  %type_id = lshr i64 %encoded, 32
+  ret i64 %type_id
 }
 
 define void @aura_llvm_class_retain(ptr %value) {
@@ -268,7 +278,10 @@ entry:
 retain:
   %refs = getelementptr %AuraLlvmClass, ptr %value, i32 0, i32 0
   %current = load i64, ptr %refs
-  %next = add i64 %current, 1
+  %count = and i64 %current, 4294967295
+  %next_count = add i64 %count, 1
+  %tag = and i64 %current, -4294967296
+  %next = or i64 %tag, %next_count
   store i64 %next, ptr %refs
   br label %done
 done:
@@ -282,9 +295,12 @@ entry:
 release:
   %refs = getelementptr %AuraLlvmClass, ptr %value, i32 0, i32 0
   %current = load i64, ptr %refs
-  %next = sub i64 %current, 1
+  %count = and i64 %current, 4294967295
+  %next_count = sub i64 %count, 1
+  %tag = and i64 %current, -4294967296
+  %next = or i64 %tag, %next_count
   store i64 %next, ptr %refs
-  %last = icmp eq i64 %next, 0
+  %last = icmp eq i64 %next_count, 0
   br i1 %last, label %destroy, label %done
 destroy:
   call void @free(ptr %value)

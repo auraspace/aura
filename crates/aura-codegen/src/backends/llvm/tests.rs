@@ -587,6 +587,41 @@ fn runs_class_methods_and_field_updates() {
 }
 
 #[test]
+fn runs_overridden_method_through_base_reference() {
+    let file = parse_file(include_str!(
+        "../../../../../corpus/class/override_dispatch_paths.aura"
+    ))
+    .unwrap();
+    let checked = check_file(&file).unwrap();
+    let program = LoweredProgram::from_checked(checked);
+    assert!(program.mir_is_complete());
+    let out = PathBuf::from(format!("/tmp/aura-llvm-dispatch-{}", std::process::id()));
+    let options = BackendBuildOptions {
+        backend: Backend::Llvm,
+        target: Target::Native,
+        profile: Profile::Debug,
+        optimization: OptimizationLevel::O0,
+        debug: false,
+        lto: Lto::Off,
+        panic: PanicStrategy::Abort,
+        output: OutputKind::Executable,
+        features: Vec::new(),
+    };
+    LlvmBackend::compile(&program, &out, &options).unwrap();
+    let output = std::process::Command::new(&out).output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "override-dispatch-ok\n"
+    );
+    let _ = std::fs::remove_file(&out);
+    let _ = std::fs::remove_file(out.with_file_name(format!(
+        "{}.aura.ll",
+        out.file_name().unwrap().to_string_lossy()
+    )));
+}
+
+#[test]
 fn emits_foreign_declarations_without_lowering_bodies() {
     let file = parse_file(include_str!(
         "../../../../../corpus/alpha/ffi_declaration.aura"

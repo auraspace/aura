@@ -27,6 +27,9 @@ struct EmitContext {
     signatures: Signatures,
     enum_variants: HashMap<String, EnumVariantInfo>,
     classes: HashMap<String, Vec<(String, Ty)>>,
+    class_superclasses: HashMap<String, String>,
+    class_superclass_args: HashMap<String, Vec<aura_ast::Expr>>,
+    class_type_ids: HashMap<String, i64>,
     class_type_params: HashMap<String, Vec<String>>,
     foreign_names: HashSet<String>,
     string_literals: Vec<String>,
@@ -46,6 +49,29 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
         signatures: signatures(program),
         enum_variants: enum_variants(program),
         classes: classes(program),
+        class_superclasses: program
+            .source()
+            .ast
+            .classes
+            .iter()
+            .filter_map(|class| {
+                class
+                    .superclass
+                    .as_ref()
+                    .map(|parent| (class.name.name.clone(), parent.name.name.clone()))
+            })
+            .collect(),
+        class_superclass_args: program
+            .source()
+            .ast
+            .classes
+            .iter()
+            .filter_map(|class| {
+                (!class.superclass_args.is_empty())
+                    .then(|| (class.name.name.clone(), class.superclass_args.clone()))
+            })
+            .collect(),
+        class_type_ids: class_type_ids(program),
         class_type_params: program
             .source()
             .ast
@@ -567,7 +593,32 @@ fn classes(program: &LoweredProgram) -> HashMap<String, Vec<(String, Ty)>> {
         .collect()
 }
 
+fn class_type_ids(program: &LoweredProgram) -> HashMap<String, i64> {
+    let mut names = program
+        .source()
+        .classes
+        .iter()
+        .map(|class| class.name.clone())
+        .collect::<Vec<_>>();
+    names.sort();
+    names
+        .into_iter()
+        .enumerate()
+        .map(|(index, name)| (name, index as i64 + 1))
+        .collect()
+}
+
 fn class_fields(context: &EmitContext, name: &str, args: &[Ty]) -> Option<Vec<(String, Ty)>> {
+    let mut fields = context
+        .class_superclasses
+        .get(name)
+        .and_then(|parent| class_fields(context, parent, args))
+        .unwrap_or_default();
+    fields.extend(class_own_fields(context, name, args)?);
+    Some(fields)
+}
+
+fn class_own_fields(context: &EmitContext, name: &str, args: &[Ty]) -> Option<Vec<(String, Ty)>> {
     let fields = context.classes.get(name)?;
     let params = context.class_type_params.get(name)?;
     let substitutions = params
@@ -581,6 +632,55 @@ fn class_fields(context: &EmitContext, name: &str, args: &[Ty]) -> Option<Vec<(S
             .map(|(field, ty)| (field.clone(), substitute_ty(ty, &substitutions)))
             .collect(),
     )
+}
+
+fn dynamic_method_targets(
+    context: &EmitContext,
+    receiver_ty: &Ty,
+    target: &aura_ir::mir::CallTarget,
+) -> Vec<(i64, String)> {
+    let (Ty::Class(base) | Ty::ClassApp { name: base, .. }) = receiver_ty else {
+        return Vec::new();
+    };
+    let base = base.split('@').next().unwrap_or(base);
+    let mut descendants = context
+        .class_superclasses
+        .iter()
+        .filter_map(|(class, parent)| (parent == base).then_some(class.clone()))
+        .collect::<Vec<_>>();
+    let mut index = 0;
+    while index < descendants.len() {
+        let parent = descendants[index].clone();
+        descendants.extend(
+            context
+                .class_superclasses
+                .iter()
+                .filter_map(|(class, candidate)| (candidate == &parent).then_some(class.clone())),
+        );
+        index += 1;
+    }
+    descendants.sort_by_key(|class| class_depth(context, class));
+    descendants.reverse();
+    descendants
+        .into_iter()
+        .filter_map(|class| {
+            let method = format!("{class}::{}", target.name);
+            let (package, _) = context
+                .signatures
+                .keys()
+                .find(|(_, name)| name == &method)?;
+            let type_id = *context.class_type_ids.get(&class)?;
+            Some((type_id, symbol_name(package, &method)))
+        })
+        .collect()
+}
+
+fn class_depth(context: &EmitContext, class: &str) -> usize {
+    context
+        .class_superclasses
+        .get(class)
+        .map(|parent| class_depth(context, parent) + 1)
+        .unwrap_or(0)
 }
 
 fn class_has_pointer_fields(fields: &Vec<(String, Ty)>) -> bool {
@@ -609,9 +709,12 @@ fn emit_class_destructors(out: &mut String, classes: &HashMap<String, Vec<(Strin
         out.push_str("release:\n");
         out.push_str("  %refs = getelementptr %AuraLlvmClass, ptr %value, i32 0, i32 0\n");
         out.push_str("  %current = load i64, ptr %refs\n");
-        out.push_str("  %next = sub i64 %current, 1\n");
+        out.push_str("  %count = and i64 %current, 4294967295\n");
+        out.push_str("  %next_count = sub i64 %count, 1\n");
+        out.push_str("  %tag = and i64 %current, -4294967296\n");
+        out.push_str("  %next = or i64 %tag, %next_count\n");
         out.push_str("  store i64 %next, ptr %refs\n");
-        out.push_str("  %last = icmp eq i64 %next, 0\n");
+        out.push_str("  %last = icmp eq i64 %next_count, 0\n");
         out.push_str("  br i1 %last, label %destroy, label %done\n");
         out.push_str("destroy:\n");
         for (index, (_, ty)) in fields.iter().enumerate() {

@@ -698,10 +698,10 @@ pub(super) fn emit_rvalue(
                     .unwrap();
                     return Ok(value);
                 }
-                let fields = class_fields(context, &target.name, &target.type_args)
+                let own_fields = class_own_fields(context, &target.name, &target.type_args)
                     .ok_or_else(|| unsupported(&format!("class {}", target.name)))?;
-                if fields.len() != args.len()
-                    || fields.iter().any(|(_, ty)| {
+                if own_fields.len() != args.len()
+                    || own_fields.iter().any(|(_, ty)| {
                         !matches!(
                             ty,
                             Ty::Int
@@ -717,44 +717,65 @@ pub(super) fn emit_rvalue(
                 {
                     return Err(unsupported("class field type"));
                 }
+                let layout_fields = class_fields(context, &target.name, &target.type_args)
+                    .ok_or_else(|| unsupported(&format!("class {}", target.name)))?;
+                let inherited_count = layout_fields.len() - own_fields.len();
                 let value = next_temp(out);
                 writeln!(
                     out,
-                    "  {value} = call ptr @aura_llvm_class_alloc(i64 {})",
-                    args.len()
+                    "  {value} = call ptr @aura_llvm_class_alloc(i64 {}, i64 {})",
+                    layout_fields.len(),
+                    context
+                        .class_type_ids
+                        .get(&target.name)
+                        .copied()
+                        .ok_or_else(|| unsupported("class type id"))?
                 )
                 .unwrap();
-                for (index, ((_, ty), argument)) in fields.iter().zip(values.iter()).enumerate() {
+                if let Some(super_args) = context.class_superclass_args.get(&target.name).cloned() {
+                    let Some(parent) = context.class_superclasses.get(&target.name) else {
+                        return Err(unsupported("superclass constructor"));
+                    };
+                    let parent_fields = class_fields(context, parent, &target.type_args)
+                        .ok_or_else(|| unsupported("superclass constructor fields"))?;
+                    if super_args.len() != parent_fields.len() {
+                        return Err(unsupported("superclass constructor arity"));
+                    }
+                    for (index, (expr, (_, field_ty))) in
+                        super_args.iter().zip(parent_fields.iter()).enumerate()
+                    {
+                        let (argument, argument_ty) = emit_superclass_arg(
+                            out,
+                            expr,
+                            &own_fields,
+                            &values,
+                            body,
+                            package,
+                            context,
+                        )?;
+                        if !types_compatible(&argument_ty, field_ty) {
+                            return Err(unsupported("superclass constructor argument type"));
+                        }
+                        let address = next_temp(out);
+                        writeln!(
+                            out,
+                            "  {address} = getelementptr %AuraLlvmClass, ptr {value}, i32 0, i32 1, i64 {index}"
+                        )
+                        .unwrap();
+                        let raw = raw_class_field_value(out, &argument, field_ty)?;
+                        writeln!(out, "  store i64 {raw}, ptr {address}").unwrap();
+                    }
+                }
+                for (index, ((_, ty), argument)) in own_fields.iter().zip(values.iter()).enumerate()
+                {
+                    let index = inherited_count + index;
                     let address = next_temp(out);
                     writeln!(
                         out,
                         "  {address} = getelementptr %AuraLlvmClass, ptr {value}, i32 0, i32 1, i64 {index}"
                     )
                     .unwrap();
-                    let raw = match ty {
-                        Ty::Int => argument.clone(),
-                        Ty::Bool => {
-                            let raw = next_temp(out);
-                            writeln!(out, "  {raw} = zext i1 {argument} to i64").unwrap();
-                            raw
-                        }
-                        Ty::Float => {
-                            let raw = next_temp(out);
-                            writeln!(out, "  {raw} = bitcast double {argument} to i64").unwrap();
-                            raw
-                        }
-                        Ty::String
-                        | Ty::Class(_)
-                        | Ty::ClassApp { .. }
-                        | Ty::Enum(_)
-                        | Ty::EnumApp { .. } => {
-                            retain_pointer_value(out, argument, ty)?;
-                            let raw = next_temp(out);
-                            writeln!(out, "  {raw} = ptrtoint ptr {argument} to i64").unwrap();
-                            raw
-                        }
-                        _ => unreachable!("validated class field type"),
-                    };
+                    let raw = raw_class_field_value(out, argument, ty)?;
                     writeln!(out, "  store i64 {raw}, ptr {address}").unwrap();
                 }
                 return Ok(value);
@@ -923,6 +944,78 @@ pub(super) fn emit_rvalue(
                 })
                 .collect::<Result<Vec<_>, CodegenError>>()?
                 .join(", ");
+            let dispatch_targets = if !target.is_static && !args.is_empty() {
+                dynamic_method_targets(context, &body.locals[args[0].local].ty, target)
+            } else {
+                Vec::new()
+            };
+            if !dispatch_targets.is_empty() {
+                let dispatch_id = out.lines().count();
+                let tag = next_temp(out);
+                writeln!(
+                    out,
+                    "  {tag} = call i64 @aura_llvm_class_type(ptr {})",
+                    values[0]
+                )
+                .unwrap();
+                let join = format!("dispatch_join{dispatch_id}");
+                let mut incoming = Vec::new();
+                for (index, (type_id, symbol)) in dispatch_targets.iter().enumerate() {
+                    let case = format!("dispatch_case{dispatch_id}_{index}");
+                    let next = format!("dispatch_next{dispatch_id}_{index}");
+                    let expected = next_temp(out);
+                    writeln!(out, "  {expected} = icmp eq i64 {tag}, {type_id}").unwrap();
+                    writeln!(out, "  br i1 {expected}, label %{case}, label %{next}").unwrap();
+                    writeln!(out, "{case}:").unwrap();
+                    let Some((candidate_ret, _)) =
+                        signature_for_symbol(&context.signatures, symbol)
+                    else {
+                        return Err(unsupported("dynamic method signature"));
+                    };
+                    if *candidate_ret == Ty::Unit {
+                        writeln!(out, "  call void @{symbol}({arguments})").unwrap();
+                    } else {
+                        let result = next_temp(out);
+                        writeln!(
+                            out,
+                            "  {result} = call {} @{symbol}({arguments})",
+                            llvm_type(candidate_ret)?
+                        )
+                        .unwrap();
+                        incoming.push(format!("[{result}, %{case}]"));
+                    }
+                    writeln!(out, "  br label %{join}").unwrap();
+                    writeln!(out, "{next}:").unwrap();
+                }
+                if *return_ty == Ty::Unit {
+                    writeln!(out, "  call void @{name}({arguments})").unwrap();
+                    writeln!(out, "  br label %{join}").unwrap();
+                    writeln!(out, "{join}:").unwrap();
+                    return Ok(String::new());
+                }
+                let fallback = next_temp(out);
+                writeln!(
+                    out,
+                    "  {fallback} = call {} @{name}({arguments})",
+                    llvm_type(return_ty)?
+                )
+                .unwrap();
+                incoming.push(format!(
+                    "[{fallback}, %dispatch_next{dispatch_id}_{}]",
+                    dispatch_targets.len() - 1
+                ));
+                writeln!(out, "  br label %{join}").unwrap();
+                writeln!(out, "{join}:").unwrap();
+                let result = next_temp(out);
+                writeln!(
+                    out,
+                    "  {result} = phi {} {}",
+                    llvm_type(return_ty)?,
+                    incoming.join(", ")
+                )
+                .unwrap();
+                return Ok(result);
+            }
             if *return_ty == Ty::Unit {
                 writeln!(out, "  call void @{name}({arguments})").unwrap();
                 return Ok(String::new());
@@ -1105,6 +1198,75 @@ pub(super) fn emit_rvalue(
         Rvalue::AsyncOp(operation) => {
             emit_async_op(out, operation, body, result_ty, package, context)
         }
+    }
+}
+
+fn emit_superclass_arg(
+    out: &mut String,
+    expr: &aura_ast::Expr,
+    own_fields: &[(String, Ty)],
+    values: &[String],
+    body: &MirBody,
+    package: &str,
+    context: &mut EmitContext,
+) -> Result<(String, Ty), CodegenError> {
+    match expr {
+        aura_ast::Expr::Group(inner, _) => {
+            emit_superclass_arg(out, inner, own_fields, values, body, package, context)
+        }
+        aura_ast::Expr::Int(value) => Ok((value.value.to_string(), Ty::Int)),
+        aura_ast::Expr::Bool(value) => {
+            Ok((if value.value { "true" } else { "false" }.into(), Ty::Bool))
+        }
+        aura_ast::Expr::Float(value) => Ok((format_float_constant(value.value), Ty::Float)),
+        aura_ast::Expr::String(value) => {
+            let rendered = emit_rvalue(
+                out,
+                &Rvalue::ConstString(value.value.clone()),
+                body,
+                Some(&Ty::String),
+                package,
+                context,
+            )?;
+            Ok((rendered, Ty::String))
+        }
+        aura_ast::Expr::Ident(identifier) => {
+            let Some(index) = own_fields
+                .iter()
+                .position(|(name, _)| name == &identifier.name)
+            else {
+                return Err(unsupported("superclass constructor field reference"));
+            };
+            Ok((values[index].clone(), own_fields[index].1.clone()))
+        }
+        _ => Err(unsupported("superclass constructor argument")),
+    }
+}
+
+fn raw_class_field_value(
+    out: &mut String,
+    argument: &str,
+    ty: &Ty,
+) -> Result<String, CodegenError> {
+    match ty {
+        Ty::Int => Ok(argument.into()),
+        Ty::Bool => {
+            let raw = next_temp(out);
+            writeln!(out, "  {raw} = zext i1 {argument} to i64").unwrap();
+            Ok(raw)
+        }
+        Ty::Float => {
+            let raw = next_temp(out);
+            writeln!(out, "  {raw} = bitcast double {argument} to i64").unwrap();
+            Ok(raw)
+        }
+        Ty::String | Ty::Class(_) | Ty::ClassApp { .. } | Ty::Enum(_) | Ty::EnumApp { .. } => {
+            retain_pointer_value(out, argument, ty)?;
+            let raw = next_temp(out);
+            writeln!(out, "  {raw} = ptrtoint ptr {argument} to i64").unwrap();
+            Ok(raw)
+        }
+        _ => Err(unsupported("class field type")),
     }
 }
 
