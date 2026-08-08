@@ -12,7 +12,11 @@ type Signatures = HashMap<(String, String), (Ty, Vec<Ty>)>;
 
 const STRING_RUNTIME: &str = r#"
 %AuraLlvmString = type { i64, i64, [0 x i8] }
+%AuraLlvmOptInt = type { i1, i64 }
+%AuraLlvmOptBool = type { i1, i1 }
+%AuraLlvmOptFloat = type { i1, double }
 declare ptr @malloc(i64)
+declare ptr @realloc(ptr, i64)
 declare void @free(ptr)
 declare i64 @strlen(ptr)
 declare ptr @memcpy(ptr, ptr, i64)
@@ -280,19 +284,25 @@ done:
 "#;
 
 const ARRAY_RUNTIME: &str = r#"
-%AuraLlvmArray = type { i64, i64, i64, [0 x i64] }
+%AuraLlvmArray = type { i64, i64, i64, i64, ptr }
 
 define ptr @aura_llvm_array_alloc(i64 %len, i64 %kind) {
 entry:
-  %data_bytes = mul i64 %len, 8
-  %size = add i64 %data_bytes, 24
-  %value = call ptr @malloc(i64 %size)
+  %positive = icmp sgt i64 %len, 0
+  %capacity = select i1 %positive, i64 %len, i64 1
+  %data_bytes = mul i64 %capacity, 8
+  %value = call ptr @malloc(i64 40)
   %refs = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 0
   store i64 1, ptr %refs
   %length = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 1
   store i64 %len, ptr %length
   %element_kind = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 2
   store i64 %kind, ptr %element_kind
+  %capacity_field = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 3
+  store i64 %capacity, ptr %capacity_field
+  %data = call ptr @malloc(i64 %data_bytes)
+  %data_field = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 4
+  store ptr %data, ptr %data_field
   ret ptr %value
 }
 
@@ -326,13 +336,15 @@ destroy:
   %length = load i64, ptr %length_ptr
   %kind_ptr = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 2
   %kind = load i64, ptr %kind_ptr
+  %data_ptr = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 4
+  %data = load ptr, ptr %data_ptr
   br label %loop
 loop:
   %index = phi i64 [ 0, %destroy ], [ %next_index, %continue ]
   %finished = icmp uge i64 %index, %length
   br i1 %finished, label %free_value, label %load_item
 load_item:
-  %address = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 3, i64 %index
+  %address = getelementptr i64, ptr %data, i64 %index
   %raw = load i64, ptr %address
   switch i64 %kind, label %continue [
     i64 1, label %release_string
@@ -355,6 +367,7 @@ continue:
   %next_index = add i64 %index, 1
   br label %loop
 free_value:
+  call void @free(ptr %data)
   call void @free(ptr %value)
   br label %done
 done:
@@ -375,14 +388,18 @@ read:
 
 define i64 @aura_llvm_array_get(ptr %value, i64 %index) {
 entry:
-  %address = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 3, i64 %index
+  %data_ptr = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 4
+  %data = load ptr, ptr %data_ptr
+  %address = getelementptr i64, ptr %data, i64 %index
   %result = load i64, ptr %address
   ret i64 %result
 }
 
 define void @aura_llvm_array_set(ptr %value, i64 %index, i64 %raw) {
 entry:
-  %address = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 3, i64 %index
+  %data_ptr = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 4
+  %data = load ptr, ptr %data_ptr
+  %address = getelementptr i64, ptr %data, i64 %index
   %old = load i64, ptr %address
   %kind_ptr = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 2
   %kind = load i64, ptr %kind_ptr
@@ -412,6 +429,52 @@ replace_enum:
 store:
   store i64 %raw, ptr %address
   ret void
+}
+
+define void @aura_llvm_array_push(ptr %value, i64 %raw) {
+entry:
+  %length_ptr = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 1
+  %length = load i64, ptr %length_ptr
+  %capacity_ptr = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 3
+  %capacity = load i64, ptr %capacity_ptr
+  %full = icmp uge i64 %length, %capacity
+  br i1 %full, label %grow, label %store
+grow:
+  %doubled = mul i64 %capacity, 2
+  %new_capacity = select i1 %full, i64 %doubled, i64 1
+  %new_bytes = mul i64 %new_capacity, 8
+  %data_ptr = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 4
+  %old_data = load ptr, ptr %data_ptr
+  %new_data = call ptr @realloc(ptr %old_data, i64 %new_bytes)
+  store ptr %new_data, ptr %data_ptr
+  store i64 %new_capacity, ptr %capacity_ptr
+  br label %store
+store:
+  %data_ptr2 = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 4
+  %data = load ptr, ptr %data_ptr2
+  %address = getelementptr i64, ptr %data, i64 %length
+  store i64 %raw, ptr %address
+  %new_length = add i64 %length, 1
+  store i64 %new_length, ptr %length_ptr
+  ret void
+}
+
+define i64 @aura_llvm_array_pop(ptr %value) {
+entry:
+  %length_ptr = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 1
+  %length = load i64, ptr %length_ptr
+  %empty = icmp eq i64 %length, 0
+  br i1 %empty, label %none, label %load_value
+none:
+  ret i64 0
+load_value:
+  %index = sub i64 %length, 1
+  %data_ptr = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 4
+  %data = load ptr, ptr %data_ptr
+  %address = getelementptr i64, ptr %data, i64 %index
+  %raw = load i64, ptr %address
+  store i64 %index, ptr %length_ptr
+  ret i64 %raw
 }
 
 "#;
@@ -533,6 +596,7 @@ entry:
 #[derive(Clone)]
 struct EnumVariantInfo {
     tag: i64,
+    type_params: Vec<String>,
     fields: Vec<(String, Ty)>,
 }
 
@@ -919,14 +983,23 @@ fn emit_statement(
                 .enum_variants
                 .get(variant)
                 .ok_or_else(|| unsupported(&format!("enum variant {variant}")))?;
-            let (field_index, (_, field_ty)) = info
-                .fields
+            let fields = resolved_variant_fields(info, &body.locals[operand.local].ty, &[]);
+            let (field_index, (_, field_ty)) = fields
                 .iter()
                 .enumerate()
                 .find(|(_, (name, _))| name == field)
                 .ok_or_else(|| unsupported(&format!("enum field {variant}.{field}")))?;
-            if !matches!(field_ty, Ty::Int | Ty::Bool | Ty::Float)
-                || body.locals[to.local].ty != *field_ty
+            if !matches!(
+                field_ty,
+                Ty::Int
+                    | Ty::Bool
+                    | Ty::Float
+                    | Ty::String
+                    | Ty::Class(_)
+                    | Ty::ClassApp { .. }
+                    | Ty::Enum(_)
+                    | Ty::EnumApp { .. }
+            ) || !types_compatible(&body.locals[to.local].ty, field_ty)
             {
                 return Err(unsupported("non-primitive enum payload"));
             }
@@ -950,7 +1023,17 @@ fn emit_statement(
                     writeln!(out, "  {value} = bitcast i64 {raw} to double").unwrap();
                     value
                 }
-                _ => unreachable!("validated primitive payload"),
+                Ty::String
+                | Ty::Class(_)
+                | Ty::ClassApp { .. }
+                | Ty::Enum(_)
+                | Ty::EnumApp { .. } => {
+                    let value = next_temp(out);
+                    writeln!(out, "  {value} = inttoptr i64 {raw} to ptr").unwrap();
+                    retain_pointer_value(out, &value, field_ty)?;
+                    value
+                }
+                _ => unreachable!("validated enum payload"),
             };
             let ty = llvm_type(field_ty)?;
             writeln!(out, "  store {ty} {value}, ptr %slot{}", to.local).unwrap();
@@ -1135,6 +1218,169 @@ fn emit_terminator(
     Ok(())
 }
 
+fn optional_literal(result_ty: Option<&Ty>, llvm_value_ty: &str, value: &str) -> String {
+    match result_ty {
+        Some(Ty::Nullable(inner)) if matches!(inner.as_ref(), Ty::Int | Ty::Bool | Ty::Float) => {
+            format!("{{ i1 true, {llvm_value_ty} {value} }}")
+        }
+        _ => value.to_owned(),
+    }
+}
+
+fn nullable_zero_value(result_ty: Option<&Ty>) -> Option<&'static str> {
+    match result_ty {
+        Some(Ty::Nullable(inner)) if matches!(inner.as_ref(), Ty::Int) => {
+            Some("{ i1 false, i64 0 }")
+        }
+        Some(Ty::Nullable(inner)) if matches!(inner.as_ref(), Ty::Bool) => {
+            Some("{ i1 false, i1 false }")
+        }
+        Some(Ty::Nullable(inner)) if matches!(inner.as_ref(), Ty::Float) => {
+            Some("{ i1 false, double 0.0 }")
+        }
+        _ => None,
+    }
+}
+
+fn build_optional_value(out: &mut String, llvm_ty: &str, value_ty: &str, value: &str) -> String {
+    let present = next_temp(out);
+    writeln!(out, "  {present} = insertvalue {llvm_ty} undef, i1 true, 0").unwrap();
+    let result = next_temp(out);
+    writeln!(
+        out,
+        "  {result} = insertvalue {llvm_ty} {present}, {value_ty} {value}, 1"
+    )
+    .unwrap();
+    result
+}
+
+fn extract_optional_payload(
+    out: &mut String,
+    value: &str,
+    ty: &Ty,
+) -> Result<String, CodegenError> {
+    let payload = next_temp(out);
+    writeln!(
+        out,
+        "  {payload} = extractvalue {} {value}, 1",
+        llvm_type(ty)?
+    )
+    .unwrap();
+    Ok(payload)
+}
+
+fn emit_use_value(
+    out: &mut String,
+    place: Place,
+    body: &MirBody,
+    result_ty: Option<&Ty>,
+) -> Result<String, CodegenError> {
+    let source_ty = &body.locals[place.local].ty;
+    let value = load_place(out, place, body)?;
+    match (source_ty, result_ty) {
+        (Ty::Int, Some(Ty::Nullable(inner))) if **inner == Ty::Int => {
+            Ok(build_optional_value(out, "%AuraLlvmOptInt", "i64", &value))
+        }
+        (Ty::Bool, Some(Ty::Nullable(inner))) if **inner == Ty::Bool => {
+            Ok(build_optional_value(out, "%AuraLlvmOptBool", "i1", &value))
+        }
+        (Ty::Float, Some(Ty::Nullable(inner))) if **inner == Ty::Float => Ok(build_optional_value(
+            out,
+            "%AuraLlvmOptFloat",
+            "double",
+            &value,
+        )),
+        (Ty::Nullable(inner), Some(destination)) if inner.as_ref() == destination => {
+            let value_slot = next_temp(out);
+            writeln!(
+                out,
+                "  {value_slot} = extractvalue {} {value}, 1",
+                llvm_type(source_ty)?
+            )
+            .unwrap();
+            Ok(value_slot)
+        }
+        _ => Ok(value),
+    }
+}
+
+fn coerce_llvm_argument(
+    out: &mut String,
+    value: &str,
+    source_ty: &Ty,
+    expected_ty: &Ty,
+) -> Result<String, CodegenError> {
+    if source_ty == expected_ty {
+        return Ok(value.to_owned());
+    }
+    if types_compatible(source_ty, expected_ty) {
+        return Ok(value.to_owned());
+    }
+    match (source_ty, expected_ty) {
+        (Ty::Null, Ty::Nullable(inner)) if matches!(inner.as_ref(), Ty::Int) => {
+            Ok("{ i1 false, i64 0 }".into())
+        }
+        (Ty::Null, Ty::Nullable(inner)) if matches!(inner.as_ref(), Ty::Bool) => {
+            Ok("{ i1 false, i1 false }".into())
+        }
+        (Ty::Null, Ty::Nullable(inner)) if matches!(inner.as_ref(), Ty::Float) => {
+            Ok("{ i1 false, double 0.0 }".into())
+        }
+        (Ty::Null, Ty::Nullable(_)) => Ok("null".into()),
+        (
+            Ty::Null,
+            Ty::Class(_)
+            | Ty::ClassApp { .. }
+            | Ty::Enum(_)
+            | Ty::EnumApp { .. }
+            | Ty::Interface(_)
+            | Ty::InterfaceApp { .. }
+            | Ty::ForeignHandle(_)
+            | Ty::Channel(_),
+        ) => Ok("null".into()),
+        (Ty::Int, Ty::Nullable(inner)) if **inner == Ty::Int => {
+            Ok(build_optional_value(out, "%AuraLlvmOptInt", "i64", value))
+        }
+        (Ty::Bool, Ty::Nullable(inner)) if **inner == Ty::Bool => {
+            Ok(build_optional_value(out, "%AuraLlvmOptBool", "i1", value))
+        }
+        (Ty::Float, Ty::Nullable(inner)) if **inner == Ty::Float => Ok(build_optional_value(
+            out,
+            "%AuraLlvmOptFloat",
+            "double",
+            value,
+        )),
+        (Ty::Nullable(source), Ty::Nullable(expected))
+            if types_compatible(source.as_ref(), expected.as_ref()) =>
+        {
+            Ok(value.to_owned())
+        }
+        (source, Ty::Nullable(inner)) if types_compatible(source, inner.as_ref()) => {
+            Ok(value.to_owned())
+        }
+        (Ty::Nullable(inner), destination)
+            if types_compatible(inner.as_ref(), destination) && !is_tagged_nullable(source_ty) =>
+        {
+            Ok(value.to_owned())
+        }
+        (Ty::Nullable(inner), destination) if types_compatible(inner.as_ref(), destination) => {
+            let payload = next_temp(out);
+            writeln!(
+                out,
+                "  {payload} = extractvalue {} {value}, 1",
+                llvm_type(source_ty)?
+            )
+            .unwrap();
+            Ok(payload)
+        }
+        _ => Err(unsupported(&format!(
+            "argument conversion from {} to {}",
+            source_ty.display(),
+            expected_ty.display()
+        ))),
+    }
+}
+
 fn emit_rvalue(
     out: &mut String,
     value: &Rvalue,
@@ -1144,11 +1390,19 @@ fn emit_rvalue(
     context: &mut EmitContext,
 ) -> Result<String, CodegenError> {
     match value {
-        Rvalue::Use(place) => load_place(out, *place, body),
-        Rvalue::ConstInt(value) => Ok(value.to_string()),
-        Rvalue::ConstFloat(value) => Ok(format_float_constant(f64::from_bits(*value))),
-        Rvalue::ConstBool(value) => Ok(if *value { "true" } else { "false" }.into()),
-        Rvalue::ConstNull => Ok("null".into()),
+        Rvalue::Use(place) => emit_use_value(out, *place, body, result_ty),
+        Rvalue::ConstInt(value) => Ok(optional_literal(result_ty, "i64", &value.to_string())),
+        Rvalue::ConstFloat(value) => Ok(optional_literal(
+            result_ty,
+            "double",
+            &format_float_constant(f64::from_bits(*value)),
+        )),
+        Rvalue::ConstBool(value) => Ok(optional_literal(
+            result_ty,
+            "i1",
+            if *value { "true" } else { "false" },
+        )),
+        Rvalue::ConstNull => Ok(nullable_zero_value(result_ty).unwrap_or("null").into()),
         Rvalue::ConstString(value) => {
             let index = context
                 .string_literals
@@ -1197,8 +1451,98 @@ fn emit_rvalue(
         }
         Rvalue::Binary { op, left, right } => {
             let left_ty = &body.locals[left.local].ty;
+            let right_ty = &body.locals[right.local].ty;
             let left = load_place(out, *left, body)?;
             let right = load_place(out, *right, body)?;
+            if is_tagged_nullable(left_ty) {
+                let Ty::Nullable(inner) = left_ty else {
+                    unreachable!("tagged nullable type checked above")
+                };
+                let present = next_temp(out);
+                writeln!(
+                    out,
+                    "  {present} = extractvalue {} {left}, 0",
+                    llvm_type(left_ty)?
+                )
+                .unwrap();
+                if matches!(op, BinaryOp::Coalesce) {
+                    let payload = next_temp(out);
+                    writeln!(
+                        out,
+                        "  {payload} = extractvalue {} {left}, 1",
+                        llvm_type(left_ty)?
+                    )
+                    .unwrap();
+                    let result_ty = llvm_type(result_ty.unwrap_or(inner))?;
+                    let fallback = if *right_ty == **inner {
+                        right
+                    } else {
+                        return Err(unsupported("nullable coalesce operand type"));
+                    };
+                    let selected = next_temp(out);
+                    writeln!(
+                        out,
+                        "  {selected} = select i1 {present}, {result_ty} {payload}, {result_ty} {fallback}"
+                    )
+                    .unwrap();
+                    return Ok(selected);
+                }
+                if matches!(right_ty, Ty::Null) {
+                    let value = next_temp(out);
+                    let instruction = if matches!(op, BinaryOp::Eq) {
+                        "icmp eq"
+                    } else {
+                        "icmp ne"
+                    };
+                    writeln!(out, "  {value} = {instruction} i1 {present}, false").unwrap();
+                    return Ok(value);
+                }
+                let payload = next_temp(out);
+                writeln!(
+                    out,
+                    "  {payload} = extractvalue {} {left}, 1",
+                    llvm_type(left_ty)?
+                )
+                .unwrap();
+                let compare_ty = if *right_ty == **inner {
+                    inner.as_ref()
+                } else {
+                    return Err(unsupported("nullable binary operand type"));
+                };
+                let operand_ty = llvm_type(compare_ty)?;
+                let instruction = match (op, compare_ty) {
+                    (BinaryOp::Add, Ty::Float) => "fadd",
+                    (BinaryOp::Sub, Ty::Float) => "fsub",
+                    (BinaryOp::Mul, Ty::Float) => "fmul",
+                    (BinaryOp::Div, Ty::Float) => "fdiv",
+                    (BinaryOp::Rem, Ty::Float) => "frem",
+                    (BinaryOp::Eq, Ty::Float) => "fcmp oeq",
+                    (BinaryOp::Ne, Ty::Float) => "fcmp one",
+                    (BinaryOp::Lt, Ty::Float) => "fcmp olt",
+                    (BinaryOp::Le, Ty::Float) => "fcmp ole",
+                    (BinaryOp::Gt, Ty::Float) => "fcmp ogt",
+                    (BinaryOp::Ge, Ty::Float) => "fcmp oge",
+                    (BinaryOp::Add, _) => "add",
+                    (BinaryOp::Sub, _) => "sub",
+                    (BinaryOp::Mul, _) => "mul",
+                    (BinaryOp::Div, _) => "sdiv",
+                    (BinaryOp::Rem, _) => "srem",
+                    (BinaryOp::Eq, _) => "icmp eq",
+                    (BinaryOp::Ne, _) => "icmp ne",
+                    (BinaryOp::Lt, _) => "icmp slt",
+                    (BinaryOp::Le, _) => "icmp sle",
+                    (BinaryOp::Gt, _) => "icmp sgt",
+                    (BinaryOp::Ge, _) => "icmp sge",
+                    _ => return Err(unsupported("nullable binary operation")),
+                };
+                let value = next_temp(out);
+                writeln!(
+                    out,
+                    "  {value} = {instruction} {operand_ty} {payload}, {right}"
+                )
+                .unwrap();
+                return Ok(value);
+            }
             if is_string_type(left_ty) {
                 let temp = next_temp(out);
                 match op {
@@ -1306,10 +1650,19 @@ fn emit_rvalue(
             if target.name == "assert_eq" && values.len() == 2 {
                 let left_ty = &body.locals[args[0].local].ty;
                 let right_ty = &body.locals[args[1].local].ty;
-                if left_ty != right_ty {
-                    return Err(unsupported("assert_eq operand types"));
-                }
-                let equal = emit_equality(out, values[0].as_str(), values[1].as_str(), left_ty)?;
+                let (left, right, compare_ty) = match (left_ty, right_ty) {
+                    (Ty::Nullable(inner), ty) if inner.as_ref() == ty => {
+                        let payload = extract_optional_payload(out, values[0].as_str(), left_ty)?;
+                        (payload, values[1].clone(), inner.as_ref())
+                    }
+                    (ty, Ty::Nullable(inner)) if inner.as_ref() == ty => {
+                        let payload = extract_optional_payload(out, values[1].as_str(), right_ty)?;
+                        (values[0].clone(), payload, left_ty)
+                    }
+                    (left, right) if left == right => (values[0].clone(), values[1].clone(), left),
+                    _ => return Err(unsupported("assert_eq operand types")),
+                };
+                let equal = emit_equality(out, &left, &right, compare_ty)?;
                 writeln!(out, "  call void @aura_llvm_assert(i1 {equal})").unwrap();
                 return Ok(String::new());
             }
@@ -1366,14 +1719,30 @@ fn emit_rvalue(
                     .enum_variants
                     .get(variant)
                     .ok_or_else(|| unsupported(&format!("enum variant {variant}")))?;
-                if info.fields.len() != args.len() {
+                let fields = resolved_variant_fields(
+                    info,
+                    &Ty::EnumApp {
+                        name: target.name.clone(),
+                        args: target.type_args.clone(),
+                    },
+                    &target.type_args,
+                );
+                if fields.len() != args.len() {
                     return Err(unsupported(&format!("enum constructor {variant} arity")));
                 }
-                if info
-                    .fields
-                    .iter()
-                    .any(|(_, ty)| !matches!(ty, Ty::Int | Ty::Bool | Ty::Float))
-                {
+                if fields.iter().any(|(_, ty)| {
+                    !matches!(
+                        ty,
+                        Ty::Int
+                            | Ty::Bool
+                            | Ty::Float
+                            | Ty::String
+                            | Ty::Class(_)
+                            | Ty::ClassApp { .. }
+                            | Ty::Enum(_)
+                            | Ty::EnumApp { .. }
+                    )
+                }) {
                     return Err(unsupported("non-primitive enum payload"));
                 }
                 let value = next_temp(out);
@@ -1390,9 +1759,7 @@ fn emit_rvalue(
                 )
                 .unwrap();
                 writeln!(out, "  store i64 {}, ptr {tag_address}", info.tag).unwrap();
-                for (index, ((_, ty), argument)) in
-                    info.fields.iter().zip(values.iter()).enumerate()
-                {
+                for (index, ((_, ty), argument)) in fields.iter().zip(values.iter()).enumerate() {
                     let field_address = next_temp(out);
                     writeln!(
                         out,
@@ -1411,7 +1778,17 @@ fn emit_rvalue(
                             writeln!(out, "  {raw} = bitcast double {argument} to i64").unwrap();
                             raw
                         }
-                        _ => unreachable!("validated primitive payload"),
+                        Ty::String
+                        | Ty::Class(_)
+                        | Ty::ClassApp { .. }
+                        | Ty::Enum(_)
+                        | Ty::EnumApp { .. } => {
+                            retain_pointer_value(out, argument, ty)?;
+                            let raw = next_temp(out);
+                            writeln!(out, "  {raw} = ptrtoint ptr {argument} to i64").unwrap();
+                            raw
+                        }
+                        _ => unreachable!("validated enum payload"),
                     };
                     writeln!(out, "  store i64 {raw}, ptr {field_address}").unwrap();
                 }
@@ -1555,6 +1932,48 @@ fn emit_rvalue(
                 writeln!(out, "  {raw} = load i64, ptr {raw_slot}").unwrap();
                 return array_value_from_raw(out, raw, element_ty);
             }
+            if target.name == "get" && args.len() == 2 {
+                let Some(element_ty) = array_element_type(&body.locals[args[0].local].ty) else {
+                    return Err(unsupported("get target outside Array"));
+                };
+                if body.locals[args[1].local].ty != Ty::Int {
+                    return Err(unsupported("Array get index type"));
+                }
+                return load_array_element(out, args[0], args[1], element_ty, body);
+            }
+            if target.name == "push" && args.len() == 2 {
+                let Some(element_ty) = array_element_type(&body.locals[args[0].local].ty) else {
+                    return Err(unsupported("push target outside Array"));
+                };
+                if !types_compatible(&body.locals[args[1].local].ty, element_ty) {
+                    return Err(unsupported("Array push value type"));
+                }
+                let value = &values[1];
+                if is_pointer_value_type(element_ty) {
+                    retain_pointer_value(out, value, element_ty)?;
+                }
+                let raw = array_raw_value(out, value, element_ty)?;
+                writeln!(
+                    out,
+                    "  call void @aura_llvm_array_push(ptr {}, i64 {raw})",
+                    values[0]
+                )
+                .unwrap();
+                return Ok(String::new());
+            }
+            if target.name == "pop" && args.len() == 1 {
+                let Some(element_ty) = array_element_type(&body.locals[args[0].local].ty) else {
+                    return Err(unsupported("pop target outside Array"));
+                };
+                let raw = next_temp(out);
+                writeln!(
+                    out,
+                    "  {raw} = call i64 @aura_llvm_array_pop(ptr {})",
+                    values[0]
+                )
+                .unwrap();
+                return array_value_from_raw(out, raw, element_ty);
+            }
             if target.name == "set" && args.len() == 3 {
                 let Some(element_ty) = array_element_type(&body.locals[args[0].local].ty) else {
                     return Err(unsupported("set target outside Array"));
@@ -1597,7 +2016,12 @@ fn emit_rvalue(
             let arguments = values
                 .iter()
                 .zip(parameter_tys)
-                .map(|(value, ty)| Ok(format!("{} {value}", llvm_type(ty)?)))
+                .enumerate()
+                .map(|(index, (value, ty))| {
+                    let source_ty = &body.locals[args[index].local].ty;
+                    let value = coerce_llvm_argument(out, value, source_ty, ty)?;
+                    Ok(format!("{} {value}", llvm_type(ty)?))
+                })
                 .collect::<Result<Vec<_>, CodegenError>>()?
                 .join(", ");
             if *return_ty == Ty::Unit {
@@ -1615,6 +2039,19 @@ fn emit_rvalue(
         }
         Rvalue::Unwrap { operand } => {
             let value = load_place(out, *operand, body)?;
+            if matches!(
+                &body.locals[operand.local].ty,
+                Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Int | Ty::Bool | Ty::Float)
+            ) {
+                let payload = next_temp(out);
+                writeln!(
+                    out,
+                    "  {payload} = extractvalue {} {value}, 1",
+                    llvm_type(&body.locals[operand.local].ty)?
+                )
+                .unwrap();
+                return Ok(payload);
+            }
             if is_string_type(&body.locals[operand.local].ty) {
                 writeln!(out, "  call void @aura_llvm_str_retain(ptr {value})").unwrap();
             }
@@ -1622,8 +2059,21 @@ fn emit_rvalue(
         }
         Rvalue::TypeTest { operand, .. } => {
             let value = load_place(out, *operand, body)?;
+            if matches!(
+                &body.locals[operand.local].ty,
+                Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Int | Ty::Bool | Ty::Float)
+            ) {
+                let present = next_temp(out);
+                writeln!(
+                    out,
+                    "  {present} = extractvalue {} {value}, 0",
+                    llvm_type(&body.locals[operand.local].ty)?
+                )
+                .unwrap();
+                return Ok(present);
+            }
             if !is_string_type(&body.locals[operand.local].ty) {
-                return Err(unsupported("type tests outside nullable String"));
+                return Err(unsupported("type tests outside nullable heap value"));
             }
             let temp = next_temp(out);
             writeln!(out, "  {temp} = icmp ne ptr {value}, null").unwrap();
@@ -1667,6 +2117,16 @@ fn emit_rvalue(
         }
         Rvalue::Field { object, field } => {
             let object_ty = &body.locals[object.local].ty;
+            if field == "len" && is_array_type(object_ty) {
+                let object = load_place(out, *object, body)?;
+                let value = next_temp(out);
+                writeln!(
+                    out,
+                    "  {value} = call i64 @aura_llvm_array_len(ptr {object})"
+                )
+                .unwrap();
+                return Ok(value);
+            }
             let name =
                 class_type_name(object_ty).ok_or_else(|| unsupported("fields outside classes"))?;
             let fields = context
@@ -2027,6 +2487,27 @@ fn llvm_zero(ty: &Ty) -> Result<&'static str, CodegenError> {
         Ty::Int => Ok("0"),
         Ty::String | Ty::Null => Ok("null"),
         Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::String) => Ok("null"),
+        Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Int) => Ok("{ i1 false, i64 0 }"),
+        Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Bool) => Ok("{ i1 false, i1 false }"),
+        Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Float) => {
+            Ok("{ i1 false, double 0.0 }")
+        }
+        Ty::Nullable(inner)
+            if matches!(
+                inner.as_ref(),
+                Ty::Class(_)
+                    | Ty::ClassApp { .. }
+                    | Ty::Enum(_)
+                    | Ty::EnumApp { .. }
+                    | Ty::Interface(_)
+                    | Ty::InterfaceApp { .. }
+                    | Ty::Fun { .. }
+                    | Ty::Channel(_)
+                    | Ty::ForeignHandle(_)
+            ) =>
+        {
+            Ok("null")
+        }
         Ty::Enum(_)
         | Ty::EnumApp { .. }
         | Ty::Class(_)
@@ -2059,6 +2540,25 @@ pub(super) fn llvm_type(ty: &Ty) -> Result<&'static str, CodegenError> {
         Ty::Float => Ok("double"),
         Ty::String | Ty::Null => Ok("ptr"),
         Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::String) => Ok("ptr"),
+        Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Int) => Ok("%AuraLlvmOptInt"),
+        Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Bool) => Ok("%AuraLlvmOptBool"),
+        Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Float) => Ok("%AuraLlvmOptFloat"),
+        Ty::Nullable(inner)
+            if matches!(
+                inner.as_ref(),
+                Ty::Class(_)
+                    | Ty::ClassApp { .. }
+                    | Ty::Enum(_)
+                    | Ty::EnumApp { .. }
+                    | Ty::Interface(_)
+                    | Ty::InterfaceApp { .. }
+                    | Ty::Fun { .. }
+                    | Ty::Channel(_)
+                    | Ty::ForeignHandle(_)
+            ) =>
+        {
+            Ok("ptr")
+        }
         Ty::Enum(_)
         | Ty::EnumApp { .. }
         | Ty::Class(_)
@@ -2155,6 +2655,12 @@ fn method_symbol_for(
 }
 
 fn compatible_receiver(left: &Ty, right: &Ty) -> bool {
+    if let Ty::Nullable(inner) = left {
+        return compatible_receiver(inner, right);
+    }
+    if let Ty::Nullable(inner) = right {
+        return compatible_receiver(left, inner);
+    }
     match (left, right) {
         (Ty::Class(left), Ty::Class(right)) => left.split('@').next() == right.split('@').next(),
         (
@@ -2171,6 +2677,57 @@ fn compatible_receiver(left: &Ty, right: &Ty) -> bool {
     }
 }
 
+fn types_compatible(left: &Ty, right: &Ty) -> bool {
+    match (left, right) {
+        (Ty::Class(left), Ty::Class(right)) => nominal_tail(left) == nominal_tail(right),
+        (
+            Ty::ClassApp {
+                name: left,
+                args: left_args,
+            },
+            Ty::ClassApp {
+                name: right,
+                args: right_args,
+            },
+        ) => {
+            nominal_tail(left) == nominal_tail(right)
+                && left_args.len() == right_args.len()
+                && left_args
+                    .iter()
+                    .zip(right_args)
+                    .all(|(left, right)| types_compatible(left, right))
+        }
+        (Ty::Enum(left), Ty::Enum(right)) => nominal_tail(left) == nominal_tail(right),
+        (
+            Ty::EnumApp {
+                name: left,
+                args: left_args,
+            },
+            Ty::EnumApp {
+                name: right,
+                args: right_args,
+            },
+        ) => {
+            nominal_tail(left) == nominal_tail(right)
+                && left_args.len() == right_args.len()
+                && left_args
+                    .iter()
+                    .zip(right_args)
+                    .all(|(left, right)| types_compatible(left, right))
+        }
+        _ => left == right,
+    }
+}
+
+fn nominal_tail(name: &str) -> &str {
+    name.split('@')
+        .next()
+        .unwrap_or(name)
+        .rsplit('.')
+        .next()
+        .unwrap_or(name)
+}
+
 fn is_string_type(ty: &Ty) -> bool {
     match ty {
         Ty::String => true,
@@ -2179,12 +2736,28 @@ fn is_string_type(ty: &Ty) -> bool {
     }
 }
 
+fn is_tagged_nullable(ty: &Ty) -> bool {
+    matches!(
+        ty,
+        Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Int | Ty::Bool | Ty::Float)
+    )
+}
+
 fn is_enum_type(ty: &Ty) -> bool {
-    matches!(ty, Ty::Enum(_) | Ty::EnumApp { .. })
+    match ty {
+        Ty::Enum(_) | Ty::EnumApp { .. } => true,
+        Ty::Nullable(inner) => is_enum_type(inner),
+        _ => false,
+    }
 }
 
 fn is_class_type(ty: &Ty) -> bool {
-    matches!(ty, Ty::Class(_)) || matches!(ty, Ty::ClassApp { name, .. } if name != "Array")
+    match ty {
+        Ty::Class(_) => true,
+        Ty::ClassApp { name, .. } => name != "Array",
+        Ty::Nullable(inner) => is_class_type(inner),
+        _ => false,
+    }
 }
 
 fn class_type_name(ty: &Ty) -> Option<&str> {
@@ -2193,17 +2766,23 @@ fn class_type_name(ty: &Ty) -> Option<&str> {
         Ty::ClassApp { name, .. } if name != "Array" => {
             Some(name.split('@').next().unwrap_or(name))
         }
+        Ty::Nullable(inner) => class_type_name(inner),
         _ => None,
     }
 }
 
 fn is_array_type(ty: &Ty) -> bool {
-    matches!(ty, Ty::ClassApp { name, args } if name == "Array" && args.len() == 1)
+    match ty {
+        Ty::ClassApp { name, args } => name == "Array" && args.len() == 1,
+        Ty::Nullable(inner) => is_array_type(inner),
+        _ => false,
+    }
 }
 
 fn array_element_type(ty: &Ty) -> Option<&Ty> {
     match ty {
         Ty::ClassApp { name, args } if name == "Array" && args.len() == 1 => args.first(),
+        Ty::Nullable(inner) => array_element_type(inner),
         _ => None,
     }
 }
@@ -2229,12 +2808,65 @@ fn enum_variants(program: &LoweredProgram) -> HashMap<String, EnumVariantInfo> {
                     variant.name.clone(),
                     EnumVariantInfo {
                         tag: variant.tag as i64,
+                        type_params: enum_decl.type_params.clone(),
                         fields: variant.fields.clone(),
                     },
                 )
             })
         })
         .collect()
+}
+
+fn resolved_variant_fields(
+    info: &EnumVariantInfo,
+    owner_ty: &Ty,
+    fallback_args: &[Ty],
+) -> Vec<(String, Ty)> {
+    let args = match owner_ty {
+        Ty::EnumApp { args, .. } => args.as_slice(),
+        _ => fallback_args,
+    };
+    let substitutions = info
+        .type_params
+        .iter()
+        .cloned()
+        .zip(args.iter().cloned())
+        .collect::<HashMap<_, _>>();
+    info.fields
+        .iter()
+        .map(|(name, ty)| (name.clone(), substitute_ty(ty, &substitutions)))
+        .collect()
+}
+
+fn substitute_ty(ty: &Ty, substitutions: &HashMap<String, Ty>) -> Ty {
+    match ty {
+        Ty::TypeParam(name) => substitutions
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| ty.clone()),
+        Ty::Nullable(inner) => Ty::Nullable(Box::new(substitute_ty(inner, substitutions))),
+        Ty::ClassApp { name, args } => Ty::ClassApp {
+            name: name.clone(),
+            args: args
+                .iter()
+                .map(|arg| substitute_ty(arg, substitutions))
+                .collect(),
+        },
+        Ty::EnumApp { name, args } => Ty::EnumApp {
+            name: name.clone(),
+            args: args
+                .iter()
+                .map(|arg| substitute_ty(arg, substitutions))
+                .collect(),
+        },
+        Ty::Task(inner) => Ty::Task(Box::new(substitute_ty(inner, substitutions))),
+        Ty::TaskHandle(inner) => Ty::TaskHandle(Box::new(substitute_ty(inner, substitutions))),
+        Ty::Channel(inner) => Ty::Channel(Box::new(substitute_ty(inner, substitutions))),
+        Ty::ForeignHandle(inner) => {
+            Ty::ForeignHandle(Box::new(substitute_ty(inner, substitutions)))
+        }
+        _ => ty.clone(),
+    }
 }
 
 fn classes(program: &LoweredProgram) -> HashMap<String, Vec<(String, Ty)>> {
