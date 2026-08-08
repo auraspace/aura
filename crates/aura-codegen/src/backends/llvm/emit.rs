@@ -239,6 +239,143 @@ done:
 
 "#;
 
+const ARRAY_RUNTIME: &str = r#"
+%AuraLlvmArray = type { i64, i64, i64, [0 x i64] }
+
+define ptr @aura_llvm_array_alloc(i64 %len, i64 %kind) {
+entry:
+  %data_bytes = mul i64 %len, 8
+  %size = add i64 %data_bytes, 24
+  %value = call ptr @malloc(i64 %size)
+  %refs = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 0
+  store i64 1, ptr %refs
+  %length = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 1
+  store i64 %len, ptr %length
+  %element_kind = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 2
+  store i64 %kind, ptr %element_kind
+  ret ptr %value
+}
+
+define void @aura_llvm_array_retain(ptr %value) {
+entry:
+  %is_null = icmp eq ptr %value, null
+  br i1 %is_null, label %done, label %retain
+retain:
+  %refs = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 0
+  %current = load i64, ptr %refs
+  %next = add i64 %current, 1
+  store i64 %next, ptr %refs
+  br label %done
+done:
+  ret void
+}
+
+define void @aura_llvm_array_release(ptr %value) {
+entry:
+  %is_null = icmp eq ptr %value, null
+  br i1 %is_null, label %done, label %release
+release:
+  %refs = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 0
+  %current = load i64, ptr %refs
+  %next = sub i64 %current, 1
+  store i64 %next, ptr %refs
+  %last = icmp eq i64 %next, 0
+  br i1 %last, label %destroy, label %done
+destroy:
+  %length_ptr = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 1
+  %length = load i64, ptr %length_ptr
+  %kind_ptr = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 2
+  %kind = load i64, ptr %kind_ptr
+  br label %loop
+loop:
+  %index = phi i64 [ 0, %destroy ], [ %next_index, %continue ]
+  %finished = icmp uge i64 %index, %length
+  br i1 %finished, label %free_value, label %load_item
+load_item:
+  %address = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 3, i64 %index
+  %raw = load i64, ptr %address
+  switch i64 %kind, label %continue [
+    i64 1, label %release_string
+    i64 2, label %release_class
+    i64 3, label %release_enum
+  ]
+release_string:
+  %string = inttoptr i64 %raw to ptr
+  call void @aura_llvm_str_release(ptr %string)
+  br label %continue
+release_class:
+  %class = inttoptr i64 %raw to ptr
+  call void @aura_llvm_class_release(ptr %class)
+  br label %continue
+release_enum:
+  %enum = inttoptr i64 %raw to ptr
+  call void @aura_llvm_enum_release(ptr %enum)
+  br label %continue
+continue:
+  %next_index = add i64 %index, 1
+  br label %loop
+free_value:
+  call void @free(ptr %value)
+  br label %done
+done:
+  ret void
+}
+
+define i64 @aura_llvm_array_len(ptr %value) {
+entry:
+  %is_null = icmp eq ptr %value, null
+  br i1 %is_null, label %empty, label %read
+empty:
+  ret i64 0
+read:
+  %length = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 1
+  %result = load i64, ptr %length
+  ret i64 %result
+}
+
+define i64 @aura_llvm_array_get(ptr %value, i64 %index) {
+entry:
+  %address = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 3, i64 %index
+  %result = load i64, ptr %address
+  ret i64 %result
+}
+
+define void @aura_llvm_array_set(ptr %value, i64 %index, i64 %raw) {
+entry:
+  %address = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 3, i64 %index
+  %old = load i64, ptr %address
+  %kind_ptr = getelementptr %AuraLlvmArray, ptr %value, i32 0, i32 2
+  %kind = load i64, ptr %kind_ptr
+  switch i64 %kind, label %store [
+    i64 1, label %replace_string
+    i64 2, label %replace_class
+    i64 3, label %replace_enum
+  ]
+replace_string:
+  %old_string = inttoptr i64 %old to ptr
+  call void @aura_llvm_str_release(ptr %old_string)
+  %new_string = inttoptr i64 %raw to ptr
+  call void @aura_llvm_str_retain(ptr %new_string)
+  br label %store
+replace_class:
+  %old_class = inttoptr i64 %old to ptr
+  call void @aura_llvm_class_release(ptr %old_class)
+  %new_class = inttoptr i64 %raw to ptr
+  call void @aura_llvm_class_retain(ptr %new_class)
+  br label %store
+replace_enum:
+  %old_enum = inttoptr i64 %old to ptr
+  call void @aura_llvm_enum_release(ptr %old_enum)
+  %new_enum = inttoptr i64 %raw to ptr
+  call void @aura_llvm_enum_retain(ptr %new_enum)
+  br label %store
+store:
+  store i64 %raw, ptr %address
+  ret void
+}
+
+"#;
+
 struct EmitContext {
     signatures: Signatures,
     enum_variants: HashMap<String, EnumVariantInfo>,
@@ -264,6 +401,7 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
     module.push_str(STRING_RUNTIME);
     module.push_str(ENUM_RUNTIME);
     module.push_str(CLASS_RUNTIME);
+    module.push_str(ARRAY_RUNTIME);
     for function in program
         .checked()
         .functions
@@ -427,6 +565,10 @@ fn emit_statement(
                 let value = load_place(out, *place, body)?;
                 writeln!(out, "  call void @aura_llvm_class_release(ptr {value})").unwrap();
                 writeln!(out, "  store ptr null, ptr %slot{}", place.local).unwrap();
+            } else if is_array_type(&body.locals[place.local].ty) {
+                let value = load_place(out, *place, body)?;
+                writeln!(out, "  call void @aura_llvm_array_release(ptr {value})").unwrap();
+                writeln!(out, "  store ptr null, ptr %slot{}", place.local).unwrap();
             }
         }
         Statement::EnterTry { .. } | Statement::LeaveTry => {}
@@ -485,11 +627,19 @@ fn emit_statement(
             ..
         } => {
             let collection_ty = &body.locals[collection.local].ty;
-            if !is_string_type(collection_ty) || body.locals[to.local].ty != Ty::Int {
-                return Err(unsupported("indexing non-String values"));
+            if is_string_type(collection_ty) && body.locals[to.local].ty == Ty::Int {
+                let value = load_string_byte(out, *collection, *index, body)?;
+                writeln!(out, "  store i64 {value}, ptr %slot{}", to.local).unwrap();
+            } else if let Some(element_ty) = array_element_type(collection_ty) {
+                if body.locals[to.local].ty != *element_ty {
+                    return Err(unsupported("Array index result type"));
+                }
+                let value = load_array_element(out, *collection, *index, element_ty, body)?;
+                let ty = llvm_type(element_ty)?;
+                writeln!(out, "  store {ty} {value}, ptr %slot{}", to.local).unwrap();
+            } else {
+                return Err(unsupported("indexing non-String/Array values"));
             }
-            let value = load_string_byte(out, *collection, *index, body)?;
-            writeln!(out, "  store i64 {value}, ptr %slot{}", to.local).unwrap();
         }
     }
     Ok(())
@@ -510,6 +660,8 @@ fn copy_place(
         writeln!(out, "  call void @aura_llvm_enum_retain(ptr {value})").unwrap();
     } else if retain && is_class_type(&body.locals[from.local].ty) {
         writeln!(out, "  call void @aura_llvm_class_retain(ptr {value})").unwrap();
+    } else if retain && is_array_type(&body.locals[from.local].ty) {
+        writeln!(out, "  call void @aura_llvm_array_retain(ptr {value})").unwrap();
     }
     writeln!(out, "  store {ty} {value}, ptr %slot{}", to.local).unwrap();
     Ok(())
@@ -788,6 +940,25 @@ fn emit_rvalue(
                 return Ok(value);
             }
             if target.is_constructor {
+                if target.name == "Array" {
+                    let Some(Ty::Int) = args.first().map(|place| &body.locals[place.local].ty)
+                    else {
+                        return Err(unsupported("Array constructor length"));
+                    };
+                    let element_ty = target
+                        .type_args
+                        .first()
+                        .ok_or_else(|| unsupported("Array element type"))?;
+                    let kind = array_kind(element_ty)?;
+                    let value = next_temp(out);
+                    writeln!(
+                        out,
+                        "  {value} = call ptr @aura_llvm_array_alloc(i64 {}, i64 {kind})",
+                        values[0]
+                    )
+                    .unwrap();
+                    return Ok(value);
+                }
                 let fields = context
                     .classes
                     .get(&target.name)
@@ -830,6 +1001,19 @@ fn emit_rvalue(
                     writeln!(out, "  store i64 {raw}, ptr {address}").unwrap();
                 }
                 return Ok(value);
+            }
+            if target.name == "set" && args.len() == 3 {
+                let Some(element_ty) = array_element_type(&body.locals[args[0].local].ty) else {
+                    return Err(unsupported("set target outside Array"));
+                };
+                let raw = array_raw_value(out, &values[2], element_ty)?;
+                writeln!(
+                    out,
+                    "  call void @aura_llvm_array_set(ptr {}, i64 {}, i64 {raw})",
+                    values[0], values[1]
+                )
+                .unwrap();
+                return Ok(String::new());
             }
             if is_print_call(target) {
                 if args.len() != 1 || !is_string_type(&body.locals[args[0].local].ty) {
@@ -887,19 +1071,25 @@ fn emit_rvalue(
             Ok(temp)
         }
         Rvalue::Length(place) => {
-            if !is_string_type(&body.locals[place.local].ty) {
-                return Err(unsupported("length outside String"));
-            }
             let value = load_place(out, *place, body)?;
             let temp = next_temp(out);
-            writeln!(out, "  {temp} = call i64 @aura_llvm_str_len(ptr {value})").unwrap();
+            if is_string_type(&body.locals[place.local].ty) {
+                writeln!(out, "  {temp} = call i64 @aura_llvm_str_len(ptr {value})").unwrap();
+            } else if is_array_type(&body.locals[place.local].ty) {
+                writeln!(out, "  {temp} = call i64 @aura_llvm_array_len(ptr {value})").unwrap();
+            } else {
+                return Err(unsupported("length outside String/Array"));
+            }
             Ok(temp)
         }
         Rvalue::Index { collection, index } => {
-            if !is_string_type(&body.locals[collection.local].ty) {
-                return Err(unsupported("indexing non-String values"));
+            if is_string_type(&body.locals[collection.local].ty) {
+                load_string_byte(out, *collection, *index, body)
+            } else if let Some(element_ty) = array_element_type(&body.locals[collection.local].ty) {
+                load_array_element(out, *collection, *index, element_ty, body)
+            } else {
+                Err(unsupported("indexing non-String/Array values"))
             }
-            load_string_byte(out, *collection, *index, body)
         }
         Rvalue::VariantTag { operand } => {
             let value = load_place(out, *operand, body)?;
@@ -995,6 +1185,71 @@ fn load_string_byte(
     Ok(result)
 }
 
+fn load_array_element(
+    out: &mut String,
+    collection: Place,
+    index: Place,
+    element_ty: &Ty,
+    body: &MirBody,
+) -> Result<String, CodegenError> {
+    if body.locals[index.local].ty != Ty::Int {
+        return Err(unsupported("Array index is not Int"));
+    }
+    let array = load_place(out, collection, body)?;
+    let offset = load_place(out, index, body)?;
+    let raw = next_temp(out);
+    writeln!(
+        out,
+        "  {raw} = call i64 @aura_llvm_array_get(ptr {array}, i64 {offset})"
+    )
+    .unwrap();
+    array_value_from_raw(out, raw, element_ty)
+}
+
+fn array_raw_value(out: &mut String, value: &str, ty: &Ty) -> Result<String, CodegenError> {
+    match ty {
+        Ty::Int => Ok(value.into()),
+        Ty::Bool => {
+            let raw = next_temp(out);
+            writeln!(out, "  {raw} = zext i1 {value} to i64").unwrap();
+            Ok(raw)
+        }
+        Ty::Float => {
+            let raw = next_temp(out);
+            writeln!(out, "  {raw} = bitcast double {value} to i64").unwrap();
+            Ok(raw)
+        }
+        Ty::String | Ty::Class(_) | Ty::ClassApp { .. } | Ty::Enum(_) | Ty::EnumApp { .. } => {
+            let raw = next_temp(out);
+            writeln!(out, "  {raw} = ptrtoint ptr {value} to i64").unwrap();
+            Ok(raw)
+        }
+        _ => Err(unsupported("Array element type")),
+    }
+}
+
+fn array_value_from_raw(out: &mut String, raw: String, ty: &Ty) -> Result<String, CodegenError> {
+    match ty {
+        Ty::Int => Ok(raw),
+        Ty::Bool => {
+            let value = next_temp(out);
+            writeln!(out, "  {value} = trunc i64 {raw} to i1").unwrap();
+            Ok(value)
+        }
+        Ty::Float => {
+            let value = next_temp(out);
+            writeln!(out, "  {value} = bitcast i64 {raw} to double").unwrap();
+            Ok(value)
+        }
+        Ty::String | Ty::Class(_) | Ty::ClassApp { .. } | Ty::Enum(_) | Ty::EnumApp { .. } => {
+            let value = next_temp(out);
+            writeln!(out, "  {value} = inttoptr i64 {raw} to ptr").unwrap();
+            Ok(value)
+        }
+        _ => Err(unsupported("Array element type")),
+    }
+}
+
 fn llvm_zero(ty: &Ty) -> Result<&'static str, CodegenError> {
     match ty {
         Ty::Unit => Err(unsupported("unit local")),
@@ -1079,7 +1334,28 @@ fn is_enum_type(ty: &Ty) -> bool {
 }
 
 fn is_class_type(ty: &Ty) -> bool {
-    matches!(ty, Ty::Class(_) | Ty::ClassApp { .. })
+    matches!(ty, Ty::Class(_)) || matches!(ty, Ty::ClassApp { name, .. } if name != "Array")
+}
+
+fn is_array_type(ty: &Ty) -> bool {
+    matches!(ty, Ty::ClassApp { name, args } if name == "Array" && args.len() == 1)
+}
+
+fn array_element_type(ty: &Ty) -> Option<&Ty> {
+    match ty {
+        Ty::ClassApp { name, args } if name == "Array" && args.len() == 1 => args.first(),
+        _ => None,
+    }
+}
+
+fn array_kind(ty: &Ty) -> Result<i64, CodegenError> {
+    match ty {
+        Ty::String => Ok(1),
+        Ty::Class(_) | Ty::ClassApp { .. } => Ok(2),
+        Ty::Enum(_) | Ty::EnumApp { .. } => Ok(3),
+        Ty::Int | Ty::Bool | Ty::Float => Ok(0),
+        _ => Err(unsupported("Array element type")),
+    }
 }
 
 fn enum_variants(program: &LoweredProgram) -> HashMap<String, EnumVariantInfo> {
