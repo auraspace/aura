@@ -60,7 +60,9 @@ pub(super) fn emit_statement(
                 writeln!(out, "  store ptr null, ptr %slot{}", place.local).unwrap();
             }
         }
-        Statement::EnterTry { handler, .. } => {
+        Statement::EnterTry {
+            handler, catch_ty, ..
+        } => {
             let id = out.lines().count();
             writeln!(out, "  %ex_buf{id} = alloca [256 x i8], align 16").unwrap();
             writeln!(out, "  call void @aura_try_enter(ptr %ex_buf{id})").unwrap();
@@ -68,9 +70,37 @@ pub(super) fn emit_statement(
             writeln!(out, "  %ex_thrown{id} = icmp ne i32 %ex_jump{id}, 0").unwrap();
             writeln!(
                 out,
-                "  br i1 %ex_thrown{id}, label %bb{handler}, label %try_body{id}"
+                "  br i1 %ex_thrown{id}, label %ex_dispatch{id}, label %try_body{id}"
             )
             .unwrap();
+            writeln!(out, "ex_dispatch{id}:").unwrap();
+            if let Some(catch_ty) = catch_ty {
+                let Some(type_name) = exception_type_name(catch_ty) else {
+                    return Err(unsupported("catch type dispatch"));
+                };
+                let global = exception_type_global(type_name);
+                let length = type_name.as_bytes().len() + 1;
+                let name = next_temp(out);
+                writeln!(
+                    out,
+                    "  {name} = getelementptr [{length} x i8], ptr {global}, i64 0, i64 0"
+                )
+                .unwrap();
+                let matched = next_temp(out);
+                writeln!(out, "  {matched} = call i32 @aura_ex_matches(ptr {name})").unwrap();
+                let is_match = next_temp(out);
+                writeln!(out, "  {is_match} = icmp ne i32 {matched}, 0").unwrap();
+                writeln!(
+                    out,
+                    "  br i1 {is_match}, label %bb{handler}, label %ex_rethrow{id}"
+                )
+                .unwrap();
+                writeln!(out, "ex_rethrow{id}:").unwrap();
+                out.push_str("  call void @aura_ex_rethrow()\n");
+                out.push_str("  unreachable\n");
+            } else {
+                writeln!(out, "  br label %bb{handler}").unwrap();
+            }
             writeln!(out, "try_body{id}:").unwrap();
         }
         Statement::LeaveTry => {

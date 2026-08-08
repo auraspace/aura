@@ -178,6 +178,7 @@ pub mod mir {
         ExceptionString,
         ExceptionInt,
         ExceptionBool,
+        ExceptionObject,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -600,7 +601,7 @@ pub mod state_machine {
 pub mod lowering {
     use std::collections::{BTreeSet, HashMap};
 
-    use aura_ast::{AsyncExpr, AsyncFunDecl, Block, Expr, Ident, Span, Stmt, VarStmt};
+    use aura_ast::{AsyncExpr, AsyncFunDecl, Block, Expr, Ident, Span, Stmt, TypeRef, VarStmt};
     use aura_sema::{subst_ty, type_subst_map, CheckedFile, Ty};
 
     use super::{
@@ -700,7 +701,7 @@ pub mod lowering {
                             catch_ty: value
                                 .catch
                                 .as_ref()
-                                .and_then(|catch| crate::type_ref_builtin(&catch.ty)),
+                                .and_then(|catch| catch_type(&catch.ty, checked)),
                         }],
                         terminator: Terminator::Unreachable,
                     });
@@ -744,7 +745,7 @@ pub mod lowering {
                     let mut catch_bindings = local_ids.clone();
                     if let Some(catch) = &value.catch {
                         let catch_ty =
-                            crate::type_ref_builtin(&catch.ty).ok_or(LowerError::Unsupported {
+                            catch_type(&catch.ty, checked).ok_or(LowerError::Unsupported {
                                 span: catch.span,
                                 construct: "non-primitive LLVM catch payload",
                             })?;
@@ -755,15 +756,9 @@ pub mod lowering {
                             ownership: ownership::mode_for_ty(&catch_ty),
                         });
                         catch_bindings.insert(catch.name.name.clone(), local);
-                        let payload = match catch_ty {
-                            Ty::String => Rvalue::Intrinsic(Intrinsic::ExceptionString),
-                            Ty::Int => Rvalue::Intrinsic(Intrinsic::ExceptionInt),
-                            Ty::Bool => Rvalue::Intrinsic(Intrinsic::ExceptionBool),
-                            _ => unreachable!("catch type was restricted above"),
-                        };
                         blocks[handler].statements.push(Statement::Assign {
                             place: Place { local },
-                            value: payload,
+                            value: exception_payload(&catch_ty),
                         });
                     }
                     blocks[handler].statements.push(Statement::LeaveTry);
@@ -826,7 +821,7 @@ pub mod lowering {
                     let catch = value.catch.as_ref().expect("guarded above");
                     let finally = value.finally.as_ref().expect("guarded above");
                     let catch_ty =
-                        crate::type_ref_builtin(&catch.ty).ok_or(LowerError::Unsupported {
+                        catch_type(&catch.ty, checked).ok_or(LowerError::Unsupported {
                             span: catch.span,
                             construct: "non-primitive LLVM catch payload",
                         })?;
@@ -1015,7 +1010,7 @@ pub mod lowering {
                             catch_ty: value
                                 .catch
                                 .as_ref()
-                                .and_then(|catch| crate::type_ref_builtin(&catch.ty)),
+                                .and_then(|catch| catch_type(&catch.ty, checked)),
                         }],
                         terminator: Terminator::Unreachable,
                     });
@@ -1101,7 +1096,7 @@ pub mod lowering {
                     let join = try_block + 4;
                     let catch = value.catch.as_ref().expect("guarded above");
                     let catch_ty =
-                        crate::type_ref_builtin(&catch.ty).ok_or(LowerError::Unsupported {
+                        catch_type(&catch.ty, checked).ok_or(LowerError::Unsupported {
                             span: catch.span,
                             construct: "non-primitive LLVM catch payload",
                         })?;
@@ -2705,8 +2700,16 @@ pub mod lowering {
             Ty::String => Rvalue::Intrinsic(Intrinsic::ExceptionString),
             Ty::Int => Rvalue::Intrinsic(Intrinsic::ExceptionInt),
             Ty::Bool => Rvalue::Intrinsic(Intrinsic::ExceptionBool),
+            Ty::Class(_) | Ty::ClassApp { .. } | Ty::Enum(_) | Ty::EnumApp { .. } => {
+                Rvalue::Intrinsic(Intrinsic::ExceptionObject)
+            }
             _ => unreachable!("exception payload is restricted to primitive types"),
         }
+    }
+
+    fn catch_type(ty: &TypeRef, checked: Option<&CheckedFile>) -> Option<Ty> {
+        crate::type_ref_builtin(ty)
+            .or_else(|| checked.and_then(|file| type_ref_to_ty(ty, &HashMap::new(), file)))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2942,6 +2945,97 @@ pub mod lowering {
                         target: continue_target,
                     };
                     return Ok(());
+                }
+                Stmt::Try(value)
+                    if value.finally.is_none()
+                        && value.try_block.stmts.len() == 1
+                        && matches!(value.try_block.stmts[0], Stmt::Throw(_))
+                        && value.catch.is_some() =>
+                {
+                    let try_block = blocks.len();
+                    let handler = try_block + 1;
+                    let nested_join = try_block + 3;
+                    let catch = value.catch.as_ref().expect("guarded above");
+                    let catch_ty =
+                        catch_type(&catch.ty, checked).ok_or(LowerError::Unsupported {
+                            span: catch.span,
+                            construct: "non-primitive nested LLVM catch payload",
+                        })?;
+                    blocks.push(BasicBlock {
+                        statements: vec![Statement::EnterTry {
+                            handler,
+                            finally: None,
+                            catch_ty: Some(catch_ty.clone()),
+                        }],
+                        terminator: Terminator::Unreachable,
+                    });
+                    blocks.push(BasicBlock {
+                        statements: Vec::new(),
+                        terminator: Terminator::Unreachable,
+                    });
+                    blocks.push(BasicBlock {
+                        statements: vec![Statement::LeaveTry],
+                        terminator: Terminator::Goto {
+                            target: nested_join,
+                        },
+                    });
+                    blocks.push(BasicBlock {
+                        statements: Vec::new(),
+                        terminator: Terminator::Unreachable,
+                    });
+                    blocks[block].terminator = Terminator::Goto { target: try_block };
+                    let Stmt::Throw(throw) = &value.try_block.stmts[0] else {
+                        unreachable!("guarded above");
+                    };
+                    let thrown = place_or_temp(
+                        &throw.value,
+                        locals,
+                        &mut blocks[try_block].statements,
+                        bindings,
+                        checked,
+                    )?;
+                    blocks[try_block].terminator = Terminator::Throw {
+                        value: thrown,
+                        target: Some(handler),
+                    };
+                    let local = locals.len();
+                    locals.push(Local {
+                        name: format!("__mir_{handler}_{}", catch.name.name),
+                        ty: catch_ty.clone(),
+                        ownership: ownership::mode_for_ty(&catch_ty),
+                    });
+                    let mut catch_bindings = bindings.clone();
+                    catch_bindings.insert(catch.name.name.clone(), local);
+                    blocks[handler].statements.push(Statement::Assign {
+                        place: Place { local },
+                        value: exception_payload(&catch_ty),
+                    });
+                    blocks[handler].statements.push(Statement::LeaveTry);
+                    lower_branch_terminal(
+                        &catch.body,
+                        handler,
+                        nested_join,
+                        blocks,
+                        locals,
+                        &catch_bindings,
+                        checked,
+                        loop_targets,
+                    )?;
+                    let tail = Block {
+                        stmts: branch.stmts[index + 1..].to_vec(),
+                        span: branch.span,
+                    };
+                    return lower_branch_terminal_from(
+                        &tail,
+                        nested_join,
+                        join,
+                        blocks,
+                        locals,
+                        bindings,
+                        checked,
+                        loop_targets,
+                        branch_local_start,
+                    );
                 }
                 Stmt::If(value) => {
                     let condition = place_or_temp(

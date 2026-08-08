@@ -127,6 +127,26 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
     module.push_str(CHANNEL_RUNTIME);
     module.push_str(MISC_RUNTIME);
     emit_class_destructors(&mut module, &context.classes);
+    let mut exception_names = context
+        .classes
+        .keys()
+        .chain(context.enum_variants.keys())
+        .cloned()
+        .collect::<Vec<_>>();
+    exception_names.extend(["String".into(), "Int".into(), "Bool".into()]);
+    exception_names.sort();
+    exception_names.dedup();
+    for name in exception_names {
+        let bytes = name.as_bytes();
+        writeln!(
+            module,
+            "{} = private unnamed_addr constant [{} x i8] c\"{}\", align 1",
+            exception_type_global(&name),
+            bytes.len() + 1,
+            escape_llvm_bytes(bytes)
+        )
+        .unwrap();
+    }
     emit_foreign_declarations(&mut module, program, &context.foreign_names)?;
     for function in program
         .checked()
@@ -383,7 +403,7 @@ fn emit_function(
         for statement in &block.statements {
             emit_statement(out, statement, body, context, &function.package)?;
         }
-        emit_terminator(out, &block.terminator, body, ret)?;
+        emit_terminator(out, &block.terminator, body, ret, context)?;
     }
     out.push_str("}\n\n");
     Ok(())
@@ -394,6 +414,7 @@ fn emit_terminator(
     term: &Terminator,
     body: &MirBody,
     ret: &str,
+    context: &EmitContext,
 ) -> Result<(), CodegenError> {
     match term {
         Terminator::Goto { target } => writeln!(out, "  br label %bb{target}").unwrap(),
@@ -477,6 +498,45 @@ fn emit_terminator(
                 }
                 Ty::Int => writeln!(out, "  call void @aura_throw_int(i64 {loaded})").unwrap(),
                 Ty::Bool => writeln!(out, "  call void @aura_throw_bool(i1 {loaded})").unwrap(),
+                Ty::Class(_) | Ty::ClassApp { .. } | Ty::Enum(_) | Ty::EnumApp { .. } => {
+                    let Some(raw_type_name) = exception_type_name(ty) else {
+                        return Err(unsupported("exception payload type"));
+                    };
+                    let type_name = context
+                        .classes
+                        .keys()
+                        .find(|name| {
+                            raw_type_name == name.as_str()
+                                || raw_type_name.starts_with(&format!("{name}_"))
+                        })
+                        .map(String::as_str)
+                        .unwrap_or_else(|| {
+                            raw_type_name.split('_').next().unwrap_or(raw_type_name)
+                        });
+                    let global = exception_type_global(type_name);
+                    let length = type_name.as_bytes().len() + 1;
+                    let name = next_temp(out);
+                    writeln!(
+                        out,
+                        "  {name} = getelementptr [{length} x i8], ptr {global}, i64 0, i64 0"
+                    )
+                    .unwrap();
+                    let destructor = match ty {
+                        Ty::Class(_) | Ty::ClassApp { .. } => context
+                            .classes
+                            .get(type_name)
+                            .filter(|fields| class_has_pointer_fields(fields))
+                            .map(|_| class_release_symbol(type_name))
+                            .unwrap_or_else(|| "aura_llvm_class_release".into()),
+                        Ty::Enum(_) | Ty::EnumApp { .. } => "aura_llvm_enum_release".into(),
+                        _ => unreachable!("exception type checked above"),
+                    };
+                    writeln!(
+                        out,
+                        "  call void @aura_throw_obj_with_destructor(ptr {name}, ptr {loaded}, ptr @{destructor})"
+                    )
+                    .unwrap();
+                }
                 _ => return Err(unsupported("non-primitive LLVM throw payload")),
             }
             out.push_str("  unreachable\n");
@@ -626,6 +686,40 @@ fn symbol_name(package: &str, name: &str) -> String {
     let package = sanitize(package);
     let name = sanitize(name);
     format!("aura_{}_{}", package, name)
+}
+
+fn exception_type_global(name: &str) -> String {
+    format!(
+        "@.aura_type_{}",
+        name.chars()
+            .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+            .collect::<String>()
+    )
+}
+
+fn exception_type_name(ty: &Ty) -> Option<&str> {
+    match ty {
+        Ty::String => Some("String"),
+        Ty::Int => Some("Int"),
+        Ty::Bool => Some("Bool"),
+        Ty::Class(name) | Ty::Enum(name) => Some(
+            name.split('@')
+                .next()
+                .unwrap_or(name)
+                .split('_')
+                .next()
+                .unwrap_or(name),
+        ),
+        Ty::ClassApp { name, .. } | Ty::EnumApp { name, .. } => Some(
+            name.split('@')
+                .next()
+                .unwrap_or(name)
+                .split('_')
+                .next()
+                .unwrap_or(name),
+        ),
+        _ => None,
+    }
 }
 
 fn unsupported(feature: &str) -> CodegenError {

@@ -171,6 +171,40 @@ fn emits_and_runs_try_catch_return_through_finally() {
 }
 
 #[test]
+fn emits_and_runs_class_exception_rethrow_and_finally() {
+    let file = parse_file(include_str!(
+        "../../../../../corpus/control/class_throw.aura"
+    ))
+    .unwrap();
+    let checked = check_file(&file).unwrap();
+    let program = LoweredProgram::from_checked(checked);
+    let out = PathBuf::from(format!("/tmp/aura-llvm-class-throw-{}", std::process::id()));
+    let options = BackendBuildOptions {
+        backend: Backend::Llvm,
+        target: Target::Native,
+        profile: Profile::Debug,
+        optimization: OptimizationLevel::O0,
+        debug: false,
+        lto: Lto::Off,
+        panic: PanicStrategy::Abort,
+        output: OutputKind::Executable,
+        features: Vec::new(),
+    };
+    LlvmBackend::compile(&program, &out, &options).unwrap();
+    let output = std::process::Command::new(&out).output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "class-boom\nfinally\ninner\n"
+    );
+    let _ = std::fs::remove_file(&out);
+    let _ = std::fs::remove_file(out.with_file_name(format!(
+        "{}.aura.ll",
+        out.file_name().unwrap().to_string_lossy()
+    )));
+}
+
+#[test]
 fn emits_string_length_and_indexing() {
     let file = parse_file(include_str!(
         "../../../../../corpus/control/for_in_string.aura"
