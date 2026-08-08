@@ -606,14 +606,26 @@ fn async_functions(program: &LoweredProgram) -> Vec<FunctionIr> {
         .chain(program.checked().generic_async_mir.iter())
         .chain(program.checked().generic_async_method_mir.iter())
         .map(|body| {
-            let parameter_count = program
-                .source()
-                .ast
+            let ast = &program.source().ast;
+            let parameter_count = ast
                 .async_functions
                 .iter()
-                .find(|function| function.name.name == body.name)
+                .find(|function| {
+                    body.name == function.name.name
+                        || body.name.starts_with(&format!("{}_", function.name.name))
+                })
                 .map(|function| function.params.len())
-                .unwrap_or_else(|| body.locals.len().min(0));
+                .or_else(|| {
+                    ast.classes.iter().find_map(|class| {
+                        class.methods.iter().find_map(|method| {
+                            let matches = body.name == method.name.name
+                                || body.name.starts_with(&format!("{}_", method.name.name))
+                                || body.name.contains(&format!("_{}_", method.name.name));
+                            matches.then_some(method.params.len() + 1)
+                        })
+                    })
+                })
+                .unwrap_or(0);
             synthetic_function(body, program.checked().package.clone(), parameter_count)
         })
         .collect()
