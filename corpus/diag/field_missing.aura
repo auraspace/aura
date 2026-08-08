@@ -1,0 +1,10 @@
+// Member lookup must reject fields that do not exist on the receiver class.
+package demo.diag
+
+class Counter(val value: Int) {
+}
+
+fun main() {
+    val counter = Counter(1)
+    println(counter.missing)
+}

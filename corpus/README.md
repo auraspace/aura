@@ -47,9 +47,11 @@ pid, and platform helpers.
 | `control/exception_nested_cause.aura`          | Compiler-generated nested exception causes and source spans            |
 | `control/exception_cause_api.aura`             | Aura-level exception cause construction and query                      |
 | `control/else_if.aura`                         | `else if` chaining (C4l)                                               |
+| `control/while_guard_paths.aura`               | `while` mutation with `break` / `continue` / early return              |
 | `types/nullable.aura`                          | `T?`, flow `!= null` / `== null`, `!!`                                 |
 | `types/opt_prim.aura`                          | `Int?` / `Bool?` tagged optional C emit (C7a)                          |
 | `types/coalesce.aura`                          | Null coalesce `?:` (C4m)                                               |
+| `types/nullable_array_flow.aura`               | Nullable `Array<T>` null-flow narrowing and indexed access             |
 | `expr/arith.aura`                              | Arithmetic, comparisons, `&&`                                          |
 | `expr/unary.aura`                              | `!` and negation                                                       |
 | `expr/string_eq.aura`                          | String content equality (C4e)                                          |
@@ -74,7 +76,7 @@ pid, and platform helpers.
 | `fun/lambda_block.aura`                        | Lambda block body `(x) => { … }` (C10g)                                |
 | `fun/lambda_capture.aura`                      | Capture outer `val` Int (C10h MVP; Bool/String also OK)                |
 | `fun/lambda_capture_class.aura`                | Capture outer `val` class (GC ptr + env roots; C12k)                   |
-| `fun/lambda_capture_array.aura`                | Capture outer `val` Array (owned snapshot; C12l)                      |
+| `fun/lambda_capture_array.aura`                | Capture outer `val` Array (owned snapshot; C12l)                       |
 | `fun/lambda_capture_var.aura`                  | Capture outer `var` Int/Bool by shared mutable box (C12m)              |
 | `fun/lambda_capture_var_class.aura`            | Mutable class capture: field mutation, rebinding, and escape (C20)     |
 | `fun/lambda_capture_var_array.aura`            | Mutable Array capture: push, rebinding, and escape (C20)               |
@@ -89,21 +91,30 @@ pid, and platform helpers.
 | `edge/empty_main.aura`                         | Empty function body                                                    |
 | `edge/comments.aura`                           | Line and block comments                                                |
 | `diag/undefined.aura`                          | **Expected fail** — diagnostics smoke (excluded from green run corpus) |
+| `diag/call_non_function.aura`                  | **Expected fail** — calling a non-function value                       |
+| `diag/field_missing.aura`                      | **Expected fail** — unknown class field                                |
+| `diag/match_payload_mismatch.aura`             | **Expected fail** — enum pattern payload arity                         |
+| `diag/nullable_assign.aura`                    | **Expected fail** — nullable-to-non-nullable assignment                |
+| `diag/return_missing_value.aura`               | **Expected fail** — missing non-Unit return value                      |
+| `diag/unknown_method.aura`                     | **Expected fail** — unknown class method                               |
 
 ## Classes, interfaces, values
 
-| Path                                   | Intent                                   |
-| -------------------------------------- | ---------------------------------------- |
-| `class/greeter.aura`                   | Class, constructor, method, `this.field` |
-| `class/counter.aura`                   | Mutable field + multi-class file         |
-| `class/identity.aura`                  | Class identity `==` / `!=` (C4a)         |
-| `class/nullable.aura`                  | Nullable class `Class?` (C4b)            |
-| `class/safe_call.aura`                 | Safe call `?.` (C4s)                     |
-| `class/gc_array_field.aura`            | GC mark/free Array fields on class (C7b) |
-| `class/alias_ref.aura`                 | Import alias type qualify / ctor (C3u)   |
-| `iface/named.aura`                     | Interface + implements + upcast call     |
-| `struct/point.aura`                    | Value `struct` fields + methods          |
-| `enum/color.aura` / `enum/result.aura` | Enums, match, `Result`                   |
+| Path                                   | Intent                                     |
+| -------------------------------------- | ------------------------------------------ |
+| `class/greeter.aura`                   | Class, constructor, method, `this.field`   |
+| `class/counter.aura`                   | Mutable field + multi-class file           |
+| `class/identity.aura`                  | Class identity `==` / `!=` (C4a)           |
+| `class/nullable.aura`                  | Nullable class `Class?` (C4b)              |
+| `class/safe_call.aura`                 | Safe call `?.` (C4s)                       |
+| `class/override_dispatch_paths.aura`   | Override dispatch through a base reference |
+| `class/gc_array_field.aura`            | GC mark/free Array fields on class (C7b)   |
+| `class/alias_ref.aura`                 | Import alias type qualify / ctor (C3u)     |
+| `iface/named.aura`                     | Interface + implements + upcast call       |
+| `struct/point.aura`                    | Value `struct` fields + methods            |
+| `struct/nested_value_paths.aura`       | Nested struct copies and field access      |
+| `enum/color.aura` / `enum/result.aura` | Enums, match, `Result`                     |
+| `enum/match_return_paths.aura`         | Match payloads with branch returns         |
 
 ## Control flow & exceptions
 
@@ -119,23 +130,24 @@ pid, and platform helpers.
 
 ## Generics & Array
 
-| Path                             | Intent                                        |
-| -------------------------------- | --------------------------------------------- |
-| `generic/box.aura`               | `class Box<T>` monomorph ctor/method          |
-| `generic/id.aura`                | `fun id<T>` monomorph                         |
-| `generic/infer.aura`             | Infer `Box("…")` / `id("…")` without `<T>`    |
-| `generic/bounds.aura`            | Type-param bounds + method recv (C2e/C4k)     |
-| `generic/array.aura`             | Builtin `Array<T>` len/get/set (C3j)          |
-| `generic/array_push.aura`        | `Array.push` + grow (C3m)                     |
-| `generic/array_pop.aura`         | `Array.pop` (C3r)                             |
-| `generic/array_clear.aura`       | `Array.clear` (C4f)                           |
-| `generic/array_isempty.aura`     | `Array.isEmpty` (C4n)                         |
-| `generic/array_reserve.aura`     | `Array.reserve` (C4o)                         |
-| `generic/array_class.aura`       | `Array` of class refs (C4c)                   |
-| `generic/array_struct.aura`      | `Array` of struct by-value (C4q)              |
-| `generic/array_enum.aura`        | `Array` of enum by-value (C6g)                |
-| `generic/array_enum_result.aura` | `Array` of generic enum `Result` (C6g)        |
-| `generic/array_reassign.aura`    | Free Array buffer on owner reassignment (C4r) |
+| Path                                  | Intent                                        |
+| ------------------------------------- | --------------------------------------------- |
+| `generic/box.aura`                    | `class Box<T>` monomorph ctor/method          |
+| `generic/id.aura`                     | `fun id<T>` monomorph                         |
+| `generic/infer.aura`                  | Infer `Box("…")` / `id("…")` without `<T>`    |
+| `generic/bounds.aura`                 | Type-param bounds + method recv (C2e/C4k)     |
+| `generic/array.aura`                  | Builtin `Array<T>` len/get/set (C3j)          |
+| `generic/array_push.aura`             | `Array.push` + grow (C3m)                     |
+| `generic/array_pop.aura`              | `Array.pop` (C3r)                             |
+| `generic/array_clear.aura`            | `Array.clear` (C4f)                           |
+| `generic/array_isempty.aura`          | `Array.isEmpty` (C4n)                         |
+| `generic/array_reserve.aura`          | `Array.reserve` (C4o)                         |
+| `generic/array_class.aura`            | `Array` of class refs (C4c)                   |
+| `generic/array_struct.aura`           | `Array` of struct by-value (C4q)              |
+| `generic/array_enum.aura`             | `Array` of enum by-value (C6g)                |
+| `generic/array_enum_result.aura`      | `Array` of generic enum `Result` (C6g)        |
+| `generic/array_reassign.aura`         | Free Array buffer on owner reassignment (C4r) |
+| `generic/nested_array_transform.aura` | Nested generic arrays and inferred ownership  |
 
 ## Packages, import, stdlib
 
@@ -192,13 +204,13 @@ Std packages live under repo `std/io`, `std/assert`, and `std/collections` (path
 
 Shipped corpus under `fun/lambda_*.aura` and `std_collections/hof` / `hof_str`:
 
-| Supported now                                                                                           | Not yet (debt)                                     |
-| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `(x: T) => expr` / block body                                                                           | Nested Fun capture                                 |
-| Fun type `(T) -> U` params / annotations                                                                | `var` String / class / Array capture               |
-| Call through fun value; generic HOF over `Array<Int>` and `Array<String>`                               | User-defined element types (generic codegen debt)  |
-| Capture outer `val` of `Int` / `Bool` / `String` / class / Array                                        |                                                    |
-| Capture outer `var` of scalar, String, class, Array, or Fun via shared mutable boxes (C12m/C13f/C20c–e) |                                                    |
+| Supported now                                                                                           | Not yet (debt)                                              |
+| ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `(x: T) => expr` / block body                                                                           | Nested Fun capture                                          |
+| Fun type `(T) -> U` params / annotations                                                                | `var` String / class / Array capture                        |
+| Call through fun value; generic HOF over `Array<Int>` and `Array<String>`                               | User-defined element types (generic codegen debt)           |
+| Capture outer `val` of `Int` / `Bool` / `String` / class / Array                                        |                                                             |
+| Capture outer `var` of scalar, String, class, Array, or Fun via shared mutable boxes (C12m/C13f/C20c–e) |                                                             |
 | Fun env free on drop (C11b); Array capture uses owned snapshot/shared cell (C12l/C20d)                  | General live collection views are separately contract-bound |
 
 ## Scoped borrows (C21)

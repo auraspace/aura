@@ -1,0 +1,34 @@
+// Exercise while guards, mutation, continue, break, and an early return.
+package demo.control.while_guard
+
+fun firstEven(limit: Int): Int {
+    var value: Int = 0
+    while (value < limit) {
+        value = value + 1
+        if (value % 2 != 0) {
+            continue
+        }
+        return value
+    }
+    return -1
+}
+
+fun main() {
+    assert_eq(firstEven(5), 2)
+    assert_eq(firstEven(1), -1)
+
+    var total: Int = 0
+    var i: Int = 0
+    while (i < 5) {
+        i = i + 1
+        if (i == 2) {
+            continue
+        }
+        total = total + i
+        if (total > 6) {
+            break
+        }
+    }
+    assert_eq(total, 8)
+    println("while-guard-ok")
+}

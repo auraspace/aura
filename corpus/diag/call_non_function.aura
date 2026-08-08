@@ -1,0 +1,7 @@
+// Calling a value as a function must produce a targeted type diagnostic.
+package demo.diag
+
+fun main() {
+    val count: Int = 1
+    count()
+}

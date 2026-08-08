@@ -1,0 +1,8 @@
+// A nullable value cannot flow into a non-nullable binding without narrowing.
+package demo.diag
+
+fun main() {
+    val name: String? = null
+    val required: String = name
+    println(required)
+}

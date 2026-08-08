@@ -1666,6 +1666,25 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                         format!("(({right}).has)")
                     };
                 }
+                // Nullable Array values retain the by-value Array ABI. A
+                // negative length is the null sentinel; zero-length arrays
+                // remain distinct and continue to use len == 0.
+                let left_nullable_array = is_nullable_array_expr(&b.left, ctx);
+                let right_nullable_array = is_nullable_array_expr(&b.right, ctx);
+                if matches!(b.right.as_ref(), Expr::Null(_)) && left_nullable_array {
+                    return if matches!(b.op, BinOp::Eq) {
+                        format!("(({left}).len < 0)")
+                    } else {
+                        format!("(({left}).len >= 0)")
+                    };
+                }
+                if matches!(b.left.as_ref(), Expr::Null(_)) && right_nullable_array {
+                    return if matches!(b.op, BinOp::Eq) {
+                        format!("(({right}).len < 0)")
+                    } else {
+                        format!("(({right}).len >= 0)")
+                    };
+                }
                 let is_string = lt == "String"
                     || rt == "String"
                     || matches!(
@@ -3200,6 +3219,12 @@ pub(crate) fn coerce_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>)
     if matches!(expr, Expr::This(_)) && is_heap_class_mono(expected_ty, ctx.checked) {
         return "this".into();
     }
+    // Nullable Array uses the existing by-value struct ABI with a negative
+    // length sentinel for null. Emit it at typed call/return sites.
+    if matches!(expr, Expr::Null(_)) && is_array_type_key(expected_ty) {
+        let cty = crate::stmt::local_key_to_c(expected_ty, ctx.checked);
+        return format!("(({cty}){{ .data = NULL, .len = -1, .cap = 0 }})");
+    }
     let code = emit_expr(expr, ctx);
 
     // C7a: null → empty optional primitive; Int/Bool → wrap into Opt_*.
@@ -3315,6 +3340,21 @@ pub(crate) fn coerce_expr(expr: &Expr, expected_ty: &str, ctx: &mut EmitCtx<'_>)
         }
     }
     code
+}
+
+fn is_nullable_array_expr(expr: &Expr, ctx: &EmitCtx<'_>) -> bool {
+    let Some(ty) = ctx
+        .checked
+        .expr_tys
+        .get(&(expr.span().start, expr.span().end))
+    else {
+        return false;
+    };
+    matches!(
+        ty,
+        Ty::Nullable(inner)
+            if matches!(inner.as_ref(), Ty::ClassApp { name, .. } if aura_sema::split_nominal(name).0 == "Array")
+    )
 }
 
 pub(crate) fn resolve_type_name(expr: &Expr, ctx: &EmitCtx<'_>) -> Option<String> {

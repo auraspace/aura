@@ -1,0 +1,29 @@
+// Nested value structs exercise field access across copied constructor values.
+package demo.nested_struct_paths
+
+struct Point(val x: Int, val y: Int) {
+    fun sum(): Int {
+        return this.x + this.y
+    }
+}
+
+struct Segment(val start: Point, val finish: Point) {
+    fun span(): Int {
+        return this.finish.sum() - this.start.sum()
+    }
+}
+
+fun translate(segment: Segment, dx: Int): Segment {
+    val start = Point(segment.start.x + dx, segment.start.y)
+    val finish = Point(segment.finish.x + dx, segment.finish.y)
+    return Segment(start, finish)
+}
+
+fun main() {
+    val original = Segment(Point(1, 2), Point(5, 8))
+    val moved = translate(original, 3)
+    assert_eq(original.span(), 10)
+    assert_eq(moved.span(), 10)
+    assert_eq(moved.start.x, 4)
+    println("nested-struct-ok")
+}

@@ -1,0 +1,16 @@
+// Pattern payload arity must agree with the enum case declaration.
+package demo.diag
+
+enum Event {
+    case Message(text: String)
+}
+
+fun main() {
+    val event: Event = Message("hello")
+    match (event) {
+        case Message(left, right) => {
+            println(left)
+            println(right)
+        }
+    }
+}

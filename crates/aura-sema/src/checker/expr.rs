@@ -468,7 +468,13 @@ impl Checker {
                     }
                     BinOp::Eq | BinOp::Ne => {
                         // C4i: reject struct/enum/interface equality (no C aggregate ==).
-                        if self.is_struct_ty(&l) || self.is_struct_ty(&r) {
+                        // Nullable aggregates may still be compared with null:
+                        // this is the null-flow narrowing check, not aggregate equality.
+                        let is_null_check = matches!(
+                            (&l, &r),
+                            (Ty::Nullable(_), Ty::Null) | (Ty::Null, Ty::Nullable(_))
+                        );
+                        if !is_null_check && (self.is_struct_ty(&l) || self.is_struct_ty(&r)) {
                             return Err(SemaError {
                                 message: format!(
                                     "cannot compare struct values with `==`/`!=` (got {} and {}); compare fields instead",

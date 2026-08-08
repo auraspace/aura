@@ -1,0 +1,10 @@
+// Method lookup must not silently fall through to a field or global name.
+package demo.diag
+
+class Box(val value: Int) {
+}
+
+fun main() {
+    val box = Box(2)
+    box.noSuchMethod()
+}

@@ -1,0 +1,35 @@
+// Nullable arrays exercise null-flow narrowing and indexed access.
+package demo.types.nullable_array
+
+fun sizeOrZero(values: Array<Int>?): Int {
+    if (values == null) {
+        return 0
+    }
+    return values.len
+}
+
+fun firstOrZero(values: Array<Int>?): Int {
+    if (values == null) {
+        return 0
+    }
+    if (values.len == 0) {
+        return 0
+    }
+    return values.get(0)
+}
+
+fun main() {
+    assert_eq(sizeOrZero(null), 0)
+    assert_eq(firstOrZero(null), 0)
+
+    val sized: Array<Int> = Array(2)
+    sized.set(0, 8)
+    sized.set(1, 13)
+    assert_eq(sizeOrZero(sized), 2)
+
+    val values: Array<Int> = Array(2)
+    values.set(0, 8)
+    values.set(1, 13)
+    assert_eq(firstOrZero(values), 8)
+    println("nullable-array-ok")
+}

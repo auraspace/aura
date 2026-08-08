@@ -1,0 +1,22 @@
+// Generic function composition with nested arrays and owned return values.
+package demo.generic.nested_array
+
+fun wrap<T>(value: T): Array<T> {
+    val values: Array<T> = Array(0)
+    values.push(value)
+    return values
+}
+
+fun first<T>(values: Array<T>): T {
+    return values.get(0)
+}
+
+fun main() {
+    val numbers: Array<Int> = wrap<Int>(21)
+    val nested: Array<Array<Int>> = wrap<Array<Int>>(numbers)
+    assert_eq(first<Int>(first<Array<Int>>(nested)), 21)
+
+    val words: Array<String> = wrap<String>("generic")
+    assert_eq(first<String>(words), "generic")
+    println("nested-array-ok")
+}

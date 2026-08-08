@@ -1,0 +1,24 @@
+// Override dispatch through a base reference plus a subclass-only field.
+package demo.override_paths
+
+open class Counter(val seed: Int) {
+    open fun value(): Int {
+        return this.seed
+    }
+}
+
+class OffsetCounter(val offset: Int) : Counter(10) {
+    override fun value(): Int {
+        return this.seed + this.offset
+    }
+}
+
+fun read(counter: Counter): Int {
+    return counter.value()
+}
+
+fun main() {
+    val counter: Counter = OffsetCounter(5)
+    assert_eq(read(counter), 15)
+    println("override-dispatch-ok")
+}

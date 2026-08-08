@@ -1,0 +1,10 @@
+// A non-Unit return type must reject a bare return statement.
+package demo.diag
+
+fun value(): Int {
+    return
+}
+
+fun main() {
+    println(value())
+}

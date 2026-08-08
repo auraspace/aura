@@ -1656,6 +1656,28 @@ fun main() {}
 }
 
 #[test]
+fn null_flow_narrows_nullable_array() {
+    let src = r#"
+package t
+fun size_or_zero(values: Array<Int>?): Int {
+  if (values == null) {
+    return 0
+  }
+  return values.len
+}
+fun first_or_zero(values: Array<Int>?): Int {
+  if (values == null) {
+    return 0
+  }
+  return values.get(0)
+}
+fun main() {}
+"#;
+    let file = parse_file(src).expect("parse");
+    check_file(&file).expect("nullable Array should narrow after a null check");
+}
+
+#[test]
 fn null_flow_rejects_without_check() {
     let src = r#"
 package t
