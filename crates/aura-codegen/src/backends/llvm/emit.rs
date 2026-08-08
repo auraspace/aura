@@ -587,7 +587,13 @@ fn emit_rvalue(
             .unwrap();
             Ok(temp)
         }
-        Rvalue::Unwrap { operand } => load_place(out, *operand, body),
+        Rvalue::Unwrap { operand } => {
+            let value = load_place(out, *operand, body)?;
+            if is_string_type(&body.locals[operand.local].ty) {
+                writeln!(out, "  call void @aura_llvm_str_retain(ptr {value})").unwrap();
+            }
+            Ok(value)
+        }
         Rvalue::TypeTest { operand, .. } => {
             let value = load_place(out, *operand, body)?;
             if !is_string_type(&body.locals[operand.local].ty) {
