@@ -106,6 +106,71 @@ fn emits_and_runs_string_interpolation_with_integer_operands() {
 }
 
 #[test]
+fn emits_and_runs_try_catch_finally_with_call_and_payload() {
+    let file = parse_file(include_str!("../../../../../corpus/control/try_catch.aura")).unwrap();
+    let checked = check_file(&file).unwrap();
+    let program = LoweredProgram::from_checked(checked);
+    let out = PathBuf::from(format!("/tmp/aura-llvm-try-catch-{}", std::process::id()));
+    let options = BackendBuildOptions {
+        backend: Backend::Llvm,
+        target: Target::Native,
+        profile: Profile::Debug,
+        optimization: OptimizationLevel::O0,
+        debug: false,
+        lto: Lto::Off,
+        panic: PanicStrategy::Abort,
+        output: OutputKind::Executable,
+        features: Vec::new(),
+    };
+    LlvmBackend::compile(&program, &out, &options).unwrap();
+    let output = std::process::Command::new(&out).output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "boom\nfinally\ncaught-int\n"
+    );
+    let _ = std::fs::remove_file(&out);
+    let _ = std::fs::remove_file(out.with_file_name(format!(
+        "{}.aura.ll",
+        out.file_name().unwrap().to_string_lossy()
+    )));
+}
+
+#[test]
+fn emits_and_runs_try_catch_return_through_finally() {
+    let file = parse_file(include_str!(
+        "../../../../../corpus/control/try_catch_return.aura"
+    ))
+    .unwrap();
+    let checked = check_file(&file).unwrap();
+    let program = LoweredProgram::from_checked(checked);
+    let out = PathBuf::from(format!(
+        "/tmp/aura-llvm-try-catch-return-{}",
+        std::process::id()
+    ));
+    let options = BackendBuildOptions {
+        backend: Backend::Llvm,
+        target: Target::Native,
+        profile: Profile::Debug,
+        optimization: OptimizationLevel::O0,
+        debug: false,
+        lto: Lto::Off,
+        panic: PanicStrategy::Abort,
+        output: OutputKind::Executable,
+        features: Vec::new(),
+    };
+    LlvmBackend::compile(&program, &out, &options).unwrap();
+    let output = std::process::Command::new(&out).output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "recover\n");
+    let _ = std::fs::remove_file(&out);
+    let _ = std::fs::remove_file(out.with_file_name(format!(
+        "{}.aura.ll",
+        out.file_name().unwrap().to_string_lossy()
+    )));
+}
+
+#[test]
 fn emits_string_length_and_indexing() {
     let file = parse_file(include_str!(
         "../../../../../corpus/control/for_in_string.aura"

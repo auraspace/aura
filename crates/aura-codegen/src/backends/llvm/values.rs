@@ -1016,6 +1016,23 @@ pub(super) fn emit_rvalue(
                 writeln!(out, "  call void @aura_llvm_gc_collect()").unwrap();
                 Ok(String::new())
             }
+            Intrinsic::ExceptionString => {
+                let raw = next_temp(out);
+                writeln!(out, "  {raw} = call ptr @aura_ex_as_string()").unwrap();
+                let value = next_temp(out);
+                writeln!(out, "  {value} = call ptr @aura_llvm_str_new(ptr {raw})").unwrap();
+                Ok(value)
+            }
+            Intrinsic::ExceptionInt => {
+                let value = next_temp(out);
+                writeln!(out, "  {value} = call i64 @aura_ex_as_int()").unwrap();
+                Ok(value)
+            }
+            Intrinsic::ExceptionBool => {
+                let value = next_temp(out);
+                writeln!(out, "  {value} = call i1 @aura_ex_as_bool()").unwrap();
+                Ok(value)
+            }
         },
         Rvalue::AsyncOp(operation) => {
             emit_async_op(out, operation, body, result_ty, package, context)

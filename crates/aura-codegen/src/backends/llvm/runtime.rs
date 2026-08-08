@@ -20,6 +20,9 @@ declare void @aura_try_leave()
 declare void @aura_throw_string(ptr)
 declare void @aura_throw_int(i64)
 declare void @aura_throw_bool(i1)
+declare ptr @aura_ex_as_string()
+declare i64 @aura_ex_as_int()
+declare i1 @aura_ex_as_bool()
 
 @.aura_int_fmt = private unnamed_addr constant [4 x i8] c"%ld\00", align 1
 @.aura_float_fmt = private unnamed_addr constant [3 x i8] c"%g\00", align 1

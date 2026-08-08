@@ -175,6 +175,9 @@ pub mod mir {
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum Intrinsic {
         GcCollect,
+        ExceptionString,
+        ExceptionInt,
+        ExceptionBool,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -702,7 +705,7 @@ pub mod lowering {
                         terminator: Terminator::Unreachable,
                     });
                     blocks.push(BasicBlock {
-                        statements: vec![Statement::LeaveTry],
+                        statements: Vec::new(),
                         terminator: Terminator::Unreachable,
                     });
                     blocks.push(BasicBlock {
@@ -738,6 +741,32 @@ pub mod lowering {
                         value: thrown,
                         target: Some(handler),
                     };
+                    let mut catch_bindings = local_ids.clone();
+                    if let Some(catch) = &value.catch {
+                        let catch_ty =
+                            crate::type_ref_builtin(&catch.ty).ok_or(LowerError::Unsupported {
+                                span: catch.span,
+                                construct: "non-primitive LLVM catch payload",
+                            })?;
+                        let local = locals.len();
+                        locals.push(Local {
+                            name: format!("__mir_{handler}_{}", catch.name.name),
+                            ty: catch_ty.clone(),
+                            ownership: ownership::mode_for_ty(&catch_ty),
+                        });
+                        catch_bindings.insert(catch.name.name.clone(), local);
+                        let payload = match catch_ty {
+                            Ty::String => Rvalue::Intrinsic(Intrinsic::ExceptionString),
+                            Ty::Int => Rvalue::Intrinsic(Intrinsic::ExceptionInt),
+                            Ty::Bool => Rvalue::Intrinsic(Intrinsic::ExceptionBool),
+                            _ => unreachable!("catch type was restricted above"),
+                        };
+                        blocks[handler].statements.push(Statement::Assign {
+                            place: Place { local },
+                            value: payload,
+                        });
+                    }
+                    blocks[handler].statements.push(Statement::LeaveTry);
                     if let Some(catch) = &value.catch {
                         lower_branch_terminal(
                             &catch.body,
@@ -749,7 +778,7 @@ pub mod lowering {
                             },
                             &mut blocks,
                             &mut locals,
-                            &local_ids,
+                            &catch_bindings,
                             checked,
                             None,
                         )?;
@@ -772,6 +801,176 @@ pub mod lowering {
                     } else {
                         blocks[finally_target].terminator = Terminator::Goto { target: join };
                     }
+                    current = join;
+                }
+                Stmt::Try(value)
+                    if value.catch.is_some()
+                        && value.finally.is_some()
+                        && (block_contains_return(&value.try_block)
+                            || value
+                                .catch
+                                .as_ref()
+                                .is_some_and(|catch| block_contains_return(&catch.body)))
+                        && value
+                            .finally
+                            .as_ref()
+                            .is_some_and(|finally| !block_contains_return(finally)) =>
+                {
+                    let try_block = blocks.len();
+                    let handler = try_block + 1;
+                    let cleanup = try_block + 2;
+                    let return_cleanup = try_block + 3;
+                    let finally_target = try_block + 4;
+                    let join = try_block + 5;
+                    let return_target = try_block + 6;
+                    let catch = value.catch.as_ref().expect("guarded above");
+                    let finally = value.finally.as_ref().expect("guarded above");
+                    let catch_ty =
+                        crate::type_ref_builtin(&catch.ty).ok_or(LowerError::Unsupported {
+                            span: catch.span,
+                            construct: "non-primitive LLVM catch payload",
+                        })?;
+                    let return_slot = if return_ty == Ty::Unit {
+                        None
+                    } else {
+                        let local = locals.len();
+                        locals.push(Local {
+                            name: format!("__mir_try_return_{local}"),
+                            ty: return_ty.clone(),
+                            ownership: ownership::mode_for_ty(&return_ty),
+                        });
+                        Some(Place { local })
+                    };
+                    let returning_local = locals.len();
+                    locals.push(Local {
+                        name: format!("__mir_try_returning_{returning_local}"),
+                        ty: Ty::Bool,
+                        ownership: ownership::mode_for_ty(&Ty::Bool),
+                    });
+                    let returning = Place {
+                        local: returning_local,
+                    };
+                    blocks.push(BasicBlock {
+                        statements: vec![Statement::EnterTry {
+                            handler,
+                            finally: Some(finally_target),
+                            catch_ty: Some(catch_ty.clone()),
+                        }],
+                        terminator: Terminator::Unreachable,
+                    });
+                    blocks.push(BasicBlock {
+                        statements: Vec::new(),
+                        terminator: Terminator::Unreachable,
+                    });
+                    blocks.push(BasicBlock {
+                        statements: vec![Statement::Assign {
+                            place: returning,
+                            value: Rvalue::ConstBool(false),
+                        }],
+                        terminator: Terminator::Goto {
+                            target: finally_target,
+                        },
+                    });
+                    blocks.push(BasicBlock {
+                        statements: vec![Statement::LeaveTry],
+                        terminator: Terminator::Goto {
+                            target: finally_target,
+                        },
+                    });
+                    blocks.push(BasicBlock {
+                        statements: Vec::new(),
+                        terminator: Terminator::Unreachable,
+                    });
+                    blocks.push(BasicBlock {
+                        statements: Vec::new(),
+                        terminator: Terminator::Unreachable,
+                    });
+                    blocks.push(BasicBlock {
+                        statements: Vec::new(),
+                        terminator: Terminator::Return { value: return_slot },
+                    });
+                    blocks[current].terminator = Terminator::Goto { target: try_block };
+
+                    lower_branch_terminal(
+                        &value.try_block,
+                        try_block,
+                        cleanup,
+                        &mut blocks,
+                        &mut locals,
+                        &local_ids,
+                        checked,
+                        None,
+                    )?;
+                    let try_end = blocks.len();
+                    retarget_unhandled_exceptions(&mut blocks[try_block..try_end], handler);
+                    rewrite_returns(
+                        std::slice::from_mut(&mut blocks[try_block]),
+                        return_slot,
+                        returning,
+                        return_cleanup,
+                    );
+                    if try_end > return_target + 1 {
+                        rewrite_returns(
+                            &mut blocks[return_target + 1..try_end],
+                            return_slot,
+                            returning,
+                            return_cleanup,
+                        );
+                    }
+
+                    let local = locals.len();
+                    locals.push(Local {
+                        name: format!("__mir_{handler}_{}", catch.name.name),
+                        ty: catch_ty.clone(),
+                        ownership: ownership::mode_for_ty(&catch_ty),
+                    });
+                    let mut catch_bindings = local_ids.clone();
+                    catch_bindings.insert(catch.name.name.clone(), local);
+                    blocks[handler].statements.push(Statement::Assign {
+                        place: Place { local },
+                        value: exception_payload(&catch_ty),
+                    });
+                    blocks[handler].statements.push(Statement::LeaveTry);
+                    lower_branch_terminal(
+                        &catch.body,
+                        handler,
+                        finally_target,
+                        &mut blocks,
+                        &mut locals,
+                        &catch_bindings,
+                        checked,
+                        None,
+                    )?;
+                    let catch_end = blocks.len();
+                    rewrite_returns(
+                        std::slice::from_mut(&mut blocks[handler]),
+                        return_slot,
+                        returning,
+                        finally_target,
+                    );
+                    if catch_end > return_target + 1 {
+                        rewrite_returns(
+                            &mut blocks[return_target + 1..catch_end],
+                            return_slot,
+                            returning,
+                            finally_target,
+                        );
+                    }
+                    lower_branch_terminal(
+                        finally,
+                        finally_target,
+                        join,
+                        &mut blocks,
+                        &mut locals,
+                        &local_ids,
+                        checked,
+                        None,
+                    )?;
+                    blocks[finally_target].terminator = Terminator::SwitchInt {
+                        condition: returning,
+                        then_target: return_target,
+                        else_target: join,
+                    };
                     current = join;
                 }
                 Stmt::Try(value)
@@ -883,6 +1082,113 @@ pub mod lowering {
                         )?;
                     } else {
                         blocks[handler].terminator = Terminator::Goto { target: join };
+                    }
+                    current = join;
+                }
+                Stmt::Try(value)
+                    if value.catch.as_ref().is_some_and(|catch| {
+                        !block_contains_return(&value.try_block)
+                            && !block_contains_return(&catch.body)
+                    }) && value
+                        .finally
+                        .as_ref()
+                        .map_or(true, |finally| !block_contains_return(finally)) =>
+                {
+                    let try_block = blocks.len();
+                    let handler = try_block + 1;
+                    let cleanup = try_block + 2;
+                    let finally_target = try_block + 3;
+                    let join = try_block + 4;
+                    let catch = value.catch.as_ref().expect("guarded above");
+                    let catch_ty =
+                        crate::type_ref_builtin(&catch.ty).ok_or(LowerError::Unsupported {
+                            span: catch.span,
+                            construct: "non-primitive LLVM catch payload",
+                        })?;
+                    blocks.push(BasicBlock {
+                        statements: vec![Statement::EnterTry {
+                            handler,
+                            finally: value.finally.as_ref().map(|_| finally_target),
+                            catch_ty: Some(catch_ty.clone()),
+                        }],
+                        terminator: Terminator::Unreachable,
+                    });
+                    blocks.push(BasicBlock {
+                        statements: Vec::new(),
+                        terminator: Terminator::Unreachable,
+                    });
+                    blocks.push(BasicBlock {
+                        statements: vec![Statement::LeaveTry],
+                        terminator: if value.finally.is_some() {
+                            Terminator::Goto {
+                                target: finally_target,
+                            }
+                        } else {
+                            Terminator::Goto { target: join }
+                        },
+                    });
+                    blocks.push(BasicBlock {
+                        statements: Vec::new(),
+                        terminator: Terminator::Unreachable,
+                    });
+                    blocks.push(BasicBlock {
+                        statements: Vec::new(),
+                        terminator: Terminator::Unreachable,
+                    });
+                    blocks[current].terminator = Terminator::Goto { target: try_block };
+
+                    lower_branch_terminal(
+                        &value.try_block,
+                        try_block,
+                        cleanup,
+                        &mut blocks,
+                        &mut locals,
+                        &local_ids,
+                        checked,
+                        None,
+                    )?;
+                    retarget_unhandled_exceptions(&mut blocks[try_block..], handler);
+
+                    let local = locals.len();
+                    locals.push(Local {
+                        name: format!("__mir_{handler}_{}", catch.name.name),
+                        ty: catch_ty.clone(),
+                        ownership: ownership::mode_for_ty(&catch_ty),
+                    });
+                    let mut catch_bindings = local_ids.clone();
+                    catch_bindings.insert(catch.name.name.clone(), local);
+                    blocks[handler].statements.push(Statement::Assign {
+                        place: Place { local },
+                        value: exception_payload(&catch_ty),
+                    });
+                    blocks[handler].statements.push(Statement::LeaveTry);
+                    lower_branch_terminal(
+                        &catch.body,
+                        handler,
+                        if value.finally.is_some() {
+                            finally_target
+                        } else {
+                            join
+                        },
+                        &mut blocks,
+                        &mut locals,
+                        &catch_bindings,
+                        checked,
+                        None,
+                    )?;
+                    if let Some(finally) = &value.finally {
+                        lower_branch_terminal(
+                            finally,
+                            finally_target,
+                            join,
+                            &mut blocks,
+                            &mut locals,
+                            &local_ids,
+                            checked,
+                            None,
+                        )?;
+                    } else {
+                        blocks[finally_target].terminator = Terminator::Goto { target: join };
                     }
                     current = join;
                 }
@@ -2326,6 +2632,81 @@ pub mod lowering {
             loop_targets,
             branch_local_start,
         )
+    }
+
+    fn block_contains_return(block: &Block) -> bool {
+        block.stmts.iter().any(|statement| match statement {
+            Stmt::Return(_) => true,
+            Stmt::If(value) => {
+                block_contains_return(&value.then_block)
+                    || value.else_block.as_ref().is_some_and(block_contains_return)
+            }
+            Stmt::While(value) => block_contains_return(&value.body),
+            Stmt::ForRange(value) => block_contains_return(&value.body),
+            Stmt::ForIn(value) => block_contains_return(&value.body),
+            Stmt::Try(value) => {
+                block_contains_return(&value.try_block)
+                    || value
+                        .catch
+                        .as_ref()
+                        .is_some_and(|catch| block_contains_return(&catch.body))
+                    || value.finally.as_ref().is_some_and(block_contains_return)
+            }
+            Stmt::Match(value) => value
+                .arms
+                .iter()
+                .any(|arm| block_contains_return(&arm.body)),
+            _ => false,
+        })
+    }
+
+    fn retarget_unhandled_exceptions(blocks: &mut [BasicBlock], handler: usize) {
+        for block in blocks {
+            match &mut block.terminator {
+                Terminator::Throw { target, .. } if target.is_none() => {
+                    *target = Some(handler);
+                }
+                Terminator::Await { unwind, .. } if unwind.is_none() => {
+                    *unwind = Some(handler);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn rewrite_returns(
+        blocks: &mut [BasicBlock],
+        return_slot: Option<Place>,
+        returning: Place,
+        target: usize,
+    ) {
+        for block in blocks {
+            let term = std::mem::replace(&mut block.terminator, Terminator::Unreachable);
+            let Terminator::Return { value } = term else {
+                block.terminator = term;
+                continue;
+            };
+            if let (Some(slot), Some(value)) = (return_slot, value) {
+                block.statements.push(Statement::Assign {
+                    place: slot,
+                    value: Rvalue::Use(value),
+                });
+            }
+            block.statements.push(Statement::Assign {
+                place: returning,
+                value: Rvalue::ConstBool(true),
+            });
+            block.terminator = Terminator::Goto { target };
+        }
+    }
+
+    fn exception_payload(ty: &Ty) -> Rvalue {
+        match ty {
+            Ty::String => Rvalue::Intrinsic(Intrinsic::ExceptionString),
+            Ty::Int => Rvalue::Intrinsic(Intrinsic::ExceptionInt),
+            Ty::Bool => Rvalue::Intrinsic(Intrinsic::ExceptionBool),
+            _ => unreachable!("exception payload is restricted to primitive types"),
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
