@@ -147,6 +147,33 @@ fn compiles_empty_main_with_clang_when_available() {
     )));
 }
 
+#[test]
+fn compiles_integer_main_as_process_status() {
+    let file = parse_file("package demo\nfun main(): Int { return 7 }\n").unwrap();
+    let checked = check_file(&file).unwrap();
+    let program = LoweredProgram::from_checked(checked);
+    let out = PathBuf::from(format!("/tmp/aura-llvm-status-{}", std::process::id()));
+    let options = BackendBuildOptions {
+        backend: Backend::Llvm,
+        target: Target::Native,
+        profile: Profile::Debug,
+        optimization: OptimizationLevel::O0,
+        debug: false,
+        lto: Lto::Off,
+        panic: PanicStrategy::Abort,
+        output: OutputKind::Executable,
+        features: Vec::new(),
+    };
+    LlvmBackend::compile(&program, &out, &options).unwrap();
+    let status = std::process::Command::new(&out).status().unwrap();
+    assert_eq!(status.code(), Some(7));
+    let _ = std::fs::remove_file(&out);
+    let _ = std::fs::remove_file(out.with_file_name(format!(
+        "{}.aura.ll",
+        out.file_name().unwrap().to_string_lossy()
+    )));
+}
+
 fn assert_llvm_compiles(module: &str, suffix: &str) {
     let ir_path = PathBuf::from(format!("/tmp/aura-llvm-{suffix}-{}.ll", std::process::id()));
     let object_path = ir_path.with_extension("o");

@@ -176,9 +176,15 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
         .find(|function| function.name == "main" && function.params.is_empty())
     {
         let symbol = symbol_name(&function.package, &function.name);
-        module.push_str(&format!(
-            "define i32 @main() {{\nentry:\n  call void @{symbol}()\n  ret i32 0\n}}\n"
-        ));
+        match &function.ret.ty {
+            Ty::Unit => module.push_str(&format!(
+                "define i32 @main() {{\nentry:\n  call void @{symbol}()\n  ret i32 0\n}}\n"
+            )),
+            Ty::Int => module.push_str(&format!(
+                "define i32 @main() {{\nentry:\n  %result = call i64 @{symbol}()\n  %status = trunc i64 %result to i32\n  ret i32 %status\n}}\n"
+            )),
+            _ => return Err(unsupported("main return type")),
+        }
     }
     for (index, literal) in context.string_literals.iter().enumerate() {
         let bytes = literal.as_bytes();
@@ -211,13 +217,6 @@ fn validate_program(program: &LoweredProgram) -> Result<(), CodegenError> {
             body.validate()
                 .map_err(|error| unsupported(&format!("invalid MIR: {error:?}")))?;
         }
-    }
-    if checked
-        .functions
-        .iter()
-        .any(|function| function.name == "main" && function.ret.ty != Ty::Unit)
-    {
-        return Err(unsupported("non-unit main"));
     }
     Ok(())
 }
