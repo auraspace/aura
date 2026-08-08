@@ -336,14 +336,23 @@ pub(super) fn emit_rvalue(
                 return Ok(value);
             }
             if is_string_type(left_ty) {
-                let temp = next_temp(out);
                 match op {
-                    BinaryOp::Add => writeln!(
-                        out,
-                        "  {temp} = call ptr @aura_llvm_str_concat(ptr {left}, ptr {right})"
-                    )
-                    .unwrap(),
+                    BinaryOp::Add => {
+                        let right = if is_string_type(right_ty) {
+                            right
+                        } else {
+                            emit_to_string(out, &right, right_ty)?
+                        };
+                        let temp = next_temp(out);
+                        writeln!(
+                            out,
+                            "  {temp} = call ptr @aura_llvm_str_concat(ptr {left}, ptr {right})"
+                        )
+                        .unwrap();
+                        return Ok(temp);
+                    }
                     BinaryOp::Eq | BinaryOp::Ne => {
+                        let temp = next_temp(out);
                         writeln!(
                             out,
                             "  {temp} = call i1 @aura_llvm_str_eq(ptr {left}, ptr {right})"
@@ -354,8 +363,10 @@ pub(super) fn emit_rvalue(
                             writeln!(out, "  {inverted} = xor i1 {temp}, true").unwrap();
                             return Ok(inverted);
                         }
+                        return Ok(temp);
                     }
                     BinaryOp::Coalesce => {
+                        let temp = next_temp(out);
                         let present = next_temp(out);
                         writeln!(out, "  {present} = icmp ne ptr {left}, null").unwrap();
                         writeln!(
@@ -363,9 +374,23 @@ pub(super) fn emit_rvalue(
                             "  {temp} = select i1 {present}, ptr {left}, ptr {right}"
                         )
                         .unwrap();
+                        return Ok(temp);
                     }
                     _ => return Err(unsupported("String binary operation")),
                 }
+            }
+            if matches!(op, BinaryOp::Add) && is_string_type(right_ty) {
+                let left = if is_string_type(left_ty) {
+                    left
+                } else {
+                    emit_to_string(out, &left, left_ty)?
+                };
+                let temp = next_temp(out);
+                writeln!(
+                    out,
+                    "  {temp} = call ptr @aura_llvm_str_concat(ptr {left}, ptr {right})"
+                )
+                .unwrap();
                 return Ok(temp);
             }
             if is_class_type(left_ty) && matches!(op, BinaryOp::Eq | BinaryOp::Ne) {
@@ -996,6 +1021,30 @@ pub(super) fn emit_rvalue(
             emit_async_op(out, operation, body, result_ty, package, context)
         }
     }
+}
+
+fn emit_to_string(out: &mut String, value: &str, ty: &Ty) -> Result<String, CodegenError> {
+    let temp = next_temp(out);
+    match ty {
+        Ty::Int => writeln!(
+            out,
+            "  {temp} = call ptr @aura_llvm_int_to_string(i64 {value})"
+        )
+        .unwrap(),
+        Ty::Float => writeln!(
+            out,
+            "  {temp} = call ptr @aura_llvm_float_to_string(double {value})"
+        )
+        .unwrap(),
+        Ty::Bool => writeln!(
+            out,
+            "  {temp} = call ptr @aura_llvm_bool_to_string(i1 {value})"
+        )
+        .unwrap(),
+        Ty::String => return Ok(value.into()),
+        _ => return Err(unsupported("String conversion operand")),
+    }
+    Ok(temp)
 }
 
 pub(super) fn emit_async_op(
