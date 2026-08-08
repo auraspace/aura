@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
 use aura_ir::mir::{BinaryOp, MirBody, Place, Rvalue, Statement, Terminator, UnaryOp};
@@ -380,6 +380,7 @@ struct EmitContext {
     signatures: Signatures,
     enum_variants: HashMap<String, EnumVariantInfo>,
     classes: HashMap<String, Vec<(String, Ty)>>,
+    foreign_names: HashSet<String>,
     string_literals: Vec<String>,
 }
 
@@ -396,6 +397,13 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
         signatures: signatures(program),
         enum_variants: enum_variants(program),
         classes: classes(program),
+        foreign_names: program
+            .source()
+            .ast
+            .foreign_functions
+            .iter()
+            .map(|foreign| foreign.name.name.clone())
+            .collect(),
         string_literals: Vec::new(),
     };
     module.push_str(STRING_RUNTIME);
@@ -403,6 +411,7 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
     module.push_str(CLASS_RUNTIME);
     module.push_str(ARRAY_RUNTIME);
     emit_class_destructors(&mut module, &context.classes);
+    emit_foreign_declarations(&mut module, program, &context.foreign_names)?;
     for function in program
         .checked()
         .functions
@@ -442,6 +451,34 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
         .unwrap();
     }
     Ok(module)
+}
+
+fn emit_foreign_declarations(
+    out: &mut String,
+    program: &LoweredProgram,
+    foreign_names: &HashSet<String>,
+) -> Result<(), CodegenError> {
+    for function in program
+        .checked()
+        .functions
+        .iter()
+        .filter(|function| foreign_names.contains(&function.name))
+    {
+        let params = function
+            .params
+            .iter()
+            .map(|param| llvm_type(&param.ty))
+            .collect::<Result<Vec<_>, _>>()?
+            .join(", ");
+        writeln!(
+            out,
+            "declare {} @{}({params})",
+            llvm_type(&function.ret.ty)?,
+            function.name
+        )
+        .unwrap();
+    }
+    Ok(())
 }
 
 fn validate_program(program: &LoweredProgram) -> Result<(), CodegenError> {
@@ -1094,7 +1131,11 @@ fn emit_rvalue(
                 return Ok(String::new());
             }
             let method_name = method_symbol_for(&context.signatures, target, args, body, package);
-            let name = method_name.unwrap_or_else(|| symbol_name(&target.package, &target.name));
+            let name = if context.foreign_names.contains(&target.name) {
+                target.name.clone()
+            } else {
+                method_name.unwrap_or_else(|| symbol_name(&target.package, &target.name))
+            };
             if is_print_call(target) {
                 if args.len() != 1 || !is_string_type(&body.locals[args[0].local].ty) {
                     return Err(unsupported(&format!("{} argument shape", target.name)));
@@ -1378,7 +1419,11 @@ fn llvm_zero(ty: &Ty) -> Result<&'static str, CodegenError> {
         Ty::Int => Ok("0"),
         Ty::String | Ty::Null => Ok("null"),
         Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::String) => Ok("null"),
-        Ty::Enum(_) | Ty::EnumApp { .. } | Ty::Class(_) | Ty::ClassApp { .. } => Ok("null"),
+        Ty::Enum(_)
+        | Ty::EnumApp { .. }
+        | Ty::Class(_)
+        | Ty::ClassApp { .. }
+        | Ty::ForeignHandle(_) => Ok("null"),
         _ => Err(unsupported(&format!("type {}", ty.display()))),
     }
 }
@@ -1398,7 +1443,11 @@ pub(super) fn llvm_type(ty: &Ty) -> Result<&'static str, CodegenError> {
         Ty::Float => Ok("double"),
         Ty::String | Ty::Null => Ok("ptr"),
         Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::String) => Ok("ptr"),
-        Ty::Enum(_) | Ty::EnumApp { .. } | Ty::Class(_) | Ty::ClassApp { .. } => Ok("ptr"),
+        Ty::Enum(_)
+        | Ty::EnumApp { .. }
+        | Ty::Class(_)
+        | Ty::ClassApp { .. }
+        | Ty::ForeignHandle(_) => Ok("ptr"),
         _ => Err(unsupported(&format!("type {}", ty.display()))),
     }
 }

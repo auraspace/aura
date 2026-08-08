@@ -366,6 +366,20 @@ fn runs_class_methods_and_field_updates() {
     )));
 }
 
+#[test]
+fn emits_foreign_declarations_without_lowering_bodies() {
+    let file = parse_file(include_str!(
+        "../../../../../corpus/alpha/ffi_declaration.aura"
+    ))
+    .unwrap();
+    let checked = check_file(&file).unwrap();
+    let program = LoweredProgram::from_checked(checked);
+    assert!(program.mir_is_complete());
+    let module = LlvmBackend::emit_module(&program).unwrap();
+    assert!(module.contains("declare i64 @native_abs(i64)"));
+    assert_llvm_compiles(&module, "ffi-declaration");
+}
+
 fn assert_llvm_compiles(module: &str, suffix: &str) {
     let ir_path = PathBuf::from(format!("/tmp/aura-llvm-{suffix}-{}.ll", std::process::id()));
     let object_path = ir_path.with_extension("o");

@@ -4371,7 +4371,14 @@ impl LoweredProgram {
         }
         let function_mir_unlowered = functions
             .iter()
-            .filter(|function| function.body.is_none())
+            .filter(|function| {
+                function.body.is_none()
+                    && !source
+                        .ast
+                        .foreign_functions
+                        .iter()
+                        .any(|foreign| foreign.name.name == function.name)
+            })
             .map(|function| function.name.clone())
             .collect::<Vec<_>>();
 

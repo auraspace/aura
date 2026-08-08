@@ -40,6 +40,9 @@ impl LlvmBackend {
             command.arg("-flto");
         }
         command.arg(&ir_path).arg("-o").arg(out_bin);
+        for foreign in program.foreign_libraries() {
+            command.arg(format!("-l{}", foreign.library));
+        }
         let output = command
             .output()
             .map_err(|error| CodegenError::Compile(format!("failed to spawn {clang}: {error}")))?;
