@@ -11,7 +11,9 @@
 use std::collections::HashMap;
 
 use aura_ast::{Block, ForeignLinkKind, Span, Stmt, TypeRef};
-use aura_sema::{AttributeMetadata, CallInstantiation, CheckedFile, ExpansionMetadata, Ty};
+use aura_sema::{
+    subst_ty, AttributeMetadata, CallInstantiation, CheckedFile, ExpansionMetadata, Ty,
+};
 
 pub mod generic_lowering;
 
@@ -5186,7 +5188,8 @@ impl LoweredProgram {
             };
             let receiver_ty = Ty::Class(class.name.name.clone());
             for method in &class.methods {
-                if !method.type_params.is_empty()
+                if !class.type_params.is_empty()
+                    || !method.type_params.is_empty()
                     || method
                         .return_type
                         .as_ref()
@@ -5575,6 +5578,28 @@ impl LoweredProgram {
                     method_args,
                 );
                 let empty_substitutions = HashMap::new();
+                let mut specialized_source = source.clone();
+                let mut substitutions = HashMap::new();
+                for (name, argument) in class
+                    .type_params
+                    .iter()
+                    .map(|param| param.name.name.clone())
+                    .zip(class_args.iter().cloned())
+                    .chain(
+                        method
+                            .type_params
+                            .iter()
+                            .map(|param| param.name.name.clone())
+                            .zip(method_args.iter().cloned()),
+                    )
+                {
+                    substitutions.insert(name, argument);
+                }
+                specialized_source.expr_tys = source
+                    .expr_tys
+                    .iter()
+                    .map(|(span, ty)| (*span, subst_ty(ty, &substitutions)))
+                    .collect();
                 let params = closed
                     .params
                     .iter()
@@ -5593,7 +5618,7 @@ impl LoweredProgram {
                     &closed.body,
                     &params,
                     ret,
-                    Some(&source),
+                    Some(&specialized_source),
                     Effect::Pure,
                 )
                 .ok()

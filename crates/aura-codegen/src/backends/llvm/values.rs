@@ -969,10 +969,13 @@ pub(super) fn emit_rvalue(
                 return Ok(String::new());
             }
             let method_name = method_symbol_for(&context.signatures, target, args, body, package);
+            let generic_name = monomorphized_symbol_for(&context.signatures, target, package);
             let name = if context.foreign_names.contains(&target.name) {
                 target.name.clone()
             } else {
-                method_name
+                generic_name
+                    .clone()
+                    .or(method_name.clone())
                     .clone()
                     .unwrap_or_else(|| symbol_name(&target.package, &target.name))
             };
@@ -991,9 +994,14 @@ pub(super) fn emit_rvalue(
                 writeln!(out, "  {call} = call i32 @puts(ptr {data})").unwrap();
                 return Ok(String::new());
             }
-            let (return_ty, parameter_tys) = method_name
+            let (return_ty, parameter_tys) = generic_name
                 .as_deref()
                 .and_then(|symbol| signature_for_symbol(&context.signatures, symbol))
+                .or_else(|| {
+                    method_name
+                        .as_deref()
+                        .and_then(|symbol| signature_for_symbol(&context.signatures, symbol))
+                })
                 .or_else(|| signature_for(&context.signatures, package, target))
                 .ok_or_else(|| unsupported(&format!("call target {}", target.name)))?;
             if parameter_tys.len() != values.len() {

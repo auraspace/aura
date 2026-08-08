@@ -668,6 +668,20 @@ fn runs_generic_class_methods_with_owned_array_fields() {
 }
 
 #[test]
+fn runs_generic_free_function_and_nested_class_monomorphs() {
+    assert_llvm_source_runs(
+        include_str!("../../../../../corpus/generic/id.aura"),
+        "generic-id",
+        "Hello, Aura\nok\n",
+    );
+    assert_llvm_source_runs(
+        include_str!("../../../../../corpus/generic/nested.aura"),
+        "generic-nested",
+        "nested\nnested\ndeep\nfrom maker\n",
+    );
+}
+
+#[test]
 fn runs_string_and_array_builtin_methods() {
     assert_llvm_source_runs(
         r#"package demo

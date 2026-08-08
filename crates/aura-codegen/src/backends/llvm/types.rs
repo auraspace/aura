@@ -128,6 +128,34 @@ pub(crate) fn signature_for_symbol<'a>(
         .map(|(_, signature)| signature)
 }
 
+pub(crate) fn monomorphized_symbol_for(
+    signatures: &Signatures,
+    target: &aura_ir::mir::CallTarget,
+    package: &str,
+) -> Option<String> {
+    if target.type_args.is_empty() {
+        return None;
+    }
+    let suffix = target
+        .type_args
+        .iter()
+        .map(Ty::mono_suffix)
+        .collect::<Vec<_>>()
+        .join("_");
+    let name = format!("{}_{}", target.name, suffix);
+    signatures
+        .iter()
+        .find(|((owner, candidate), _)| {
+            candidate == &name && (owner == package || owner == &target.package)
+        })
+        .or_else(|| {
+            signatures
+                .iter()
+                .find(|((_, candidate), _)| candidate == &name)
+        })
+        .map(|((owner, candidate), _)| symbol_name(owner, candidate))
+}
+
 pub(crate) fn compatible_receiver(left: &Ty, right: &Ty) -> bool {
     if let Ty::Nullable(inner) = left {
         return compatible_receiver(inner, right);
