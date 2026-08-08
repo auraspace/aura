@@ -93,7 +93,7 @@ These topics match **in-tree** behavior (corpus + CLI), not only Accepted RFCs:
   bounded await/spawn/channel slices ship ([RFC-003](/rfc/003), [RFC-006](/rfc/006))
 - Macros / plugins ([RFC-010](/rfc/010))
 - Reflection ([RFC-009](/rfc/009))
-- LLVM backend as default ([RFC-004](/rfc/004) — C backend is what runs now)
+- LLVM backend as default ([RFC-004](/rfc/004) — C remains the default compatibility backend; LLVM is available for complete scalar-MIR programs)
 - Verified locked origin consumption: HTTPS metadata/archive fetch, direct Git
   tag/revision resolution, semver pinning, SHA-256 verification, cache
   extraction, and offline warm-cache builds. The Go-module-inspired origin
