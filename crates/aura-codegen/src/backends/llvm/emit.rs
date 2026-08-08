@@ -994,6 +994,7 @@ fn emit_class_destructors(out: &mut String, classes: &HashMap<String, Vec<(Strin
                 Ty::String => "aura_llvm_str_release",
                 Ty::Class(_) | Ty::ClassApp { .. } => "aura_llvm_class_release",
                 Ty::Enum(_) | Ty::EnumApp { .. } => "aura_llvm_enum_release",
+                Ty::ForeignHandle(_) => "aura_llvm_class_release",
                 _ => unreachable!("pointer field type checked above"),
             };
             writeln!(
