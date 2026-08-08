@@ -107,6 +107,19 @@ fn emits_async_mir_as_immediate_tasks() {
 }
 
 #[test]
+fn emits_typed_channel_operations() {
+    let file = parse_file(
+        "package demo\nfun main() {\n  val channel: Channel<Int> = Channel<Int>(1)\n  channel.send(7)\n  channel.close()\n}\n",
+    )
+    .unwrap();
+    let checked = check_file(&file).unwrap();
+    let module = LlvmBackend::emit_module(&LoweredProgram::from_checked(checked)).unwrap();
+    assert!(module.contains("@aura_llvm_channel_new"));
+    assert!(module.contains("@aura_llvm_channel_send"));
+    assert_llvm_compiles(&module, "channel-module");
+}
+
+#[test]
 fn llvm_defaults_do_not_require_the_c_runtime_abi() {
     let options = crate::llvm_options();
     assert_eq!(options.backend, Backend::Llvm);

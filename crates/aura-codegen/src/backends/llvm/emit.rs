@@ -385,6 +385,95 @@ struct EmitContext {
     string_literals: Vec<String>,
 }
 
+const CHANNEL_RUNTIME: &str = r#"
+%AuraLlvmChannel = type { i64, i64, i64, i64, i64, ptr }
+
+define ptr @aura_llvm_channel_new(i64 %capacity) {
+entry:
+  %positive = icmp sgt i64 %capacity, 0
+  %size = select i1 %positive, i64 %capacity, i64 1
+  %value = call ptr @malloc(i64 48)
+  %data_size = mul i64 %size, 8
+  %data = call ptr @malloc(i64 %data_size)
+  %capacity_ptr = getelementptr %AuraLlvmChannel, ptr %value, i32 0, i32 0
+  store i64 %size, ptr %capacity_ptr
+  %count_ptr = getelementptr %AuraLlvmChannel, ptr %value, i32 0, i32 1
+  store i64 0, ptr %count_ptr
+  %head_ptr = getelementptr %AuraLlvmChannel, ptr %value, i32 0, i32 2
+  store i64 0, ptr %head_ptr
+  %tail_ptr = getelementptr %AuraLlvmChannel, ptr %value, i32 0, i32 3
+  store i64 0, ptr %tail_ptr
+  %closed_ptr = getelementptr %AuraLlvmChannel, ptr %value, i32 0, i32 4
+  store i64 0, ptr %closed_ptr
+  %data_ptr = getelementptr %AuraLlvmChannel, ptr %value, i32 0, i32 5
+  store ptr %data, ptr %data_ptr
+  ret ptr %value
+}
+
+define i1 @aura_llvm_channel_send(ptr %channel, i64 %raw) {
+entry:
+  %closed_ptr = getelementptr %AuraLlvmChannel, ptr %channel, i32 0, i32 4
+  %closed = load i64, ptr %closed_ptr
+  %is_closed = icmp ne i64 %closed, 0
+  br i1 %is_closed, label %fail, label %check_full
+check_full:
+  %capacity_ptr = getelementptr %AuraLlvmChannel, ptr %channel, i32 0, i32 0
+  %capacity = load i64, ptr %capacity_ptr
+  %count_ptr = getelementptr %AuraLlvmChannel, ptr %channel, i32 0, i32 1
+  %count = load i64, ptr %count_ptr
+  %full = icmp uge i64 %count, %capacity
+  br i1 %full, label %fail, label %store
+store:
+  %tail_ptr = getelementptr %AuraLlvmChannel, ptr %channel, i32 0, i32 3
+  %tail = load i64, ptr %tail_ptr
+  %data_ptr = getelementptr %AuraLlvmChannel, ptr %channel, i32 0, i32 5
+  %data = load ptr, ptr %data_ptr
+  %address = getelementptr i64, ptr %data, i64 %tail
+  store i64 %raw, ptr %address
+  %next = add i64 %tail, 1
+  %wrapped = urem i64 %next, %capacity
+  store i64 %wrapped, ptr %tail_ptr
+  %new_count = add i64 %count, 1
+  store i64 %new_count, ptr %count_ptr
+  ret i1 true
+fail:
+  ret i1 false
+}
+
+define i1 @aura_llvm_channel_receive(ptr %channel, ptr %out) {
+entry:
+  %count_ptr = getelementptr %AuraLlvmChannel, ptr %channel, i32 0, i32 1
+  %count = load i64, ptr %count_ptr
+  %empty = icmp eq i64 %count, 0
+  br i1 %empty, label %fail, label %load_value
+load_value:
+  %head_ptr = getelementptr %AuraLlvmChannel, ptr %channel, i32 0, i32 2
+  %head = load i64, ptr %head_ptr
+  %data_ptr = getelementptr %AuraLlvmChannel, ptr %channel, i32 0, i32 5
+  %data = load ptr, ptr %data_ptr
+  %address = getelementptr i64, ptr %data, i64 %head
+  %raw = load i64, ptr %address
+  store i64 %raw, ptr %out
+  %capacity_ptr = getelementptr %AuraLlvmChannel, ptr %channel, i32 0, i32 0
+  %capacity = load i64, ptr %capacity_ptr
+  %next = add i64 %head, 1
+  %wrapped = urem i64 %next, %capacity
+  store i64 %wrapped, ptr %head_ptr
+  %new_count = sub i64 %count, 1
+  store i64 %new_count, ptr %count_ptr
+  ret i1 true
+fail:
+  ret i1 false
+}
+
+define void @aura_llvm_channel_close(ptr %channel) {
+entry:
+  %closed_ptr = getelementptr %AuraLlvmChannel, ptr %channel, i32 0, i32 4
+  store i64 1, ptr %closed_ptr
+  ret void
+}
+"#;
+
 #[derive(Clone)]
 struct EnumVariantInfo {
     tag: i64,
@@ -459,6 +548,7 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
     module.push_str(ENUM_RUNTIME);
     module.push_str(CLASS_RUNTIME);
     module.push_str(ARRAY_RUNTIME);
+    module.push_str(CHANNEL_RUNTIME);
     emit_class_destructors(&mut module, &context.classes);
     emit_foreign_declarations(&mut module, program, &context.foreign_names)?;
     for function in program
@@ -1276,6 +1366,61 @@ fn emit_rvalue(
                 }
                 return Ok(value);
             }
+            if target.name == "send" && args.len() == 2 {
+                let Ty::Channel(element_ty) = &body.locals[args[0].local].ty else {
+                    return Err(unsupported("send target outside Channel"));
+                };
+                if body.locals[args[1].local].ty != **element_ty {
+                    return Err(unsupported("channel send value type"));
+                }
+                let value = &values[1];
+                if is_pointer_value_type(element_ty) {
+                    retain_pointer_value(out, value, element_ty)?;
+                }
+                let raw = array_raw_value(out, value, element_ty)?;
+                let sent = next_temp(out);
+                writeln!(
+                    out,
+                    "  {sent} = call i1 @aura_llvm_channel_send(ptr {}, i64 {raw})",
+                    values[0]
+                )
+                .unwrap();
+                return Ok(String::new());
+            }
+            if target.name == "close" && args.len() == 1 {
+                if !matches!(body.locals[args[0].local].ty, Ty::Channel(_)) {
+                    return Err(unsupported("close target outside Channel"));
+                }
+                writeln!(
+                    out,
+                    "  call void @aura_llvm_channel_close(ptr {})",
+                    values[0]
+                )
+                .unwrap();
+                return Ok(String::new());
+            }
+            if target.name == "receive" && args.len() == 1 {
+                let Ty::Channel(element_ty) = &body.locals[args[0].local].ty else {
+                    return Err(unsupported("receive target outside Channel"));
+                };
+                let result_ty =
+                    result_ty.ok_or_else(|| unsupported("channel receive result type"))?;
+                if *result_ty != **element_ty {
+                    return Err(unsupported("channel receive result type"));
+                }
+                let raw_slot = next_temp(out);
+                writeln!(out, "  {raw_slot} = alloca i64").unwrap();
+                let received = next_temp(out);
+                writeln!(
+                    out,
+                    "  {received} = call i1 @aura_llvm_channel_receive(ptr {}, ptr {raw_slot})",
+                    values[0]
+                )
+                .unwrap();
+                let raw = next_temp(out);
+                writeln!(out, "  {raw} = load i64, ptr {raw_slot}").unwrap();
+                return array_value_from_raw(out, raw, element_ty);
+            }
             if target.name == "set" && args.len() == 3 {
                 let Some(element_ty) = array_element_type(&body.locals[args[0].local].ty) else {
                     return Err(unsupported("set target outside Array"));
@@ -1509,10 +1654,66 @@ fn emit_async_op(
             }
         }
         AsyncOp::Cancel(_) => Ok(String::new()),
-        AsyncOp::ChannelCreate { .. }
-        | AsyncOp::ChannelSend { .. }
-        | AsyncOp::ChannelReceive(_)
-        | AsyncOp::ChannelClose(_) => Err(unsupported("LLVM channel operation")),
+        AsyncOp::ChannelCreate { capacity, .. } => {
+            let value = load_place(out, *capacity, body)?;
+            let channel = next_temp(out);
+            writeln!(
+                out,
+                "  {channel} = call ptr @aura_llvm_channel_new(i64 {value})"
+            )
+            .unwrap();
+            Ok(channel)
+        }
+        AsyncOp::ChannelSend { channel, value } => {
+            let channel_value = load_place(out, *channel, body)?;
+            let value_ty = &body.locals[value.local].ty;
+            let value = load_place(out, *value, body)?;
+            if is_pointer_value_type(value_ty) {
+                retain_pointer_value(out, &value, value_ty)?;
+            }
+            let raw = array_raw_value(out, &value, value_ty)?;
+            let sent = next_temp(out);
+            writeln!(
+                out,
+                "  {sent} = call i1 @aura_llvm_channel_send(ptr {channel_value}, i64 {raw})"
+            )
+            .unwrap();
+            Ok(String::new())
+        }
+        AsyncOp::ChannelReceive(channel) => {
+            let channel_ty = &body.locals[channel.local].ty;
+            let Ty::Channel(element_ty) = channel_ty else {
+                return Err(unsupported("receiving from a non-channel value"));
+            };
+            let result_ty = result_ty.ok_or_else(|| unsupported("channel receive result type"))?;
+            if *result_ty != **element_ty {
+                return Err(unsupported("channel receive result type"));
+            }
+            if **element_ty == Ty::Unit {
+                return Err(unsupported("Unit channel values"));
+            }
+            let channel_value = load_place(out, *channel, body)?;
+            let raw_slot = next_temp(out);
+            writeln!(out, "  {raw_slot} = alloca i64").unwrap();
+            let received = next_temp(out);
+            writeln!(
+                out,
+                "  {received} = call i1 @aura_llvm_channel_receive(ptr {channel_value}, ptr {raw_slot})"
+            )
+            .unwrap();
+            let raw = next_temp(out);
+            writeln!(out, "  {raw} = load i64, ptr {raw_slot}").unwrap();
+            array_value_from_raw(out, raw, element_ty)
+        }
+        AsyncOp::ChannelClose(channel) => {
+            let channel_value = load_place(out, *channel, body)?;
+            writeln!(
+                out,
+                "  call void @aura_llvm_channel_close(ptr {channel_value})"
+            )
+            .unwrap();
+            Ok(String::new())
+        }
     }
 }
 
