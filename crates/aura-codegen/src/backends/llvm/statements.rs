@@ -295,5 +295,14 @@ pub(super) fn copy_place(
         writeln!(out, "  call void @aura_llvm_array_retain(ptr {value})").unwrap();
     }
     writeln!(out, "  store {ty} {value}, ptr %slot{}", to.local).unwrap();
+    if !retain && from.local != to.local {
+        writeln!(
+            out,
+            "  store {ty} {}, ptr %slot{}",
+            llvm_zero(&body.locals[from.local].ty)?,
+            from.local
+        )
+        .unwrap();
+    }
     Ok(())
 }
