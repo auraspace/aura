@@ -3106,7 +3106,16 @@ pub mod lowering {
             .iter()
             .find(|class| class.name.name == simple_name)?;
         let declaration = class.fields.iter().find(|value| value.name.name == field)?;
-        type_ref_to_ty(&declaration.ty, &HashMap::new(), checked)
+        let substitutions = match ty {
+            Ty::ClassApp { args, .. } => class
+                .type_params
+                .iter()
+                .map(|param| param.name.name.clone())
+                .zip(args.iter().cloned())
+                .collect(),
+            _ => HashMap::new(),
+        };
+        type_ref_to_ty(&declaration.ty, &substitutions, checked)
     }
 
     fn place_or_temp(
@@ -3168,6 +3177,27 @@ pub mod lowering {
                     value: Rvalue::Field {
                         object: Place { local: object },
                         field: identifier.name.clone(),
+                    },
+                });
+                return Ok(Place { local });
+            }
+        }
+        if let Expr::Field(field) = expr {
+            let object = place_or_temp(&field.object, locals, statements, bindings, checked)?;
+            if let Some(ty) =
+                field_type_for_ty(&locals[object.local].ty, &field.field.name, checked)
+            {
+                let local = locals.len();
+                locals.push(Local {
+                    name: format!("__field_{local}"),
+                    ty: ty.clone(),
+                    ownership: ownership::mode_for_ty(&ty),
+                });
+                statements.push(Statement::Assign {
+                    place: Place { local },
+                    value: Rvalue::Field {
+                        object,
+                        field: field.field.name.clone(),
                     },
                 });
                 return Ok(Place { local });

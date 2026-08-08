@@ -68,21 +68,48 @@ pub(crate) fn method_symbol_for(
         .and_then(|place| body.locals.get(place.local))
         .map(|local| &local.ty)?;
     let interface_receiver = matches!(receiver_ty, Ty::Interface(_) | Ty::InterfaceApp { .. });
+    let matches_receiver = |params: &[Ty]| {
+        params.first().is_some_and(|candidate| {
+            compatible_receiver(candidate, receiver_ty)
+                || (interface_receiver && is_class_type(candidate))
+        })
+    };
     signatures
         .iter()
         .find_map(|((owner_package, name), (_, params))| {
-            let method_name = name.rsplit("::").next()?;
-            if method_name != target.name
-                || (owner_package != package && owner_package != &target.package)
-                || !params.first().is_some_and(|candidate| {
-                    compatible_receiver(candidate, receiver_ty)
-                        || (interface_receiver && is_class_type(candidate))
-                })
-            {
-                return None;
-            }
-            Some(symbol_name(owner_package, name))
+            let concrete_method = name.contains(&format!("_{}_", target.name));
+            (concrete_method
+                && (owner_package == package || owner_package == &target.package)
+                && matches_receiver(params))
+            .then(|| symbol_name(owner_package, name))
         })
+        .or_else(|| {
+            signatures
+                .iter()
+                .find_map(|((owner_package, name), (_, params))| {
+                    let method_name = name.rsplit("::").next()?;
+                    if method_name != target.name
+                        || (owner_package != package && owner_package != &target.package)
+                        || !params.first().is_some_and(|candidate| {
+                            compatible_receiver(candidate, receiver_ty)
+                                || (interface_receiver && is_class_type(candidate))
+                        })
+                    {
+                        return None;
+                    }
+                    Some(symbol_name(owner_package, name))
+                })
+        })
+}
+
+pub(crate) fn signature_for_symbol<'a>(
+    signatures: &'a Signatures,
+    symbol: &str,
+) -> Option<&'a (Ty, Vec<Ty>)> {
+    signatures
+        .iter()
+        .find(|((package, name), _)| symbol_name(package, name) == symbol)
+        .map(|(_, signature)| signature)
 }
 
 pub(crate) fn compatible_receiver(left: &Ty, right: &Ty) -> bool {

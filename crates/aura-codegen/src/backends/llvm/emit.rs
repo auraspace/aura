@@ -638,6 +638,7 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
         string_literals: Vec::new(),
     };
     let mut extra_functions = async_functions(program);
+    extra_functions.extend(generic_method_functions(program));
     let mut seen_spawns = extra_functions
         .iter()
         .map(|function| function.name.clone())
@@ -702,6 +703,13 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
         let Some(body) = &function.body else {
             continue;
         };
+        if body
+            .locals
+            .iter()
+            .any(|local| matches!(local.ty, Ty::TypeParam(_)))
+        {
+            continue;
+        }
         emit_function(&mut module, function, body, &mut context)?;
     }
     for function in &extra_functions {
@@ -768,6 +776,22 @@ fn async_functions(program: &LoweredProgram) -> Vec<FunctionIr> {
                     })
                 })
                 .unwrap_or(0);
+            synthetic_function(body, program.checked().package.clone(), parameter_count)
+        })
+        .collect()
+}
+
+fn generic_method_functions(program: &LoweredProgram) -> Vec<FunctionIr> {
+    program
+        .checked()
+        .generic_method_mir
+        .iter()
+        .map(|body| {
+            let parameter_count = body
+                .locals
+                .iter()
+                .take_while(|local| !local.name.starts_with("__"))
+                .count();
             synthetic_function(body, program.checked().package.clone(), parameter_count)
         })
         .collect()
@@ -2033,7 +2057,9 @@ fn emit_rvalue(
             let name = if context.foreign_names.contains(&target.name) {
                 target.name.clone()
             } else {
-                method_name.unwrap_or_else(|| symbol_name(&target.package, &target.name))
+                method_name
+                    .clone()
+                    .unwrap_or_else(|| symbol_name(&target.package, &target.name))
             };
             if is_print_call(target) {
                 if args.len() != 1 || !is_string_type(&body.locals[args[0].local].ty) {
@@ -2050,7 +2076,10 @@ fn emit_rvalue(
                 writeln!(out, "  {call} = call i32 @puts(ptr {data})").unwrap();
                 return Ok(String::new());
             }
-            let (return_ty, parameter_tys) = signature_for(&context.signatures, package, target)
+            let (return_ty, parameter_tys) = method_name
+                .as_deref()
+                .and_then(|symbol| signature_for_symbol(&context.signatures, symbol))
+                .or_else(|| signature_for(&context.signatures, package, target))
                 .ok_or_else(|| unsupported(&format!("call target {}", target.name)))?;
             if parameter_tys.len() != values.len() {
                 return Err(unsupported(&format!("call arity for {}", target.name)));
