@@ -409,6 +409,9 @@ void aura_ffi_root_end(AuraFfiRootGuard *guard);
 
 /* Mark a GC object reachable from a task frame mark callback. */
 void aura_gc_mark_ptr(void *obj);
+/* Publish a pointer store from a managed object.  The owner is used to avoid
+ * retaining values written into an untracked allocation. */
+void aura_gc_write_barrier(void *owner, void *value);
 /* Allocate an object whose callback precisely traces every GC field. */
 void *aura_gc_alloc_typed(size_t size, void (*dtor)(void *),
                           void (*trace)(void *));
@@ -466,6 +469,9 @@ void aura_gc_collect_executor(AuraTaskExecutor *executor);
 typedef struct AuraTaskChannel AuraTaskChannel;
 typedef struct AuraTaskSelect AuraTaskSelect;
 typedef void (*AuraTaskFrameGcMarkFn)(AuraTaskFrame *frame);
+typedef struct AuraTaskFrameGcSlot {
+  uint32_t offset;
+} AuraTaskFrameGcSlot;
 typedef void (*AuraTaskFrameDataDropFn)(AuraTaskFrame *frame, void *data,
                                         size_t size);
 typedef void (*AuraTaskBlockingFn)(AuraTaskFrame *frame, void *environment);
@@ -606,6 +612,10 @@ int64_t aura_io_write_fd(int fd, const void *buffer, uint64_t length);
  * for every GC object reachable from that frame's live state. */
 void aura_task_frame_set_gc_mark(AuraTaskFrame *frame,
                                  AuraTaskFrameGcMarkFn mark);
+/* Register immutable byte offsets for GC pointer slots in frame data. */
+void aura_task_frame_set_gc_stack_map(AuraTaskFrame *frame,
+                                      const AuraTaskFrameGcSlot *slots,
+                                      size_t slot_count);
 /* Drop typed references stored in frame data exactly once, after the
  * poll-specific destroy callback and before the frame data is released. */
 void aura_task_frame_set_data_drop(AuraTaskFrame *frame,

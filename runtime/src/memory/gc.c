@@ -332,6 +332,18 @@ void aura_gc_mark_ptr(void *obj)
   aura_gc_lock_leave();
 }
 
+void aura_gc_write_barrier(void *owner, void *value)
+{
+  aura_gc_lock_enter();
+  AuraGcNode *owner_node = aura_gc_find(owner);
+  if (owner_node != NULL && owner_node->marked)
+  {
+    AuraGcNode *value_node = aura_gc_find(value);
+    aura_gc_mark_push(value_node);
+  }
+  aura_gc_lock_leave();
+}
+
 /* Frames are malloc-owned, so their opaque data is not visible to the
  * collector unless the frame supplies an explicit mark contract. */
 static void aura_gc_mark_task_frames(void);

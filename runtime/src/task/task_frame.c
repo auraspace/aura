@@ -30,6 +30,7 @@ typedef AuraTaskPollState (*AuraTaskCancelFn)(AuraTaskFrame *frame);
 typedef void (*AuraTaskFrameDestroyFn)(AuraTaskFrame *frame);
 typedef void (*AuraTaskFrameDataDropFn)(AuraTaskFrame *frame, void *data,
                                         size_t size);
+typedef void (*AuraTaskFrameGcMarkFn)(AuraTaskFrame *frame);
 typedef void (*AuraTaskCleanupFn)(void *data);
 
 typedef enum
@@ -178,6 +179,8 @@ struct AuraTaskFrame
   AuraTaskFrame *cancel_children_head;
   AuraTaskFrame *cancel_sibling_next;
   AuraTaskFrameGcMarkFn gc_mark;
+  const AuraTaskFrameGcSlot *gc_stack_map;
+  size_t gc_stack_map_len;
   AuraTaskFrameDataDropFn data_drop;
   AuraTaskFrame *gc_next;
   AuraTaskFfiPin *ffi_pins;
@@ -306,6 +309,20 @@ static void aura_gc_mark_task_frames(void)
         void *candidate = NULL;
         memcpy(&candidate, bytes + i * sizeof(candidate), sizeof(candidate));
         aura_gc_mark_ptr(candidate);
+      }
+    }
+    if (frame->data != NULL && frame->gc_stack_map != NULL)
+    {
+      for (size_t i = 0; i < frame->gc_stack_map_len; i++)
+      {
+        size_t offset = frame->gc_stack_map[i].offset;
+        if (offset <= frame->data_size && sizeof(void *) <= frame->data_size - offset)
+        {
+          void *candidate = NULL;
+          memcpy(&candidate, (const unsigned char *)frame->data + offset,
+                 sizeof(candidate));
+          aura_gc_mark_ptr(candidate);
+        }
       }
     }
     if (frame->gc_mark != NULL)
@@ -1985,6 +2002,17 @@ void aura_task_frame_set_gc_mark(AuraTaskFrame *frame,
   if (frame != NULL)
   {
     frame->gc_mark = mark;
+  }
+}
+
+void aura_task_frame_set_gc_stack_map(AuraTaskFrame *frame,
+                                      const AuraTaskFrameGcSlot *slots,
+                                      size_t slot_count)
+{
+  if (frame != NULL)
+  {
+    frame->gc_stack_map = slots;
+    frame->gc_stack_map_len = slots == NULL ? 0 : slot_count;
   }
 }
 
