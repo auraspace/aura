@@ -42,7 +42,7 @@ static void aura_gc_lock_leave(void)
   aura_platform_mutex_unlock(&aura_gc_lock);
 }
 
-/* Conservative root slots: pointers to variables that hold GC pointers. */
+/* Root slots are explicit compiler/runtime metadata, never inferred from heap bytes. */
 #define AURA_GC_MAX_ROOTS 256
 static void **aura_gc_roots[AURA_GC_MAX_ROOTS];
 static int aura_gc_root_n = 0;
@@ -238,31 +238,6 @@ static void aura_gc_mark_push(AuraGcNode *n)
   aura_gc_mark_stack[aura_gc_mark_sp++] = n;
 }
 
-/* C6a: mark object and enqueue; scan body for nested GC pointers. */
-static void aura_gc_mark_scan(AuraGcNode *n)
-{
-  if (n == NULL || n->ptr == NULL || n->size < sizeof(void *))
-  {
-    return;
-  }
-  /* Align scan to pointer-sized slots within the allocation. */
-  uintptr_t base = (uintptr_t)n->ptr;
-  size_t nslots = n->size / sizeof(void *);
-  for (size_t i = 0; i < nslots; i++)
-  {
-    void *candidate = *(void **)(base + i * sizeof(void *));
-    if (candidate == NULL)
-    {
-      continue;
-    }
-    AuraGcNode *child = aura_gc_find(candidate);
-    if (child != NULL)
-    {
-      aura_gc_mark_push(child);
-    }
-  }
-}
-
 static void *aura_gc_alloc_internal(size_t size, void (*dtor)(void *),
                                     void (*mark_extras)(void *),
                                     int precise_trace)
@@ -301,8 +276,9 @@ static void *aura_gc_alloc_internal(size_t size, void (*dtor)(void *),
 
 void *aura_gc_alloc_full(size_t size, void (*dtor)(void *), void (*mark_extras)(void *))
 {
-  /* Legacy callers retain conservative body scanning semantics. */
-  return aura_gc_alloc_internal(size, dtor, mark_extras, 0);
+  /* The historical name remains ABI-compatible, but its callback is now the
+   * complete typed trace contract; NULL means the object has no GC fields. */
+  return aura_gc_alloc_internal(size, dtor, mark_extras, 1);
 }
 
 void *aura_gc_alloc_typed(size_t size, void (*dtor)(void *),
@@ -457,7 +433,6 @@ static void aura_gc_process_one_locked(void)
 {
   AuraGcNode *n = aura_gc_mark_stack[--aura_gc_mark_sp];
   if (n->mark_extras != NULL && n->ptr != NULL) n->mark_extras(n->ptr);
-  if (!n->precise_trace) aura_gc_mark_scan(n);
   n->color = 2;
 }
 

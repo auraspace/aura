@@ -1822,7 +1822,7 @@ pub(crate) fn emit_try(out: &mut String, t: &TryStmt, indent: usize, ctx: &mut E
                     // Promote exception payload into GC heap pointer for the catch binding.
                     let _ = writeln!(
                         out,
-                        "{p}      {base_c} *{bind} = ({base_c} *)aura_gc_alloc_full(sizeof({base_c}), aura_dtor_{mono}, NULL);"
+                        "{p}      {base_c} *{bind} = ({base_c} *)aura_gc_alloc_typed(sizeof({base_c}), aura_dtor_{mono}, aura_markex_{mono});"
                     );
                     let _ = writeln!(out, "{p}      *{bind} = *({base_c} *)aura_ex_as_obj();");
                     // Catch bindings outlive the exception frame.  Deep-copy

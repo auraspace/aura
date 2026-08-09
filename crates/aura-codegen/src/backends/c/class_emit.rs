@@ -701,10 +701,6 @@ fn emit_class_gc_hooks(
             c_dtor_name(mono)
         );
     }
-    if !marked_fields.is_empty()
-        || !arr_cls_fields.is_empty()
-        || !arr_iface_fields.is_empty()
-        || !arr_enum_fields.is_empty()
     {
         let _ = writeln!(out, "static void {}(void *p) {{", c_markex_name(mono));
         let _ = writeln!(out, "  {cty} *self = ({cty} *)p;");
@@ -1609,41 +1605,12 @@ pub(crate) fn emit_ctor_mono(
     if is_heap_class_decl(c) {
         // C3y: allocate class instance on GC heap.
         // C7b: pass the complete typed trace callback for GC-managed fields.
-        let arr_cls = array_of_class_field_names(c, checked, params, args);
-        let has_marked_field =
-            ownership_fields(c, checked, params, args)
-                .into_iter()
-                .any(|(_, key)| {
-                    let mono = crate::expr::full_type_mono(&key, checked);
-                    crate::names::is_heap_class_mono(&mono, checked)
-                        || crate::expr::is_enum_mono(&mono, checked)
-                });
-        let has_enum_array = ownership_fields(c, checked, params, args)
-            .into_iter()
-            .filter_map(|(_, key)| crate::array_emit::array_elem_key(&key).map(str::to_string))
-            .map(|elem| crate::expr::full_type_mono(&elem, checked))
-            .any(|elem| crate::expr::is_enum_mono(&elem, checked));
         let dtor = c_dtor_name(mono);
-        let markex = if !has_marked_field
-            && !has_enum_array
-            && arr_cls.is_empty()
-            && array_of_interface_field_specs(c, checked, params, args).is_empty()
-        {
-            "NULL".to_string()
-        } else {
-            c_markex_name(mono)
-        };
-        if markex == "NULL" {
-            let _ = writeln!(
-                out,
-                "  {cty} *self = ({cty} *)aura_gc_alloc_full(sizeof({cty}), {dtor}, NULL);"
-            );
-        } else {
-            let _ = writeln!(
-                out,
-                "  {cty} *self = ({cty} *)aura_gc_alloc_typed(sizeof({cty}), {dtor}, {markex});"
-            );
-        }
+        let _ = writeln!(
+            out,
+            "  {cty} *self = ({cty} *)aura_gc_alloc_typed(sizeof({cty}), {dtor}, {markex});",
+            markex = c_markex_name(mono)
+        );
         out.push_str("  memset(self, 0, sizeof(*self));\n");
         let _ = writeln!(
             out,
