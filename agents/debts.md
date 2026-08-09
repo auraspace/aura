@@ -57,14 +57,15 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 - Area: `runtime/src/platform`, file/network/reactor backends
 - Symptom: file, TCP/UDP socket primitives, synchronization, signal handling,
-  and monotonic time now have platform entry points, but executor wake pipes,
-  multi-descriptor reactor polling, TLS polling, and crypto entropy still use
-  direct host APIs; Windows runtime compilation has not yet been exercised.
+  scheduler wakeups, multi-descriptor polling, TLS polling, crypto entropy,
+  monotonic time, and platform-sized socket waits now have platform entry
+  points; Windows runtime compilation and the regular-file descriptor ABI have
+  not yet been exercised.
 - Why deferred: each backend needs matching ownership, timeout, cancellation,
   and sanitizer fixtures; returning unsupported from one shared branch is not a
   complete platform contract.
-- Next step: move wake/reactor/TLS/entropy behavior behind the same interfaces,
-  then run the Windows compile/runtime fixture before closing this entry.
+- Next step: define a platform-sized file operation ABI, then run the Windows
+  compile/runtime fixture before closing this entry.
 
 ## Resolved History
 
