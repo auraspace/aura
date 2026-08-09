@@ -167,7 +167,7 @@ struct AuraTaskFrame
   AuraTaskChannel *waiting_channel;
   void *waiting_node;
   AuraTaskSelect *waiting_select;
-  int fd_wait_fd;
+  AuraPlatformSocket fd_wait_fd;
   short fd_wait_events;
   int fd_wait_active;
   int64_t fd_wait_deadline_ms;
@@ -2206,6 +2206,28 @@ int aura_task_frame_wait_fd(AuraTaskFrame *frame, int fd, short events)
   return 1;
 }
 
+static int aura_task_frame_wait_socket(AuraTaskFrame *frame,
+                                       AuraPlatformSocket socket_handle,
+                                       short events)
+{
+  if (frame == NULL || AURA_PLATFORM_SOCKET_IS_INVALID(socket_handle) ||
+      events == 0 || frame->state == AURA_TASK_COMPLETE ||
+      frame->state == AURA_TASK_FAILED || frame->state == AURA_TASK_CANCELLED ||
+      frame->waiting_channel != NULL || frame->wait_target != NULL ||
+      frame->fd_wait_active)
+  {
+    return 0;
+  }
+  frame->fd_wait_fd = socket_handle;
+  frame->fd_wait_events = events;
+  frame->fd_wait_active = 1;
+  frame->fd_wait_deadline_ms = 0;
+  frame->fd_wait_timed_out = 0;
+  frame->waiting_node = &frame->fd_wait_active;
+  frame->state = AURA_TASK_PENDING;
+  return 1;
+}
+
 /* A readiness timeout wakes the frame instead of cancelling it.  The polling
  * operation consumes the timeout marker and chooses its typed outcome. */
 int aura_task_frame_wait_fd_timeout(AuraTaskFrame *frame, int fd, short events,
@@ -2281,7 +2303,7 @@ int aura_task_frame_wait_tcp_listener(AuraTaskFrame *frame,
   {
     return 0;
   }
-  return aura_task_frame_wait_fd(frame, listener->fd, events);
+  return aura_task_frame_wait_socket(frame, listener->fd, events);
 }
 
 int aura_task_frame_wait_tcp_stream(AuraTaskFrame *frame,
@@ -2292,7 +2314,7 @@ int aura_task_frame_wait_tcp_stream(AuraTaskFrame *frame,
   {
     return 0;
   }
-  return aura_task_frame_wait_fd(frame, stream->fd, events);
+  return aura_task_frame_wait_socket(frame, stream->fd, events);
 }
 
 int aura_task_frame_wait_tcp_stream_timeout(AuraTaskFrame *frame,
@@ -2303,7 +2325,9 @@ int aura_task_frame_wait_tcp_stream_timeout(AuraTaskFrame *frame,
   {
     return 0;
   }
-  return aura_task_frame_wait_fd_timeout(frame, stream->fd, events, timeout_ms);
+  if (timeout_ms < 0 || !aura_task_frame_wait_socket(frame, stream->fd, events)) return 0;
+  frame->fd_wait_deadline_ms = aura_time_monotonic_millis() + timeout_ms;
+  return 1;
 }
 
 int aura_http_connection_wait_write(AuraTaskFrame *frame,
