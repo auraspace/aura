@@ -1766,6 +1766,39 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                     .find(|c| c.name.name == base)
                     .is_some_and(|cl| has_field_in_hierarchy(ctx.checked, cl, &a.name.name))
             });
+            let dst_field_key = if dst_is_field {
+                let class_name = ctx.method_class.unwrap_or_default();
+                let base = mono_base_name(class_name, ctx.checked).unwrap_or(class_name);
+                let mut owner = ctx
+                    .checked
+                    .ast
+                    .classes
+                    .iter()
+                    .find(|class| class.name.name == base);
+                let mut field_key = None;
+                while let Some(class) = owner {
+                    if let Some(field) = class
+                        .fields
+                        .iter()
+                        .find(|field| field.name.name == a.name.name)
+                    {
+                        field_key = Some(type_ref_local_key_expand(
+                            &field.ty,
+                            &ctx.type_params,
+                            &ctx.type_args,
+                            ctx.checked,
+                        ));
+                        break;
+                    }
+                    owner = direct_superclass(ctx.checked, class);
+                }
+                field_key
+            } else {
+                None
+            };
+            let dst_is_gc_pointer = dst_field_key
+                .as_deref()
+                .is_some_and(|key| is_heap_class_mono(key, ctx.checked));
             let lhs = if dst_is_field {
                 format!("this->{}", mangle_ident(&a.name.name))
             } else if ctx.is_box_local(&a.name.name) {
@@ -2007,7 +2040,12 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                     }
                 }
             }
-            race_write(format!("({lhs} = {rhs})"), &lhs, a.span, ctx)
+            let assignment = race_write(format!("({lhs} = {rhs})"), &lhs, a.span, ctx);
+            if dst_is_gc_pointer {
+                format!("({{ {assignment}; aura_gc_write_barrier((void *)this, (void *){lhs}); }})")
+            } else {
+                assignment
+            }
         }
         Expr::Field(f) => {
             let obj = emit_expr(&f.object, ctx);
