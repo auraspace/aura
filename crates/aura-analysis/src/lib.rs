@@ -74,12 +74,20 @@ struct Document {
 #[derive(Default)]
 struct QueryCache {
     parsed: BTreeMap<(DocumentId, Arc<str>), Result<Arc<File>, ParseError>>,
+    checked: BTreeMap<(DocumentId, Arc<str>), Result<Arc<CheckedFile>, SemaErrors>>,
+    lowered: BTreeMap<(DocumentId, Arc<str>), Result<Arc<aura_ir::CheckedIr>, AnalysisError>>,
     analyzed: BTreeMap<(DocumentId, Arc<str>), Result<Arc<Analysis>, AnalysisError>>,
     parsed_order: VecDeque<(DocumentId, Arc<str>)>,
+    checked_order: VecDeque<(DocumentId, Arc<str>)>,
+    lowered_order: VecDeque<(DocumentId, Arc<str>)>,
     analyzed_order: VecDeque<(DocumentId, Arc<str>)>,
     parsed_hits: u64,
+    checked_hits: u64,
+    lowered_hits: u64,
     analyzed_hits: u64,
     parsed_evictions: u64,
+    checked_evictions: u64,
+    lowered_evictions: u64,
     analyzed_evictions: u64,
 }
 
@@ -89,10 +97,16 @@ const QUERY_CACHE_CAPACITY: usize = 128;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CacheStats {
     pub parsed_entries: usize,
+    pub checked_entries: usize,
+    pub lowered_entries: usize,
     pub analyzed_entries: usize,
     pub parsed_hits: u64,
+    pub checked_hits: u64,
+    pub lowered_hits: u64,
     pub analyzed_hits: u64,
     pub parsed_evictions: u64,
+    pub checked_evictions: u64,
+    pub lowered_evictions: u64,
     pub analyzed_evictions: u64,
 }
 
@@ -127,13 +141,53 @@ impl QueryCache {
         self.analyzed_order.push_back(key.clone());
     }
 
+    fn touch_checked(
+        &mut self,
+        key: &(DocumentId, Arc<str>),
+        value: Result<Arc<CheckedFile>, SemaErrors>,
+    ) {
+        if self.checked.contains_key(key) {
+            self.checked_order.retain(|candidate| candidate != key);
+        } else if self.checked.len() >= QUERY_CACHE_CAPACITY {
+            if let Some(oldest) = self.checked_order.pop_front() {
+                self.checked.remove(&oldest);
+                self.checked_evictions += 1;
+            }
+        }
+        self.checked.insert(key.clone(), value);
+        self.checked_order.push_back(key.clone());
+    }
+
+    fn touch_lowered(
+        &mut self,
+        key: &(DocumentId, Arc<str>),
+        value: Result<Arc<aura_ir::CheckedIr>, AnalysisError>,
+    ) {
+        if self.lowered.contains_key(key) {
+            self.lowered_order.retain(|candidate| candidate != key);
+        } else if self.lowered.len() >= QUERY_CACHE_CAPACITY {
+            if let Some(oldest) = self.lowered_order.pop_front() {
+                self.lowered.remove(&oldest);
+                self.lowered_evictions += 1;
+            }
+        }
+        self.lowered.insert(key.clone(), value);
+        self.lowered_order.push_back(key.clone());
+    }
+
     fn stats(&self) -> CacheStats {
         CacheStats {
             parsed_entries: self.parsed.len(),
+            checked_entries: self.checked.len(),
+            lowered_entries: self.lowered.len(),
             analyzed_entries: self.analyzed.len(),
             parsed_hits: self.parsed_hits,
+            checked_hits: self.checked_hits,
+            lowered_hits: self.lowered_hits,
             analyzed_hits: self.analyzed_hits,
             parsed_evictions: self.parsed_evictions,
+            checked_evictions: self.checked_evictions,
+            lowered_evictions: self.lowered_evictions,
             analyzed_evictions: self.analyzed_evictions,
         }
     }
@@ -272,7 +326,51 @@ impl AnalysisSnapshot {
         result.map_err(QueryError::Parse)
     }
 
-    /// Parse and typecheck a document through the shared compiler path.
+    /// Typecheck a document, reusing the parsed query and its checked result.
+    pub fn check(&self, id: &DocumentId) -> Result<Arc<CheckedFile>, QueryError> {
+        let document = self.document(id)?;
+        let key = (id.clone(), Arc::clone(&document.source));
+        let ast = self.parse(id)?;
+        let mut cache = self.cache.lock().expect("analysis cache lock poisoned");
+        if let Some(result) = cache.checked.get(&key).cloned() {
+            cache.checked_hits += 1;
+            cache.checked_order.retain(|candidate| candidate != &key);
+            cache.checked_order.push_back(key);
+            return result
+                .map_err(AnalysisError::Sema)
+                .map_err(QueryError::Analysis);
+        }
+        drop(cache);
+        let result = check_file(&ast).map(Arc::new);
+        let mut cache = self.cache.lock().expect("analysis cache lock poisoned");
+        cache.touch_checked(&key, result.clone());
+        result
+            .map_err(AnalysisError::Sema)
+            .map_err(QueryError::Analysis)
+    }
+
+    /// Lower checked facts into target-neutral IR, reusing the lowered query.
+    pub fn lower(&self, id: &DocumentId) -> Result<Arc<aura_ir::CheckedIr>, QueryError> {
+        let document = self.document(id)?;
+        let key = (id.clone(), Arc::clone(&document.source));
+        let checked = self.check(id)?;
+        let mut cache = self.cache.lock().expect("analysis cache lock poisoned");
+        if let Some(result) = cache.lowered.get(&key).cloned() {
+            cache.lowered_hits += 1;
+            cache.lowered_order.retain(|candidate| candidate != &key);
+            cache.lowered_order.push_back(key);
+            return result.map_err(QueryError::Analysis);
+        }
+        drop(cache);
+        let result = Ok(Arc::new(
+            aura_ir::LoweredProgram::from_checked((*checked).clone()).ir,
+        ));
+        let mut cache = self.cache.lock().expect("analysis cache lock poisoned");
+        cache.touch_lowered(&key, result.clone());
+        result.map_err(QueryError::Analysis)
+    }
+
+    /// Parse, typecheck, and lower a document through the shared compiler path.
     pub fn analyze(&self, id: &DocumentId) -> Result<Arc<Analysis>, QueryError> {
         let document = self.document(id)?;
         let key = (id.clone(), Arc::clone(&document.source));
@@ -285,21 +383,20 @@ impl AnalysisSnapshot {
                 return result.map_err(QueryError::Analysis);
             }
         }
-        let result = match self.parse(id) {
-            Ok(ast) => check_file(&ast)
-                .map(|checked| {
-                    let ir = aura_ir::LoweredProgram::from_checked(checked.clone()).ir;
-                    Analysis {
-                        ast: (*ast).clone(),
-                        checked,
-                        ir,
-                    }
-                })
-                .map_err(AnalysisError::Sema)
-                .map(Arc::new),
-            Err(QueryError::DocumentNotFound(id)) => {
-                return Err(QueryError::DocumentNotFound(id));
-            }
+        let ast = self.parse(id);
+        let result = match ast {
+            Ok(ast) => match (self.check(id), self.lower(id)) {
+                (Ok(checked), Ok(ir)) => Ok(Arc::new(Analysis {
+                    ast: (*ast).clone(),
+                    checked: (*checked).clone(),
+                    ir: (*ir).clone(),
+                })),
+                (Err(QueryError::Analysis(error)), _) | (_, Err(QueryError::Analysis(error))) => {
+                    Err(error)
+                }
+                (Err(error), _) | (_, Err(error)) => return Err(error),
+            },
+            Err(QueryError::DocumentNotFound(id)) => return Err(QueryError::DocumentNotFound(id)),
             Err(QueryError::Parse(error)) => Err(AnalysisError::Parse(error)),
             Err(QueryError::Analysis(error)) => Err(error),
         };
@@ -463,7 +560,47 @@ mod tests {
     }
 
     #[test]
-    fn parse_cache_evicts_old_snapshots_and_reports_stats() {
+    fn unchanged_snapshots_hit_each_query_stage() {
+        let host = AnalysisHost::new();
+        let id = DocumentId::from("main.aura");
+        host.set_document(id.clone(), "package demo\nfun main() {}\n");
+        let first = host.snapshot();
+        first.parse(&id).unwrap();
+        first.analyze(&id).unwrap();
+
+        let second = host.snapshot();
+        second.parse(&id).unwrap();
+        second.check(&id).unwrap();
+        second.lower(&id).unwrap();
+        second.analyze(&id).unwrap();
+        let stats = second.cache_stats();
+
+        assert!(stats.parsed_hits >= 2);
+        assert!(stats.checked_hits >= 2);
+        assert!(stats.lowered_hits >= 1);
+        assert_eq!(stats.analyzed_hits, 1);
+    }
+
+    #[test]
+    fn changing_one_document_preserves_other_query_keys() {
+        let host = AnalysisHost::new();
+        let stable = DocumentId::from("stable.aura");
+        let changed = DocumentId::from("changed.aura");
+        host.set_document(stable.clone(), "package stable\nfun main() {}\n");
+        host.set_document(changed.clone(), "package changed\nfun main() {}\n");
+        let first = host.snapshot();
+        let stable_analysis = first.analyze(&stable).unwrap();
+
+        host.set_document(changed.clone(), "package changed_again\nfun main() {}\n");
+        let second = host.snapshot();
+        let reused = second.analyze(&stable).unwrap();
+
+        assert!(Arc::ptr_eq(&stable_analysis, &reused));
+        assert_eq!(second.cache_stats().analyzed_hits, 1);
+    }
+
+    #[test]
+    fn query_caches_evict_old_snapshots_and_report_stats() {
         let host = AnalysisHost::new();
         for index in 0..=128 {
             host.set_document(
@@ -473,17 +610,27 @@ mod tests {
         }
         let snapshot = host.snapshot();
         for id in snapshot.document_ids().cloned().collect::<Vec<_>>() {
-            snapshot.parse(&id).unwrap();
+            snapshot.analyze(&id).unwrap();
         }
 
         let stats = snapshot.cache_stats();
         assert_eq!(stats.parsed_entries, 128);
+        assert_eq!(stats.checked_entries, 128);
+        assert_eq!(stats.lowered_entries, 128);
+        assert_eq!(stats.analyzed_entries, 128);
         assert!(stats.parsed_evictions >= 1);
+        assert!(stats.checked_evictions >= 1);
+        assert!(stats.lowered_evictions >= 1);
+        assert!(stats.analyzed_evictions >= 1);
 
-        snapshot.parse(&DocumentId::from("file:///0.aura")).unwrap();
+        snapshot
+            .analyze(&DocumentId::from("file:///0.aura"))
+            .unwrap();
         let refreshed = snapshot.cache_stats();
-        assert_eq!(refreshed.parsed_hits, 0);
         assert!(refreshed.parsed_evictions >= 2);
+        assert!(refreshed.checked_evictions >= 2);
+        assert!(refreshed.lowered_evictions >= 2);
+        assert!(refreshed.analyzed_evictions >= 2);
     }
 
     #[test]
