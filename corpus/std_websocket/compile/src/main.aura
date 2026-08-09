@@ -5,7 +5,11 @@ import std.websocket as Ws
 
 async fun probe() {
   try {
-    await Ws.connect("ws://127.0.0.1:1")
+    val connection = await Ws.connect("ws://127.0.0.1:1")
+    await connection.send(Ws.text("hello"))
+    await connection.ping("heartbeat")
+    val message = await connection.receive()
+    connection.close()
   } catch (error: String) {
     Io.println("websocket boundary ok")
   }

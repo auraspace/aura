@@ -91,12 +91,39 @@ typedef enum AuraTaskChannelStatus {
 AuraTaskExecutor *aura_task_executor_new(void);
 AuraTaskFrame *aura_task_frame_new(size_t data_size, AuraTaskPollFn poll,
                                    AuraTaskFrameDestroyFn destroy);
+void *aura_task_frame_data(AuraTaskFrame *frame);
 AuraTaskPollState aura_task_poll_unit(AuraTaskFrame *frame);
 int aura_task_executor_submit(AuraTaskExecutor *executor, AuraTaskFrame *frame);
 size_t aura_task_executor_run(AuraTaskExecutor *executor);
 int aura_task_executor_release(AuraTaskExecutor *executor,
                                AuraTaskFrame **handle);
 void aura_task_executor_shutdown(AuraTaskExecutor *executor);
+int aura_llvm_task_join_i64(AuraTaskExecutor *executor, AuraTaskFrame *frame,
+                            int64_t *out);
+int aura_llvm_task_join_ptr(AuraTaskExecutor *executor, AuraTaskFrame *frame,
+                            void **out);
+int aura_llvm_task_join_unit(AuraTaskExecutor *executor, AuraTaskFrame *frame);
+int aura_llvm_task_join_status(AuraTaskExecutor *executor, AuraTaskFrame *frame);
+void aura_llvm_task_raise_failure(AuraTaskFrame *frame);
+void *aura_llvm_lazy_int_new(void *environment, void *function);
+int64_t aura_llvm_lazy_int_get(void *value);
+int aura_llvm_lazy_is_initialized(void *value);
+void aura_llvm_lazy_int_destroy(void *value);
+int64_t aura_llvm_sync_load(int64_t *value);
+void aura_llvm_sync_store(int64_t *value, int64_t next);
+int64_t aura_llvm_sync_fetch_add(int64_t *value, int64_t amount);
+int aura_llvm_sync_compare_exchange(int64_t *value, int64_t expected, int64_t desired);
+int aura_llvm_sync_try_lock(int64_t *value);
+void aura_llvm_sync_unlock(int64_t *value);
+int aura_llvm_sync_is_locked(int64_t *value);
+int aura_llvm_sync_try_read(int64_t *value);
+int aura_llvm_sync_try_write(int64_t *value);
+void aura_llvm_sync_unlock_read(int64_t *value);
+void aura_llvm_sync_unlock_write(int64_t *value);
+int64_t aura_llvm_sync_reader_count(int64_t *value);
+int aura_llvm_sync_is_write_locked(int64_t *value);
+int aura_llvm_task_cancel(AuraTaskExecutor *executor, AuraTaskFrame *frame);
+int aura_llvm_task_release(AuraTaskExecutor *executor, AuraTaskFrame *frame);
 
 int aura_task_executor_retain_payload(AuraTaskExecutor *executor,
                                        AuraTaskFrame *frame);

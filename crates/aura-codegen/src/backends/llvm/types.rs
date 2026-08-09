@@ -11,6 +11,7 @@ pub(super) fn llvm_zero(ty: &Ty) -> Result<&'static str, CodegenError> {
         Ty::Bool => Ok("false"),
         Ty::Float => Ok("0.0"),
         Ty::Int => Ok("0"),
+        Ty::Fun { .. } => Ok("{ ptr null, ptr null }"),
         Ty::String | Ty::Null => Ok("null"),
         Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::String) => Ok("null"),
         Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Int) => Ok("{ i1 false, i64 0 }"),
@@ -18,6 +19,7 @@ pub(super) fn llvm_zero(ty: &Ty) -> Result<&'static str, CodegenError> {
         Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Float) => {
             Ok("{ i1 false, double 0.0 }")
         }
+        Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::TypeParam(_)) => Ok("null"),
         Ty::Nullable(inner)
             if matches!(
                 inner.as_ref(),
@@ -34,19 +36,13 @@ pub(super) fn llvm_zero(ty: &Ty) -> Result<&'static str, CodegenError> {
         {
             Ok("null")
         }
-        Ty::Interface(_) | Ty::InterfaceApp { .. } | Ty::Fun { .. } => Ok("null"),
+        Ty::Interface(_) | Ty::InterfaceApp { .. } => Ok("null"),
         Ty::Enum(_)
         | Ty::EnumApp { .. }
         | Ty::Class(_)
         | Ty::ClassApp { .. }
         | Ty::ForeignHandle(_) => Ok("null"),
-        Ty::Task(inner) | Ty::TaskHandle(inner) => {
-            if matches!(inner.as_ref(), Ty::Unit) {
-                Ok("null")
-            } else {
-                llvm_zero(inner)
-            }
-        }
+        Ty::Task(_) | Ty::TaskHandle(_) => Ok("null"),
         Ty::Channel(_) => Ok("null"),
         _ => Err(unsupported(&format!("type {}", ty.display()))),
     }
@@ -58,11 +54,13 @@ pub(crate) fn llvm_type(ty: &Ty) -> Result<&'static str, CodegenError> {
         Ty::Int => Ok("i64"),
         Ty::Bool => Ok("i1"),
         Ty::Float => Ok("double"),
+        Ty::Fun { .. } => Ok("%AuraLlvmFun"),
         Ty::String | Ty::Null => Ok("ptr"),
         Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::String) => Ok("ptr"),
         Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Int) => Ok("%AuraLlvmOptInt"),
         Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Bool) => Ok("%AuraLlvmOptBool"),
         Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::Float) => Ok("%AuraLlvmOptFloat"),
+        Ty::Nullable(inner) if matches!(inner.as_ref(), Ty::TypeParam(_)) => Ok("ptr"),
         Ty::Nullable(inner)
             if matches!(
                 inner.as_ref(),
@@ -79,19 +77,14 @@ pub(crate) fn llvm_type(ty: &Ty) -> Result<&'static str, CodegenError> {
         {
             Ok("ptr")
         }
-        Ty::Interface(_) | Ty::InterfaceApp { .. } | Ty::Fun { .. } => Ok("ptr"),
+        Ty::Interface(_) | Ty::InterfaceApp { .. } => Ok("ptr"),
         Ty::Enum(_)
         | Ty::EnumApp { .. }
         | Ty::Class(_)
         | Ty::ClassApp { .. }
         | Ty::ForeignHandle(_) => Ok("ptr"),
-        Ty::Task(inner) | Ty::TaskHandle(inner) => {
-            if matches!(inner.as_ref(), Ty::Unit) {
-                Ok("ptr")
-            } else {
-                llvm_type(inner)
-            }
-        }
+        // Task values are executor-owned frame handles regardless of payload.
+        Ty::Task(_) | Ty::TaskHandle(_) => Ok("ptr"),
         Ty::Channel(_) => Ok("ptr"),
         _ => Err(unsupported(&format!("type {}", ty.display()))),
     }
@@ -105,7 +98,7 @@ pub(crate) fn task_payload_type(ty: &Ty) -> Option<&Ty> {
 }
 
 pub(crate) fn signatures(program: &LoweredProgram) -> Signatures {
-    program
+    let mut signatures = program
         .checked()
         .functions
         .iter()
@@ -123,7 +116,19 @@ pub(crate) fn signatures(program: &LoweredProgram) -> Signatures {
                 ),
             )
         })
-        .collect()
+        .collect::<Signatures>();
+    for (name, params, ret) in &program.checked().generic_method_signatures {
+        let owner_package = program
+            .source()
+            .ast
+            .classes
+            .iter()
+            .find(|class| name.starts_with(&format!("{}_", class.name.name)))
+            .map(|class| class.origin_package.clone())
+            .unwrap_or_else(|| program.checked().package.clone());
+        signatures.insert((owner_package, name.clone()), (ret.clone(), params.clone()));
+    }
+    signatures
 }
 
 pub(crate) fn signature_for<'a>(
@@ -154,12 +159,67 @@ pub(crate) fn method_symbol_for(
     args: &[aura_ir::mir::Place],
     body: &MirBody,
     package: &str,
+    result_ty: Option<&Ty>,
 ) -> Option<String> {
     let receiver_ty = args
         .first()
         .and_then(|place| body.locals.get(place.local))
         .map(|local| &local.ty)?;
     let interface_receiver = matches!(receiver_ty, Ty::Interface(_) | Ty::InterfaceApp { .. });
+    if target.is_static && !args.is_empty() {
+        let suffix = body.locals[args[0].local].ty.mono_suffix();
+        let suffix = format!("_{}_{}", target.name, suffix);
+        if let Some(((owner_package, name), _)) =
+            signatures.iter().find(|((owner_package, name), _)| {
+                name.ends_with(&suffix)
+                    && (owner_package == package || owner_package == &target.package)
+            })
+        {
+            return Some(symbol_name(owner_package, name));
+        }
+    }
+    if let Some(owner) = class_type_name(receiver_ty) {
+        let owner = owner.rsplit('.').next().unwrap_or(owner);
+        let owner_method = format!("{owner}__{}", target.name);
+        let owner_decl = format!("{owner}::{}", target.name);
+        if let Some(((owner_package, name), (_ret, _))) =
+            signatures.iter().find(|((_, name), (ret, _))| {
+                (name == &owner_method || name == &owner_decl)
+                    && result_ty.is_none_or(|expected| return_compatible(ret, expected))
+            })
+        {
+            return Some(symbol_name(owner_package, name));
+        }
+        let receiver_args = class_type_args(receiver_ty).to_vec();
+        let receiver_arg_count = receiver_args.len();
+        let mut suffix_args = receiver_args;
+        suffix_args.extend(target.method_type_args.iter().cloned());
+        let suffix = suffix_args.iter().map(Ty::mono_suffix).collect::<Vec<_>>();
+        let expected = if suffix.is_empty() {
+            format!("{owner}_{}", target.name)
+        } else {
+            format!("{owner}_{}_{}", target.name, suffix.join("_"))
+        };
+        if let Some(((owner_package, name), _)) =
+            signatures.iter().find(|((_, name), _)| name == &expected)
+        {
+            return Some(symbol_name(owner_package, name));
+        }
+        if !target.method_type_args.is_empty() {
+            let receiver_suffix = suffix_args
+                .into_iter()
+                .take(receiver_arg_count)
+                .map(|ty| ty.mono_suffix())
+                .collect::<Vec<_>>();
+            let receiver_only = format!("{owner}_{}_{}", target.name, receiver_suffix.join("_"));
+            if let Some(((owner_package, name), _)) = signatures
+                .iter()
+                .find(|((_, name), _)| name == &receiver_only)
+            {
+                return Some(symbol_name(owner_package, name));
+            }
+        }
+    }
     let matches_receiver = |params: &[Ty]| {
         params.first().is_some_and(|candidate| {
             compatible_receiver(candidate, receiver_ty)
@@ -168,20 +228,22 @@ pub(crate) fn method_symbol_for(
     };
     signatures
         .iter()
-        .find_map(|((owner_package, name), (_, params))| {
+        .find_map(|((owner_package, name), (ret, params))| {
             let concrete_method = name.contains(&format!("_{}_", target.name));
             (concrete_method
                 && (owner_package == package || owner_package == &target.package)
+                && result_ty.is_none_or(|expected| return_compatible(ret, expected))
                 && matches_receiver(params))
             .then(|| symbol_name(owner_package, name))
         })
         .or_else(|| {
             signatures
                 .iter()
-                .find_map(|((owner_package, name), (_, params))| {
+                .find_map(|((owner_package, name), (ret, params))| {
                     let method_name = name.rsplit("::").next()?;
                     if method_name != target.name
                         || (owner_package != package && owner_package != &target.package)
+                        || !result_ty.is_none_or(|expected| types_compatible(ret, expected))
                         || !params.first().is_some_and(|candidate| {
                             compatible_receiver(candidate, receiver_ty)
                                 || (interface_receiver && is_class_type(candidate))
@@ -198,14 +260,15 @@ pub(crate) fn method_symbol_for(
             // to the generic ABI-compatible lookup.
             signatures
                 .iter()
-                .find_map(|((owner_package, name), (_, params))| {
+                .find_map(|((owner_package, name), (ret, params))| {
                     let method_name = name.rsplit("::").next()?;
                     if method_name != target.name {
                         return None;
                     }
                     let candidate = params.first()?;
-                    (class_type_name(candidate) == class_type_name(receiver_ty))
-                        .then(|| symbol_name(owner_package, name))
+                    (result_ty.is_none_or(|expected| return_compatible(ret, expected))
+                        && class_type_name(candidate) == class_type_name(receiver_ty))
+                    .then(|| symbol_name(owner_package, name))
                 })
         })
 }
@@ -224,6 +287,7 @@ pub(crate) fn monomorphized_symbol_for(
     signatures: &Signatures,
     target: &aura_ir::mir::CallTarget,
     package: &str,
+    argument_tys: &[Ty],
 ) -> Option<String> {
     if target.type_args.is_empty() {
         return None;
@@ -239,6 +303,24 @@ pub(crate) fn monomorphized_symbol_for(
         .iter()
         .find(|((owner, candidate), _)| {
             candidate == &name && (owner == package || owner == &target.package)
+        })
+        .or_else(|| {
+            signatures.iter().find(|((owner, candidate), (_, params))| {
+                candidate.starts_with(&format!("{}_", target.name))
+                    && (owner == package || owner == &target.package)
+                    && params.len() == argument_tys.len()
+                    && params
+                        .iter()
+                        .zip(argument_tys)
+                        .all(|(expected, actual)| types_compatible(expected, actual))
+            })
+        })
+        .or_else(|| {
+            signatures.iter().find(|((owner, candidate), _)| {
+                candidate.starts_with(&format!("{}_", target.name))
+                    && candidate.ends_with(&format!("_{suffix}"))
+                    && (owner == package || owner == &target.package)
+            })
         })
         .or_else(|| {
             signatures
@@ -317,8 +399,30 @@ pub(crate) fn types_compatible(left: &Ty, right: &Ty) -> bool {
                     .zip(right_args)
                     .all(|(left, right)| types_compatible(left, right))
         }
+        (
+            Ty::Fun {
+                params: left_params,
+                ret: left_ret,
+            },
+            Ty::Fun {
+                params: right_params,
+                ret: right_ret,
+            },
+        ) => {
+            left_params.len() == right_params.len()
+                && left_params
+                    .iter()
+                    .zip(right_params)
+                    .all(|(left, right)| types_compatible(left, right))
+                && types_compatible(left_ret, right_ret)
+        }
         _ => left == right,
     }
+}
+
+fn return_compatible(actual: &Ty, expected: &Ty) -> bool {
+    types_compatible(actual, expected)
+        || matches!(expected, Ty::Nullable(inner) if types_compatible(actual, inner))
 }
 
 pub(crate) fn nominal_tail(name: &str) -> &str {
@@ -370,6 +474,14 @@ pub(crate) fn class_type_name(ty: &Ty) -> Option<&str> {
     }
 }
 
+pub(crate) fn class_type_args(ty: &Ty) -> &[Ty] {
+    match ty {
+        Ty::ClassApp { args, .. } => args,
+        Ty::Nullable(inner) => class_type_args(inner),
+        _ => &[],
+    }
+}
+
 pub(crate) fn is_array_type(ty: &Ty) -> bool {
     match ty {
         Ty::ClassApp { name, args } => name == "Array" && args.len() == 1,
@@ -383,6 +495,24 @@ pub(crate) fn array_element_type(ty: &Ty) -> Option<&Ty> {
         Ty::ClassApp { name, args } if name == "Array" && args.len() == 1 => args.first(),
         Ty::Nullable(inner) => array_element_type(inner),
         _ => None,
+    }
+}
+
+pub(crate) fn contains_type_param(ty: &Ty) -> bool {
+    match ty {
+        Ty::TypeParam(_) => true,
+        Ty::Nullable(inner)
+        | Ty::Task(inner)
+        | Ty::TaskHandle(inner)
+        | Ty::Channel(inner)
+        | Ty::ForeignHandle(inner) => contains_type_param(inner),
+        Ty::ClassApp { args, .. } | Ty::EnumApp { args, .. } | Ty::InterfaceApp { args, .. } => {
+            args.iter().any(contains_type_param)
+        }
+        Ty::Fun { params, ret } => {
+            params.iter().any(contains_type_param) || contains_type_param(ret)
+        }
+        _ => false,
     }
 }
 
@@ -468,6 +598,13 @@ pub(crate) fn substitute_ty(ty: &Ty, substitutions: &HashMap<String, Ty>) -> Ty 
         Ty::ForeignHandle(inner) => {
             Ty::ForeignHandle(Box::new(substitute_ty(inner, substitutions)))
         }
+        Ty::Fun { params, ret } => Ty::Fun {
+            params: params
+                .iter()
+                .map(|param| substitute_ty(param, substitutions))
+                .collect(),
+            ret: Box::new(substitute_ty(ret, substitutions)),
+        },
         _ => ty.clone(),
     }
 }

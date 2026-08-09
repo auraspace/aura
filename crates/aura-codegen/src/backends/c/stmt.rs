@@ -3,6 +3,7 @@
 use std::fmt::Write as _;
 
 use aura_ast::*;
+use aura_ir::intrinsic_registry::{lookup as lookup_std_intrinsic, Intrinsic as StdIntrinsic};
 use aura_sema::{CheckedFile, Ty};
 // Ty used in type_ref_local_key_checked
 
@@ -552,7 +553,8 @@ pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
         .call_instantiations
         .get(&call.span.start)
         .is_some_and(|inst| {
-            inst.package == "std.json"
+            lookup_std_intrinsic(&inst.package, &inst.name)
+                .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Json)
                 && matches!(
                     inst.name.as_str(),
                     "jsonObjectGet"
@@ -570,7 +572,8 @@ pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
         .call_instantiations
         .get(&call.span.start)
         .is_some_and(|inst| {
-            inst.package == "std.crypto" && matches!(inst.name.as_str(), "randomBytes")
+            lookup_std_intrinsic(&inst.package, &inst.name)
+                .is_some_and(|spec| spec.intrinsic == StdIntrinsic::CryptoRandomBytes)
         });
     if is_crypto_owned {
         return true;
@@ -580,7 +583,8 @@ pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
         .call_instantiations
         .get(&call.span.start)
         .is_some_and(|inst| {
-            inst.package == "std.compress"
+            lookup_std_intrinsic(&inst.package, &inst.name)
+                .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Compress)
                 && matches!(inst.name.as_str(), "compress" | "decompress")
         });
     if is_compress_owned {
@@ -747,7 +751,8 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 && matches!(&v.init, Expr::Call(call) if ctx.checked.ast.foreign_functions.iter().any(|foreign| {
                     matches!(call.callee.as_ref(), Expr::Ident(id) if id.name == foreign.name.name)
                 }) || ctx.checked.call_instantiations.get(&call.span.start).is_some_and(|inst| {
-                    inst.package == "std.io" && inst.name == "openFile"
+                    lookup_std_intrinsic(&inst.package, &inst.name)
+                        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::IoOpenFile)
                 }))
                 || (ty_name.starts_with("ForeignHandle_")
                     && matches!(v.init, Expr::Async(AsyncExpr::ChannelReceive(_))));

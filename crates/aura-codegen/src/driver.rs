@@ -107,7 +107,9 @@ pub struct BackendOptions {
 pub struct BackendCapabilities {
     pub requires_complete_mir: bool,
     pub accepts_alpha_source: bool,
-    pub requires_c_runtime: bool,
+    /// Whether the driver must validate and pass the legacy C backend inputs.
+    /// Native MIR backends may still link a runtime internally.
+    pub requires_legacy_c_inputs: bool,
     pub supports_native_compile: bool,
 }
 
@@ -209,7 +211,7 @@ pub trait Backend {
         BackendCapabilities {
             requires_complete_mir: !self.accepts_partial_mir(),
             accepts_alpha_source: false,
-            requires_c_runtime: false,
+            requires_legacy_c_inputs: false,
             supports_native_compile: false,
         }
     }
@@ -348,7 +350,7 @@ impl<B: Backend> Driver<B> {
         opts: EmitOptions,
     ) -> Result<Artifact, CodegenError> {
         let capabilities = self.backend.capabilities();
-        if capabilities.requires_c_runtime {
+        if capabilities.requires_legacy_c_inputs {
             validate_build(&options, &compiler_command(), runtime_c)?;
         }
         let checked = check_file(file)?;
@@ -361,7 +363,7 @@ impl<B: Backend> Driver<B> {
                 program.unlowered_reachable_mir_names().join(", ")
             )));
         }
-        if capabilities.requires_c_runtime {
+        if capabilities.requires_legacy_c_inputs {
             self.backend
                 .compile(&program, out_bin, runtime_c, &options, opts)
         } else {
@@ -389,7 +391,7 @@ impl Backend for MirBackend {
         BackendCapabilities {
             requires_complete_mir: true,
             accepts_alpha_source: false,
-            requires_c_runtime: false,
+            requires_legacy_c_inputs: false,
             supports_native_compile: false,
         }
     }
@@ -468,7 +470,7 @@ impl Backend for CBackend {
         BackendCapabilities {
             requires_complete_mir: false,
             accepts_alpha_source: true,
-            requires_c_runtime: true,
+            requires_legacy_c_inputs: true,
             supports_native_compile: true,
         }
     }
@@ -821,7 +823,7 @@ mod tests {
             BackendCapabilities {
                 requires_complete_mir: true,
                 accepts_alpha_source: false,
-                requires_c_runtime: true,
+                requires_legacy_c_inputs: true,
                 supports_native_compile: true,
             }
         }
@@ -965,13 +967,13 @@ mod tests {
         let mir = MirBackend.capabilities();
         assert!(mir.requires_complete_mir);
         assert!(!mir.accepts_alpha_source);
-        assert!(!mir.requires_c_runtime);
+        assert!(!mir.requires_legacy_c_inputs);
         assert!(!mir.supports_native_compile);
 
         let c = super::CBackend.capabilities();
         assert!(!c.requires_complete_mir);
         assert!(c.accepts_alpha_source);
-        assert!(c.requires_c_runtime);
+        assert!(c.requires_legacy_c_inputs);
         assert!(c.supports_native_compile);
     }
 
@@ -1046,7 +1048,7 @@ mod tests {
             BackendCapabilities {
                 requires_complete_mir: true,
                 accepts_alpha_source: false,
-                requires_c_runtime: true,
+                requires_legacy_c_inputs: true,
                 supports_native_compile: true,
             }
         }

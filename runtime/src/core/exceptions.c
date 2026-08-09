@@ -812,6 +812,31 @@ const char *aura_ex_as_string(void)
   return aura_ex_stack[aura_ex_sp - 1].payload.as_string;
 }
 
+char *aura_ex_message_copy(void)
+{
+  char formatted[128];
+  AuraExFrame *f;
+  if (aura_ex_sp == 0)
+  {
+    return strdup("task failed");
+  }
+  f = &aura_ex_stack[aura_ex_sp - 1];
+  if (f->type_name != NULL && strcmp(f->type_name, "String") == 0)
+  {
+    return strdup(f->payload.as_string != NULL ? f->payload.as_string : "");
+  }
+  if (f->type_name != NULL && strcmp(f->type_name, "Int") == 0)
+  {
+    snprintf(formatted, sizeof(formatted), "%lld", (long long)f->payload.as_int);
+    return strdup(formatted);
+  }
+  if (f->type_name != NULL && strcmp(f->type_name, "Bool") == 0)
+  {
+    return strdup(f->payload.as_bool ? "true" : "false");
+  }
+  return strdup(f->type_name != NULL ? f->type_name : "task failed");
+}
+
 int64_t aura_ex_as_int(void)
 {
   if (aura_ex_sp == 0)

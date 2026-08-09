@@ -5,6 +5,12 @@ pub(crate) const STRING_RUNTIME: &str = r#"
 %AuraLlvmOptInt = type { i1, i64 }
 %AuraLlvmOptBool = type { i1, i1 }
 %AuraLlvmOptFloat = type { i1, double }
+%AuraLlvmFun = type { ptr, ptr }
+%AuraLlvmFunPayload = type { ptr, ptr }
+%AuraLlvmBoxI64 = type { i64, i32 }
+%AuraLlvmBoxBool = type { i1, i32 }
+%AuraLlvmBoxF64 = type { double, i32 }
+%AuraLlvmBoxStr = type { ptr, i32 }
 declare ptr @malloc(i64)
 declare ptr @realloc(ptr, i64)
 declare void @free(ptr)
@@ -23,6 +29,58 @@ declare ptr @aura_llvm_str_trim(ptr, i64)
 declare ptr @aura_llvm_str_case(ptr, i1)
 declare %AuraLlvmOptInt @aura_llvm_str_to_int(ptr)
 declare ptr @aura_llvm_str_split(ptr, ptr)
+declare ptr @aura_json_object_get(ptr, ptr)
+declare ptr @aura_json_array_at(ptr, i64)
+declare i32 @aura_ws_connect(ptr)
+declare i64 @aura_ws_send(ptr, i64, ptr)
+declare ptr @aura_ws_receive(ptr, ptr)
+declare i32 @aura_ws_close(ptr)
+declare ptr @aura_http_request_method(ptr)
+declare ptr @aura_http_request_target(ptr)
+declare ptr @aura_http_request_version(ptr)
+declare i64 @aura_http_request_header_count(ptr)
+declare ptr @aura_http_request_header_name(ptr, i64)
+declare ptr @aura_http_request_header_value(ptr, i64)
+declare ptr @aura_http_request_body(ptr)
+declare i32 @aura_http_response_status(ptr)
+declare i64 @aura_http_response_header_count(ptr)
+declare ptr @aura_http_response_header_name(ptr, i64)
+declare ptr @aura_http_response_header_value(ptr, i64)
+declare ptr @aura_http_response_body(ptr)
+declare i32 @aura_http_response_keep_alive(ptr)
+declare i32 @aura_http_response_set_status(ptr, i32)
+declare i32 @aura_http_response_set_connection(ptr, i32)
+declare i32 @aura_http_response_set_body(ptr, ptr, i64)
+declare i32 @aura_http_response_add_header(ptr, ptr, ptr)
+declare i32 @aura_udp_bind(ptr, i64)
+declare i64 @aura_udp_send(ptr, i64, ptr, i64, ptr)
+declare ptr @aura_udp_receive(ptr, i64, i64, ptr, ptr)
+declare i32 @aura_udp_close(ptr, i64)
+declare ptr @aura_llvm_udp_receive_task(ptr, ptr, i64, i64, i64, i64)
+declare ptr @aura_llvm_net_listen(ptr)
+declare ptr @aura_llvm_net_connect(ptr, i64)
+declare i32 @aura_llvm_net_close_listener(ptr)
+declare i32 @aura_llvm_net_close_stream(ptr)
+declare ptr @aura_llvm_net_accept_task(ptr, ptr)
+declare ptr @aura_llvm_net_read_task(ptr, ptr, i64, i64)
+declare ptr @aura_llvm_net_read_exact_task(ptr, ptr, i64, i64, i64, i64)
+declare ptr @aura_llvm_net_write_all_task(ptr, ptr, ptr, i64)
+declare ptr @aura_llvm_tls_read_task(ptr, ptr, i64, i64, i64)
+declare ptr @aura_llvm_tls_write_task(ptr, ptr, ptr, i64)
+declare ptr @aura_llvm_net_write_task(ptr, ptr, ptr, i64)
+declare ptr @aura_llvm_io_read_fd_task(ptr, i64, i64)
+declare ptr @aura_llvm_io_write_fd_task(ptr, i64, ptr)
+declare ptr @aura_llvm_io_read_fd_result_task(ptr, i64, i64, i64, i64, ptr, ptr)
+declare ptr @aura_llvm_io_write_fd_result_task(ptr, i64, ptr, i64, i64, ptr, ptr)
+declare ptr @aura_llvm_net_read_result_task(ptr, ptr, i64, i64, ptr)
+declare ptr @aura_llvm_net_write_result_task(ptr, ptr, ptr, i64, ptr)
+declare ptr @aura_llvm_http_read_chunk_task(ptr, ptr, i64)
+declare ptr @aura_llvm_http_write_chunk_task(ptr, ptr, ptr)
+declare ptr @aura_llvm_http_read_chunk_result_task(ptr, ptr, i64, i64, ptr)
+declare ptr @aura_llvm_http_write_chunk_result_task(ptr, ptr, ptr, ptr, i64, ptr)
+declare ptr @aura_llvm_http_serve_connection_task(ptr, ptr, ptr, ptr, i64, i64, i64, i64)
+declare ptr @aura_llvm_http_serve_task(ptr, ptr, ptr, ptr, i64, i64, i64, i64)
+declare i64 @aura_hash_string(ptr)
 declare ptr @aura_llvm_array_clone(ptr)
 declare void @aura_llvm_array_clear(ptr)
 declare void @aura_llvm_array_reserve(ptr, i64)
@@ -32,6 +90,27 @@ declare void @aura_print(ptr)
 declare void @aura_println(ptr)
 declare void @aura_eprint(ptr)
 declare void @aura_eprintln(ptr)
+declare void @aura_fun_env_retain(ptr)
+declare void @aura_fun_env_free(ptr)
+declare ptr @aura_box_i64_new(i64)
+declare void @aura_box_i64_retain(ptr)
+declare void @aura_box_i64_release(ptr)
+declare ptr @aura_box_bool_new(i1)
+declare void @aura_box_bool_retain(ptr)
+declare void @aura_box_bool_release(ptr)
+declare ptr @aura_box_f64_new(double)
+declare void @aura_box_f64_retain(ptr)
+declare void @aura_box_f64_release(ptr)
+declare ptr @aura_box_ptr_new(ptr, ptr)
+declare void @aura_box_ptr_retain(ptr)
+declare void @aura_box_ptr_release(ptr)
+declare ptr @aura_box_ptr_get(ptr)
+declare ptr @aura_box_ptr_set(ptr, ptr, ptr)
+declare ptr @aura_box_str_new(ptr)
+declare void @aura_box_str_retain(ptr)
+declare void @aura_box_str_release(ptr)
+declare ptr @aura_box_str_set(ptr, ptr)
+declare ptr @aura_box_str_get(ptr)
 declare ptr @aura_read_file(ptr)
 declare ptr @aura_try_read_file(ptr)
 declare void @aura_write_file(ptr, ptr)
@@ -50,9 +129,47 @@ declare i32 @_setjmp(ptr)
 declare void @aura_try_enter(ptr)
 declare void @aura_try_leave()
 declare void @aura_ex_clear()
+declare ptr @aura_task_scope_begin(ptr)
+declare i32 @aura_task_scope_end(ptr)
+declare ptr @aura_task_executor_new()
+declare ptr @aura_task_frame_new(i64, ptr, ptr)
+declare ptr @aura_task_frame_new_blocking(ptr, ptr, ptr, ptr)
+declare ptr @aura_task_frame_data(ptr)
+declare void @aura_task_frame_set_data_drop(ptr, ptr)
+declare void @aura_task_frame_set_gc_mark(ptr, ptr)
+declare void @aura_gc_mark_ptr(ptr)
+declare void @aura_task_frame_set_result(ptr, ptr, i64, ptr)
+declare i32 @aura_task_executor_submit(ptr, ptr)
+declare i32 @aura_llvm_task_join_i64(ptr, ptr, ptr)
+declare i32 @aura_llvm_task_join_ptr(ptr, ptr, ptr)
+declare i32 @aura_llvm_task_join_unit(ptr, ptr)
+declare i32 @aura_llvm_task_join_status(ptr, ptr)
+declare void @aura_llvm_task_raise_failure(ptr)
+declare ptr @aura_llvm_task_error_message(ptr)
+declare ptr @aura_llvm_lazy_int_new(ptr, ptr)
+declare i64 @aura_llvm_lazy_int_get(ptr)
+declare i32 @aura_llvm_lazy_is_initialized(ptr)
+declare void @aura_llvm_lazy_int_destroy(ptr)
+declare i64 @aura_llvm_sync_load(ptr)
+declare void @aura_llvm_sync_store(ptr, i64)
+declare i64 @aura_llvm_sync_fetch_add(ptr, i64)
+declare i32 @aura_llvm_sync_compare_exchange(ptr, i64, i64)
+declare i32 @aura_llvm_sync_try_lock(ptr)
+declare void @aura_llvm_sync_unlock(ptr)
+declare i32 @aura_llvm_sync_is_locked(ptr)
+declare i32 @aura_llvm_sync_try_read(ptr)
+declare i32 @aura_llvm_sync_try_write(ptr)
+declare void @aura_llvm_sync_unlock_read(ptr)
+declare void @aura_llvm_sync_unlock_write(ptr)
+declare i64 @aura_llvm_sync_reader_count(ptr)
+declare i32 @aura_llvm_sync_is_write_locked(ptr)
+declare i32 @aura_llvm_task_cancel(ptr, ptr)
+declare i32 @aura_llvm_task_release(ptr, ptr)
+declare i32 @aura_task_frame_link_cancellation(ptr, ptr)
 declare void @aura_throw_string(ptr)
 declare void @aura_throw_int(i64)
 declare void @aura_throw_bool(i1)
+declare i32 @aura_llvm_task_fail_from_exception(ptr)
 declare void @aura_throw_obj_with_destructor(ptr, ptr, ptr)
 declare i32 @aura_ex_matches(ptr)
 declare ptr @aura_ex_as_obj()
@@ -68,6 +185,29 @@ declare ptr @aura_ex_cause_type_copy(i64)
 declare i32 @aura_ex_cause_span_start(i64)
 declare i32 @aura_ex_cause_span_end(i64)
 declare i32 @aura_ex_add_cause(ptr, i32, i32)
+
+define void @aura_llvm_fun_retain(%AuraLlvmFun %value) {
+entry:
+  %env = extractvalue %AuraLlvmFun %value, 0
+  call void @aura_fun_env_retain(ptr %env)
+  ret void
+}
+
+define void @aura_llvm_fun_release(%AuraLlvmFun %value) {
+entry:
+  %env = extractvalue %AuraLlvmFun %value, 0
+  call void @aura_fun_env_free(ptr %env)
+  ret void
+}
+
+define void @aura_llvm_fun_box_drop(ptr %value) {
+entry:
+  %env_ptr = getelementptr %AuraLlvmFunPayload, ptr %value, i32 0, i32 0
+  %env = load ptr, ptr %env_ptr
+  call void @aura_fun_env_free(ptr %env)
+  call void @free(ptr %value)
+  ret void
+}
 
 @.aura_int_fmt = private unnamed_addr constant [4 x i8] c"%ld\00", align 1
 @.aura_float_fmt = private unnamed_addr constant [3 x i8] c"%g\00", align 1
@@ -101,6 +241,18 @@ copy:
   %copy_len = add i64 %len, 1
   %ignored = call ptr @memcpy(ptr %data, ptr %source, i64 %copy_len)
   ret ptr %value
+}
+
+define ptr @aura_llvm_string_single_byte(i64 %value) {
+entry:
+  %byte = trunc i64 %value to i8
+  %storage = alloca [2 x i8], align 1
+  %first = getelementptr [2 x i8], ptr %storage, i64 0, i64 0
+  store i8 %byte, ptr %first
+  %last = getelementptr [2 x i8], ptr %storage, i64 0, i64 1
+  store i8 0, ptr %last
+  %result = call ptr @aura_llvm_str_new(ptr %first)
+  ret ptr %result
 }
 
 define ptr @aura_llvm_str_new_nullable(ptr %source) {
@@ -241,19 +393,23 @@ false_value:
 
 @.aura_true = private unnamed_addr constant [5 x i8] c"true\00", align 1
 @.aura_false = private unnamed_addr constant [6 x i8] c"false\00", align 1
+@.aura_scope_failed = private unnamed_addr constant [29 x i8] c"structured child task failed\00", align 1
+@.aura_scope_cancelled = private unnamed_addr constant [32 x i8] c"structured child task cancelled\00", align 1
 
 "#;
 
 pub(crate) const ENUM_RUNTIME: &str = r#"
-%AuraLlvmEnum = type { i64, i64, [0 x i64] }
+%AuraLlvmEnum = type { i64, i64, ptr, [0 x i64] }
 
-define ptr @aura_llvm_enum_alloc(i64 %fields) {
+define ptr @aura_llvm_enum_alloc(i64 %fields, ptr %destructor) {
 entry:
   %field_bytes = mul i64 %fields, 8
   %size = add i64 %field_bytes, 24
   %value = call ptr @malloc(i64 %size)
   %refs = getelementptr %AuraLlvmEnum, ptr %value, i32 0, i32 0
   store i64 1, ptr %refs
+  %drop = getelementptr %AuraLlvmEnum, ptr %value, i32 0, i32 2
+  store ptr %destructor, ptr %drop
   ret ptr %value
 }
 
@@ -283,9 +439,55 @@ release:
   %last = icmp eq i64 %next, 0
   br i1 %last, label %destroy, label %done
 destroy:
+  %drop_ptr = getelementptr %AuraLlvmEnum, ptr %value, i32 0, i32 2
+  %drop = load ptr, ptr %drop_ptr
+  %has_drop = icmp ne ptr %drop, null
+  br i1 %has_drop, label %drop_payload, label %free_value
+drop_payload:
+  call void %drop(ptr %value)
+  br label %free_value
+free_value:
   call void @free(ptr %value)
   br label %done
 done:
+  ret void
+}
+
+; Result intrinsics use these small ABI-stable destructors for unnamed enum
+; variants whose payload type is known at the call site.
+define void @aura_llvm_enum_drop_string(ptr %value) {
+entry:
+  %field = getelementptr %AuraLlvmEnum, ptr %value, i32 0, i32 3, i64 0
+  %raw = load i64, ptr %field
+  %payload = inttoptr i64 %raw to ptr
+  call void @aura_llvm_str_release(ptr %payload)
+  ret void
+}
+
+define void @aura_llvm_enum_drop_class(ptr %value) {
+entry:
+  %field = getelementptr %AuraLlvmEnum, ptr %value, i32 0, i32 3, i64 0
+  %raw = load i64, ptr %field
+  %payload = inttoptr i64 %raw to ptr
+  call void @aura_llvm_class_release(ptr %payload)
+  ret void
+}
+
+define void @aura_llvm_enum_drop_enum(ptr %value) {
+entry:
+  %field = getelementptr %AuraLlvmEnum, ptr %value, i32 0, i32 3, i64 0
+  %raw = load i64, ptr %field
+  %payload = inttoptr i64 %raw to ptr
+  call void @aura_llvm_enum_release(ptr %payload)
+  ret void
+}
+
+define void @aura_llvm_enum_drop_array(ptr %value) {
+entry:
+  %field = getelementptr %AuraLlvmEnum, ptr %value, i32 0, i32 3, i64 0
+  %raw = load i64, ptr %field
+  %payload = inttoptr i64 %raw to ptr
+  call void @aura_llvm_array_release(ptr %payload)
   ret void
 }
 
@@ -652,6 +854,129 @@ entry:
 "#;
 
 pub(crate) const MISC_RUNTIME: &str = r#"
+@aura_llvm_executor_global = internal global ptr null
+
+%AuraLlvmBlockingI64 = type { ptr, ptr }
+%AuraLlvmImmediatePtr = type { ptr }
+
+define void @aura_llvm_drop_immediate_class(ptr %frame, ptr %data, i64 %size) {
+entry:
+  %value = load ptr, ptr %data
+  call void @aura_llvm_class_release(ptr %value)
+  store ptr null, ptr %data
+  ret void
+}
+
+define void @aura_llvm_drop_immediate_result(ptr %data, i64 %size) {
+entry:
+  %value = load ptr, ptr %data
+  call void @aura_llvm_class_release(ptr %value)
+  call void @free(ptr %data)
+  ret void
+}
+
+define i32 @aura_llvm_poll_immediate_ptr(ptr %frame) {
+entry:
+  %data = call ptr @aura_task_frame_data(ptr %frame)
+  %value = load ptr, ptr %data
+  store ptr null, ptr %data
+  call void @aura_llvm_task_set_ptr(ptr %frame, ptr %value, ptr @aura_llvm_drop_immediate_result)
+  ret i32 2
+}
+
+define ptr @aura_llvm_task_immediate_ptr(ptr %value) {
+entry:
+  %executor = call ptr @aura_llvm_executor()
+  %frame = call ptr @aura_task_frame_new(i64 8, ptr @aura_llvm_poll_immediate_ptr, ptr null)
+  %data = call ptr @aura_task_frame_data(ptr %frame)
+  store ptr %value, ptr %data
+  call void @aura_task_frame_set_data_drop(ptr %frame, ptr @aura_llvm_drop_immediate_class)
+  %submitted = call i32 @aura_task_executor_submit(ptr %executor, ptr %frame)
+  ret ptr %frame
+}
+
+define i32 @aura_llvm_poll_immediate_i64(ptr %frame) {
+entry:
+  %data = call ptr @aura_task_frame_data(ptr %frame)
+  %value = load i64, ptr %data
+  call void @aura_llvm_task_set_i64(ptr %frame, i64 %value)
+  ret i32 2
+}
+
+define ptr @aura_llvm_task_immediate_i64(i64 %value) {
+entry:
+  %executor = call ptr @aura_llvm_executor()
+  %frame = call ptr @aura_task_frame_new(i64 8, ptr @aura_llvm_poll_immediate_i64, ptr null)
+  %data = call ptr @aura_task_frame_data(ptr %frame)
+  store i64 %value, ptr %data
+  %submitted = call i32 @aura_task_executor_submit(ptr %executor, ptr %frame)
+  ret ptr %frame
+}
+
+define void @aura_llvm_blocking_i64(ptr %frame, ptr %environment) {
+entry:
+  %function_address = getelementptr %AuraLlvmBlockingI64, ptr %environment, i32 0, i32 1
+  %function = load ptr, ptr %function_address
+  %closure_address = getelementptr %AuraLlvmBlockingI64, ptr %environment, i32 0, i32 0
+  %closure = load ptr, ptr %closure_address
+  %value = call i64 %function(ptr %closure)
+  call void @aura_llvm_task_set_i64(ptr %frame, i64 %value)
+  ret void
+}
+
+define void @aura_llvm_blocking_i64_destroy(ptr %environment) {
+entry:
+  %closure_address = getelementptr %AuraLlvmBlockingI64, ptr %environment, i32 0, i32 0
+  %closure = load ptr, ptr %closure_address
+  call void @aura_fun_env_free(ptr %closure)
+  call void @free(ptr %environment)
+  ret void
+}
+
+define ptr @aura_llvm_spawn_blocking_i64(%AuraLlvmFun %body) {
+entry:
+  %environment = call ptr @malloc(i64 16)
+  %closure = extractvalue %AuraLlvmFun %body, 0
+  %function = extractvalue %AuraLlvmFun %body, 1
+  %closure_address = getelementptr %AuraLlvmBlockingI64, ptr %environment, i32 0, i32 0
+  store ptr %closure, ptr %closure_address
+  %function_address = getelementptr %AuraLlvmBlockingI64, ptr %environment, i32 0, i32 1
+  store ptr %function, ptr %function_address
+  %executor = call ptr @aura_llvm_executor()
+  %frame = call ptr @aura_task_frame_new_blocking(ptr %executor, ptr @aura_llvm_blocking_i64, ptr %environment, ptr @aura_llvm_blocking_i64_destroy)
+  ret ptr %frame
+}
+
+define ptr @aura_llvm_executor() {
+entry:
+  %current = load ptr, ptr @aura_llvm_executor_global
+  %missing = icmp eq ptr %current, null
+  br i1 %missing, label %create, label %done
+create:
+  %created = call ptr @aura_task_executor_new()
+  store ptr %created, ptr @aura_llvm_executor_global
+  br label %done
+done:
+  %result = phi ptr [%current, %entry], [%created, %create]
+  ret ptr %result
+}
+
+define void @aura_llvm_task_set_i64(ptr %frame, i64 %value) {
+entry:
+  %data = call ptr @malloc(i64 8)
+  store i64 %value, ptr %data
+  call void @aura_task_frame_set_result(ptr %frame, ptr %data, i64 8, ptr null)
+  ret void
+}
+
+define void @aura_llvm_task_set_ptr(ptr %frame, ptr %value, ptr %destroy) {
+entry:
+  %data = call ptr @malloc(i64 8)
+  store ptr %value, ptr %data
+  call void @aura_task_frame_set_result(ptr %frame, ptr %data, i64 8, ptr %destroy)
+  ret void
+}
+
 define ptr @aura_llvm_args() {
 entry:
   %count = call i64 @aura_args_count()

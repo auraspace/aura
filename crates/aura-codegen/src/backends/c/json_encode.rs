@@ -2,6 +2,8 @@
 
 use super::*;
 
+use aura_ir::intrinsic_registry::{lookup as lookup_std_intrinsic, Intrinsic as StdIntrinsic};
+
 pub(super) fn emit_json_encode_class(
     out: &mut String,
     value: &str,
@@ -460,15 +462,23 @@ pub(crate) fn emit_fun(
 ) {
     let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
     let pkg = fun_decl_package(f, checked);
-    let is_spawn_blocking = pkg == "std.task"
+    let is_spawn_blocking = lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::TaskSpawnBlocking)
         && f.name.name == "spawnBlocking"
         && f.params.len() == 1
         && args.len() == 1;
-    let is_task_scope = pkg == "std.task" && f.name.name == "taskScope" && f.params.len() == 1;
-    let is_lazy =
-        pkg == "std.sync" && f.name.name == "lazy" && f.params.len() == 1 && args.len() == 1;
-    let is_select =
-        pkg == "std.task" && f.name.name == "select" && f.params.is_empty() && args.len() == 1;
+    let is_task_scope = lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::TaskScope)
+        && f.params.len() == 1;
+    let is_lazy = lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::SyncLazy)
+        && f.name.name == "lazy"
+        && f.params.len() == 1
+        && args.len() == 1;
+    let is_select = lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::TaskSelect)
+        && f.params.is_empty()
+        && args.len() == 1;
     if is_spawn_blocking {
         emit_spawn_blocking_helper(out, f, checked, args);
     }
@@ -551,15 +561,15 @@ pub(crate) fn emit_fun(
         out.push_str("}\n");
         return;
     }
-    if pkg == "std.time" && f.name.name == "nowMillis" && f.params.is_empty() {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Time)
+        && f.params.is_empty()
+    {
         out.push_str("  return aura_time_monotonic_millis();\n}\n");
         return;
     }
-    if pkg == "std.io"
-        && matches!(
-            f.name.name.as_str(),
-            "taskErrorTypeName" | "taskErrorSourceId" | "taskErrorSpanStart" | "taskErrorSpanEnd"
-        )
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::TaskErrorMetadata)
         && f.params.len() == 1
     {
         let error = mangle_ident(&f.params[0].name.name);
@@ -580,14 +590,22 @@ pub(crate) fn emit_fun(
         }
         return;
     }
-    if pkg == "std.task" && f.name.name == "cancelAfter" && f.params.len() == 2 {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::TaskCancellation)
+        && f.name.name == "cancelAfter"
+        && f.params.len() == 2
+    {
         let task = mangle_ident(&f.params[0].name.name);
         let timeout = mangle_ident(&f.params[1].name.name);
         let _ = writeln!(out, "  return {task} != NULL && aura_task_frame_set_cancel_deadline({task}, (int){timeout}) != 0;");
         out.push_str("}\n");
         return;
     }
-    if pkg == "std.task" && f.name.name == "linkCancellation" && f.params.len() == 2 {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::TaskCancellation)
+        && f.name.name == "linkCancellation"
+        && f.params.len() == 2
+    {
         let parent = mangle_ident(&f.params[0].name.name);
         let child = mangle_ident(&f.params[1].name.name);
         let _ = writeln!(
@@ -597,7 +615,10 @@ pub(crate) fn emit_fun(
         out.push_str("}\n");
         return;
     }
-    if pkg == "std.encoding" && f.params.len() == 1 {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Encoding)
+        && f.params.len() == 1
+    {
         let value = mangle_ident(&f.params[0].name.name);
         let intrinsic = match f.name.name.as_str() {
             "hexEncode" => "aura_encoding_hex_encode",
@@ -615,7 +636,11 @@ pub(crate) fn emit_fun(
             return;
         }
     }
-    if pkg == "std.url" && f.params.len() == 1 {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Url)
+        && f.params.len() == 1
+        && f.name.name != "queryValue"
+    {
         let value = mangle_ident(&f.params[0].name.name);
         let intrinsic = match f.name.name.as_str() {
             "isOriginForm" => "aura_url_is_origin_form",
@@ -634,7 +659,11 @@ pub(crate) fn emit_fun(
             return;
         }
     }
-    if pkg == "std.url" && f.name.name == "queryValue" && f.params.len() == 2 {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Url)
+        && f.name.name == "queryValue"
+        && f.params.len() == 2
+    {
         let target = mangle_ident(&f.params[0].name.name);
         let key = mangle_ident(&f.params[1].name.name);
         out.push_str(&format!(
@@ -642,7 +671,10 @@ pub(crate) fn emit_fun(
         ));
         return;
     }
-    if pkg == "std.mime" && f.params.len() == 1 {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Mime)
+        && f.params.len() == 1
+    {
         let value = mangle_ident(&f.params[0].name.name);
         let intrinsic = match f.name.name.as_str() {
             "isValidType" => "aura_mime_is_valid_type",
@@ -656,7 +688,9 @@ pub(crate) fn emit_fun(
             return;
         }
     }
-    if pkg == "std.bytes" {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Bytes)
+    {
         let intrinsic = match (f.name.name.as_str(), f.params.len()) {
             ("copy", 1) => Some((
                 "aura_bytes_copy",
@@ -692,7 +726,9 @@ pub(crate) fn emit_fun(
             return;
         }
     }
-    if pkg == "std.fs" {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Fs)
+    {
         let intrinsic = match (f.name.name.as_str(), f.params.len()) {
             ("join", 2) => Some((
                 "aura_fs_join",
@@ -749,7 +785,9 @@ pub(crate) fn emit_fun(
             return;
         }
     }
-    if pkg == "std.os" {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Os)
+    {
         let intrinsic = match (f.name.name.as_str(), f.params.len()) {
             ("getEnv", 1) => Some((
                 "aura_os_get_env",
@@ -778,7 +816,12 @@ pub(crate) fn emit_fun(
         }
     }
     // std.io console + file intrinsics (runtime `aura_*`).
-    if pkg == "std.io" {
+    if lookup_std_intrinsic(&pkg, &f.name.name).is_some_and(|spec| {
+        matches!(
+            spec.intrinsic,
+            StdIntrinsic::Io | StdIntrinsic::IoFd | StdIntrinsic::IoOpenFile
+        )
+    }) {
         match (f.name.name.as_str(), f.params.len()) {
             ("print", 1) => {
                 let a = mangle_ident(&f.params[0].name.name);
@@ -897,7 +940,12 @@ pub(crate) fn emit_fun(
             _ => {}
         }
     }
-    if pkg == "std.crypto" {
+    if lookup_std_intrinsic(&pkg, &f.name.name).is_some_and(|spec| {
+        matches!(
+            spec.intrinsic,
+            StdIntrinsic::Crypto | StdIntrinsic::CryptoRandomBytes
+        )
+    }) {
         match (f.name.name.as_str(), f.params.len()) {
             ("randomBytes", 1) => {
                 let length = mangle_ident(&f.params[0].name.name);
@@ -978,7 +1026,9 @@ pub(crate) fn emit_fun(
             _ => {}
         }
     }
-    if pkg == "std.tls" {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Tls)
+    {
         if f.name.name == "wrapStream" && f.params.len() == 3 {
             let stream = mangle_ident(&f.params[0].name.name);
             let endpoint = mangle_ident(&f.params[1].name.name);
@@ -1005,7 +1055,9 @@ pub(crate) fn emit_fun(
             return;
         }
     }
-    if pkg == "std.reflect" {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Reflect)
+    {
         let has_reflect_attribute = |attributes: &[Attribute]| {
             attributes
                 .iter()
@@ -1471,7 +1523,8 @@ pub(crate) fn emit_fun(
             return;
         }
     }
-    if pkg == "std.json"
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Json)
         && matches!(f.name.name.as_str(), "encode" | "stringify")
         && f.params.len() == 1
         && args.len() == 1
@@ -1519,7 +1572,12 @@ pub(crate) fn emit_fun(
         out.push_str("  return NULL; /* unsupported JSON shape */\n}\n");
         return;
     }
-    if pkg == "std.json" && f.name.name == "decode" && f.params.len() == 1 && args.len() == 1 {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Json)
+        && f.name.name == "decode"
+        && f.params.len() == 1
+        && args.len() == 1
+    {
         let value = mangle_ident(&f.params[0].name.name);
         let name = args[0].mono_suffix();
         let array_key = crate::expr::full_type_mono(&name, checked);
@@ -1916,7 +1974,9 @@ pub(crate) fn emit_fun(
             return;
         }
     }
-    if pkg == "std.compress" {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Compress)
+    {
         if f.name.name == "compress" && f.params.len() == 2 {
             let value = mangle_ident(&f.params[0].name.name);
             let settings = mangle_ident(&f.params[1].name.name);
@@ -1935,7 +1995,11 @@ pub(crate) fn emit_fun(
             return;
         }
     }
-    if pkg == "std.dns" && f.name.name == "resolveHost" && f.params.len() == 2 {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Dns)
+        && f.name.name == "resolveHost"
+        && f.params.len() == 2
+    {
         let host = mangle_ident(&f.params[0].name.name);
         let prefer = mangle_ident(&f.params[1].name.name);
         let _ = writeln!(
@@ -1945,7 +2009,11 @@ pub(crate) fn emit_fun(
         out.push_str("}\n");
         return;
     }
-    if pkg == "std.dns" && f.name.name == "resolveHostList" && f.params.len() == 2 {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Dns)
+        && f.name.name == "resolveHostList"
+        && f.params.len() == 2
+    {
         let host = mangle_ident(&f.params[0].name.name);
         let prefer = mangle_ident(&f.params[1].name.name);
         let _ = writeln!(
@@ -1955,7 +2023,10 @@ pub(crate) fn emit_fun(
         out.push_str("}\n");
         return;
     }
-    if pkg == "std.json" && f.params.len() == 1 {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Json)
+        && f.params.len() == 1
+    {
         let value = mangle_ident(&f.params[0].name.name);
         match f.name.name.as_str() {
             "isValid" => {
@@ -1996,7 +2067,10 @@ pub(crate) fn emit_fun(
             _ => {}
         }
     }
-    if pkg == "std.json" && f.params.len() == 2 {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Json)
+        && f.params.len() == 2
+    {
         let value = mangle_ident(&f.params[0].name.name);
         let second = mangle_ident(&f.params[1].name.name);
         match f.name.name.as_str() {
@@ -2013,7 +2087,9 @@ pub(crate) fn emit_fun(
             _ => {}
         }
     }
-    if pkg == "std.signal" {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Signal)
+    {
         match (f.name.name.as_str(), f.params.len()) {
             ("installShutdown", 0) => {
                 out.push_str("  return aura_signal_install_shutdown() != 0;\n}\n");
@@ -2030,13 +2106,19 @@ pub(crate) fn emit_fun(
             _ => {}
         }
     }
-    if pkg == "std.error" && f.name.name == "kindCode" && f.params.len() == 1 {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Error)
+        && f.params.len() == 1
+    {
         let code = mangle_ident(&f.params[0].name.name);
         let _ = writeln!(out, "  return aura_error_kind_code({code});");
         out.push_str("}\n");
         return;
     }
-    if pkg == "std.log" && f.params.len() == 1 {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Log)
+        && f.params.len() == 1
+    {
         let message = mangle_ident(&f.params[0].name.name);
         let level = match f.name.name.as_str() {
             "debug" => Some(0),
@@ -2051,7 +2133,9 @@ pub(crate) fn emit_fun(
             return;
         }
     }
-    if pkg == "std.log" {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Log)
+    {
         if f.name.name == "setMinLevel" && f.params.len() == 1 {
             let level = mangle_ident(&f.params[0].name.name);
             let _ = writeln!(out, "  return aura_log_set_min_level({level});");
@@ -2063,7 +2147,9 @@ pub(crate) fn emit_fun(
             return;
         }
     }
-    if pkg == "std.udp" {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Udp)
+    {
         if f.name.name == "bind" && f.params.len() == 1 {
             let endpoint = mangle_ident(&f.params[0].name.name);
             let _ = writeln!(out, "  if ({endpoint} == NULL || !aura_udp_bind({endpoint}->host, {endpoint}->port)) {{ aura_throw_string(\"std.udp.bind failed\"); return NULL; }}");
@@ -2078,7 +2164,8 @@ pub(crate) fn emit_fun(
             return;
         }
     }
-    if (pkg == "std.tls" || pkg == "std.crypto")
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Tls)
         && f.name.name == "close"
         && f.params.len() == 1
         && f.params[0].name.name == "this"
@@ -2089,7 +2176,9 @@ pub(crate) fn emit_fun(
         out.push_str("}\n");
         return;
     }
-    if pkg == "std.net" {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Net)
+    {
         if let ("closeListener", 1) = (f.name.name.as_str(), f.params.len()) {
             let listener = mangle_ident(&f.params[0].name.name);
             out.push_str("  AuraFfiHandlePin __pin = {0}; if (");
@@ -2136,7 +2225,10 @@ pub(crate) fn emit_fun(
             return;
         }
     }
-    if pkg == "std.http" && !f.params.is_empty() {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::HttpAccessor)
+        && !f.params.is_empty()
+    {
         let handle = mangle_ident(&f.params[0].name.name);
         match (f.name.name.as_str(), f.params.len()) {
             ("requestMethod", 1) => {
@@ -2244,13 +2336,18 @@ pub(crate) fn emit_fun(
         }
     }
     // C4h: std.assert.assert → aura_assert.
-    if pkg == "std.assert" && f.name.name == "assert" && f.params.len() == 1 {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Assert)
+        && f.params.len() == 1
+    {
         let arg = mangle_ident(&f.params[0].name.name);
         let _ = writeln!(out, "  aura_assert({arg});");
         out.push_str("}\n");
         return;
     }
-    if pkg == "std.test" {
+    if lookup_std_intrinsic(&pkg, &f.name.name)
+        .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Test)
+    {
         let intrinsic = match (f.name.name.as_str(), f.params.len()) {
             ("assert", 1) => Some(("aura_assert", vec![mangle_ident(&f.params[0].name.name)])),
             ("assertEqInt", 2) => Some((

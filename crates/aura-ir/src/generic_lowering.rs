@@ -81,6 +81,12 @@ fn sub_ref(value: &TypeRef, map: &HashMap<String, Ty>) -> TypeRef {
         .iter()
         .map(|arg| sub_ref(arg, map))
         .collect();
+    if let Some(fun) = &value.fun {
+        let mut substituted = (**fun).clone();
+        substituted.params = fun.params.iter().map(|param| sub_ref(param, map)).collect();
+        substituted.ret = sub_ref(&fun.ret, map);
+        result.fun = Some(Box::new(substituted));
+    }
     result
 }
 
@@ -329,7 +335,11 @@ pub fn close_async_method(
     all_params.extend(method_params);
     let mut all_args = class_args.to_vec();
     all_args.extend_from_slice(method_args);
-    let mut params = vec![this_param];
+    let mut params = if method.modifiers.contains(&aura_ast::Modifier::Static) {
+        Vec::new()
+    } else {
+        vec![this_param]
+    };
     params.extend(method.params.iter().cloned().map(|mut param| {
         param.ty = substitute_type_ref(&param.ty, &all_params, &all_args);
         param
@@ -397,7 +407,11 @@ pub fn close_method(
     all_params.extend(method_params);
     let mut all_args = class_args.to_vec();
     all_args.extend_from_slice(method_args);
-    let mut params = vec![this_param];
+    let mut params = if method.modifiers.contains(&aura_ast::Modifier::Static) {
+        Vec::new()
+    } else {
+        vec![this_param]
+    };
     params.extend(method.params.iter().cloned().map(|mut param| {
         param.ty = substitute_type_ref(&param.ty, &all_params, &all_args);
         param

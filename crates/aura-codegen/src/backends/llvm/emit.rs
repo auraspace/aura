@@ -35,6 +35,7 @@ struct EmitContext {
     class_type_params: HashMap<String, Vec<String>>,
     foreign_names: HashSet<String>,
     string_literals: Vec<String>,
+    enum_destructors: HashMap<String, Vec<(usize, Ty)>>,
 }
 
 #[derive(Clone)]
@@ -114,6 +115,7 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
             .map(|foreign| foreign.name.name.clone())
             .collect(),
         string_literals: Vec::new(),
+        enum_destructors: HashMap::new(),
     };
     let mut extra_functions = async_functions(program);
     extra_functions.extend(lambda_functions(program)?);
@@ -122,6 +124,18 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
         .iter()
         .map(|function| function.name.clone())
         .collect::<HashSet<_>>();
+    let lambda_bodies = extra_functions
+        .iter()
+        .filter_map(|function| function.body.clone())
+        .collect::<Vec<_>>();
+    for body in &lambda_bodies {
+        collect_spawn_functions(
+            body,
+            &program.checked().package,
+            &mut extra_functions,
+            &mut seen_spawns,
+        );
+    }
     for function in program
         .checked()
         .functions
@@ -153,17 +167,34 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
         );
     }
     for function in &extra_functions {
-        context.signatures.insert(
-            (function.package.clone(), function.name.clone()),
-            (
-                function.ret.ty.clone(),
-                function
-                    .params
-                    .iter()
-                    .map(|param| param.ty.clone())
-                    .collect(),
-            ),
-        );
+        context
+            .signatures
+            .entry((function.package.clone(), function.name.clone()))
+            .or_insert_with(|| {
+                (
+                    function.ret.ty.clone(),
+                    function
+                        .params
+                        .iter()
+                        .map(|param| param.ty.clone())
+                        .collect(),
+                )
+            });
+        if let Some(public_name) = function.name.strip_prefix("__aura_async_body_") {
+            context
+                .signatures
+                .entry((function.package.clone(), public_name.to_owned()))
+                .or_insert_with(|| {
+                    (
+                        Ty::Task(Box::new(function.ret.ty.clone())),
+                        function
+                            .params
+                            .iter()
+                            .map(|param| param.ty.clone())
+                            .collect(),
+                    )
+                });
+        }
     }
     module.push_str(STRING_RUNTIME);
     module.push_str(ENUM_RUNTIME);
@@ -171,6 +202,107 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
     module.push_str(ARRAY_RUNTIME);
     module.push_str(CHANNEL_RUNTIME);
     module.push_str(MISC_RUNTIME);
+    emit_async_wrappers(&mut module, program, &extra_functions)?;
+    emit_spawn_pollers(&mut module, &extra_functions, &program.checked().package)?;
+    for function in &extra_functions {
+        if function.closure_captures.is_empty() {
+            continue;
+        }
+        let capture_fields = function
+            .closure_captures
+            .iter()
+            .map(|capture| {
+                if capture.by_ref {
+                    Ok("ptr")
+                } else {
+                    llvm_type(&capture.ty)
+                }
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .join(", ");
+        let fields = if capture_fields.is_empty() {
+            "ptr, i32".to_string()
+        } else {
+            format!("ptr, i32, {capture_fields}")
+        };
+        writeln!(
+            module,
+            "%{} = type {{ {fields} }}",
+            closure_env_name(&function.name)
+        )
+        .unwrap();
+    }
+    for function in &extra_functions {
+        if !function.closure_captures.iter().any(|capture| {
+            capture.by_ref
+                || capture.ty == Ty::String
+                || matches!(capture.ty, Ty::Fun { .. })
+                || is_array_type(&capture.ty)
+                || matches!(
+                    capture.ty,
+                    Ty::Class(_) | Ty::ClassApp { .. } | Ty::Interface(_) | Ty::InterfaceApp { .. }
+                )
+        }) {
+            continue;
+        }
+        writeln!(
+            module,
+            "define void @{}(ptr %env) {{",
+            closure_drop_name(&function.name)
+        )
+        .unwrap();
+        module.push_str("entry:\n");
+        for (index, capture) in function.closure_captures.iter().enumerate() {
+            if capture.by_ref {
+                let address = format!("%drop_box_addr_{index}");
+                let value = format!("%drop_box_value_{index}");
+                let helper = box_release_helper(&capture.ty)?;
+                writeln!(
+                    module,
+                    "  {address} = getelementptr %{}, ptr %env, i32 0, i32 {}",
+                    closure_env_name(&function.name),
+                    index + 2
+                )
+                .unwrap();
+                writeln!(module, "  {value} = load ptr, ptr {address}").unwrap();
+                writeln!(module, "  call void @{helper}(ptr {value})").unwrap();
+                continue;
+            }
+            let release = if capture.ty == Ty::String {
+                "aura_llvm_str_release"
+            } else if is_array_type(&capture.ty) {
+                "aura_llvm_array_release"
+            } else if matches!(
+                capture.ty,
+                Ty::Class(_) | Ty::ClassApp { .. } | Ty::Interface(_) | Ty::InterfaceApp { .. }
+            ) {
+                "aura_llvm_class_release"
+            } else {
+                continue;
+            };
+            let address = format!("%drop_addr_{index}");
+            let value = format!("%drop_value_{index}");
+            writeln!(
+                module,
+                "  {address} = getelementptr %{}, ptr %env, i32 0, i32 {}",
+                closure_env_name(&function.name),
+                index + 2
+            )
+            .unwrap();
+            if matches!(capture.ty, Ty::Fun { .. }) {
+                writeln!(module, "  {value} = load %AuraLlvmFun, ptr {address}").unwrap();
+                writeln!(
+                    module,
+                    "  call void @aura_llvm_fun_release(%AuraLlvmFun {value})"
+                )
+                .unwrap();
+            } else {
+                writeln!(module, "  {value} = load ptr, ptr {address}").unwrap();
+                writeln!(module, "  call void @{release}(ptr {value})").unwrap();
+            }
+        }
+        module.push_str("  call void @free(ptr %env)\n  ret void\n}\n\n");
+    }
     emit_class_destructors(&mut module, &context.classes);
     let mut exception_names = context
         .classes
@@ -178,6 +310,13 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
         .chain(context.enum_variants.keys())
         .cloned()
         .collect::<Vec<_>>();
+    exception_names.extend(
+        program
+            .source()
+            .enums
+            .iter()
+            .map(|enum_decl| enum_decl.name.clone()),
+    );
     exception_names.extend(["String".into(), "Int".into(), "Bool".into()]);
     exception_names.sort();
     exception_names.dedup();
@@ -205,7 +344,7 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
         if body
             .locals
             .iter()
-            .any(|local| matches!(local.ty, Ty::TypeParam(_)))
+            .any(|local| contains_type_param(&local.ty))
         {
             continue;
         }
@@ -216,6 +355,7 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
             emit_function(&mut module, function, body, &mut context)?;
         }
     }
+    emit_enum_destructors(&mut module, &context.enum_destructors, &context.classes);
     if let Some(function) = program
         .checked()
         .functions
@@ -247,6 +387,8 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
 }
 
 fn async_functions(program: &LoweredProgram) -> Vec<FunctionIr> {
+    let ast = &program.source().ast;
+    let mut origin_offsets = HashMap::<String, usize>::new();
     program
         .checked()
         .async_mir
@@ -255,7 +397,28 @@ fn async_functions(program: &LoweredProgram) -> Vec<FunctionIr> {
         .chain(program.checked().generic_async_mir.iter())
         .chain(program.checked().generic_async_method_mir.iter())
         .map(|body| {
-            let ast = &program.source().ast;
+            let origin_package = ast
+                .async_functions
+                .iter()
+                .filter(|function| {
+                    body.name == function.name.name
+                        || body.name.starts_with(&format!("{}_", function.name.name))
+                })
+                .nth({
+                    let key = body.name.split('_').next().unwrap_or(&body.name);
+                    let offset = origin_offsets.entry(key.to_owned()).or_default();
+                    let current = *offset;
+                    *offset += 1;
+                    current
+                })
+                .map(|function| {
+                    if function.origin_package.is_empty() {
+                        program.checked().package.clone()
+                    } else {
+                        function.origin_package.clone()
+                    }
+                })
+                .unwrap_or_else(|| program.checked().package.clone());
             let parameter_count = ast
                 .async_functions
                 .iter()
@@ -275,7 +438,9 @@ fn async_functions(program: &LoweredProgram) -> Vec<FunctionIr> {
                     })
                 })
                 .unwrap_or(0);
-            synthetic_function(body, program.checked().package.clone(), parameter_count)
+            let mut function = synthetic_function(body, origin_package, parameter_count);
+            function.name = format!("__aura_async_body_{}", body.name);
+            function
         })
         .collect()
 }
@@ -286,12 +451,27 @@ fn generic_method_functions(program: &LoweredProgram) -> Vec<FunctionIr> {
         .generic_method_mir
         .iter()
         .map(|body| {
-            let parameter_count = body
-                .locals
+            let owner_package = program
+                .source()
+                .ast
+                .classes
                 .iter()
-                .take_while(|local| !local.name.starts_with("__"))
-                .count();
-            synthetic_function(body, program.checked().package.clone(), parameter_count)
+                .find(|class| body.name.starts_with(&format!("{}_", class.name.name)))
+                .map(|class| class.origin_package.clone())
+                .unwrap_or_else(|| program.checked().package.clone());
+            let parameter_count = program
+                .checked()
+                .generic_method_signatures
+                .iter()
+                .find(|(name, _, _)| name == &body.name)
+                .map(|(_, params, _)| params.len())
+                .unwrap_or_else(|| {
+                    body.locals
+                        .iter()
+                        .take_while(|local| !local.name.starts_with("__"))
+                        .count()
+                });
+            synthetic_function(body, owner_package, parameter_count)
         })
         .collect()
 }
@@ -312,11 +492,490 @@ fn collect_spawn_functions(
                 continue;
             };
             if seen.insert(body.name.clone()) {
-                output.push(synthetic_function(body, package.to_owned(), captures.len()));
+                let mut function = synthetic_function(body, package.to_owned(), captures.len());
+                function.closure_captures = captures
+                    .iter()
+                    .map(|capture| aura_ir::mir::ClosureCapture {
+                        source: capture.source,
+                        ty: body.locals[capture.source.local].ty.clone(),
+                        by_ref: capture.by_ref,
+                    })
+                    .collect();
+                output.push(function);
             }
             collect_spawn_functions(body, package, output, seen);
         }
     }
+}
+
+fn emit_spawn_pollers(
+    out: &mut String,
+    functions: &[FunctionIr],
+    package: &str,
+) -> Result<(), CodegenError> {
+    for function in functions {
+        let Some(body) = &function.body else { continue };
+        if !function.name.contains("__spawn_") {
+            continue;
+        }
+        if function.params.iter().any(|param| {
+            !(matches!(param.ty, Ty::Int | Ty::Bool | Ty::Float)
+                || is_pointer_value_type(&param.ty))
+        }) {
+            continue;
+        }
+        let poll_name = format!("aura_llvm_poll_{}", symbol_name(package, &function.name));
+        let pointer_result = is_pointer_value_type(&body.return_ty);
+        if pointer_result {
+            let drop_name = format!(
+                "aura_llvm_drop_result_{}",
+                symbol_name(package, &function.name)
+            );
+            writeln!(out, "define void @{drop_name}(ptr %data, i64 %size) {{").unwrap();
+            out.push_str("entry:\n  %value = load ptr, ptr %data\n");
+            let helper = if body.return_ty == Ty::String {
+                "aura_llvm_str_release"
+            } else if is_array_type(&body.return_ty) {
+                "aura_llvm_array_release"
+            } else if matches!(
+                body.return_ty,
+                Ty::Class(_) | Ty::ClassApp { .. } | Ty::Interface(_) | Ty::InterfaceApp { .. }
+            ) {
+                "aura_llvm_class_release"
+            } else {
+                "aura_llvm_enum_release"
+            };
+            writeln!(out, "  call void @{helper}(ptr %value)\n  call void @free(ptr %data)\n  ret void\n}}\n\n").unwrap();
+        }
+        let pointer_params = function.params.iter().enumerate().any(|(index, param)| {
+            function
+                .closure_captures
+                .get(index)
+                .is_some_and(|capture| capture.by_ref)
+                || is_pointer_value_type(&param.ty)
+        });
+        if pointer_params {
+            let drop_name = format!("aura_llvm_drop_{}", symbol_name(package, &function.name));
+            let mark_name = format!("aura_llvm_mark_{}", symbol_name(package, &function.name));
+            writeln!(
+                out,
+                "define void @{drop_name}(ptr %frame, ptr %data, i64 %size) {{"
+            )
+            .unwrap();
+            out.push_str("entry:\n");
+            for (index, parameter) in function.params.iter().enumerate() {
+                let by_ref = function
+                    .closure_captures
+                    .get(index)
+                    .is_some_and(|capture| capture.by_ref);
+                if !by_ref && !is_pointer_value_type(&parameter.ty) {
+                    continue;
+                }
+                let address = format!("%drop_addr_{index}");
+                let raw = format!("%drop_raw_{index}");
+                let value = format!("%drop_value_{index}");
+                writeln!(
+                    out,
+                    "  {address} = getelementptr i64, ptr %data, i64 {index}"
+                )
+                .unwrap();
+                writeln!(out, "  {raw} = load i64, ptr {address}").unwrap();
+                writeln!(out, "  {value} = inttoptr i64 {raw} to ptr").unwrap();
+                let helper = if by_ref {
+                    match parameter.ty {
+                        Ty::Int => "aura_box_i64_release",
+                        Ty::Bool => "aura_box_bool_release",
+                        Ty::Float => "aura_box_f64_release",
+                        _ => "aura_box_ptr_release",
+                    }
+                } else if parameter.ty == Ty::String {
+                    "aura_llvm_str_release"
+                } else if is_array_type(&parameter.ty) {
+                    "aura_llvm_array_release"
+                } else if matches!(
+                    parameter.ty,
+                    Ty::Class(_) | Ty::ClassApp { .. } | Ty::Interface(_) | Ty::InterfaceApp { .. }
+                ) {
+                    "aura_llvm_class_release"
+                } else {
+                    "aura_llvm_enum_release"
+                };
+                writeln!(out, "  call void @{helper}(ptr {value})").unwrap();
+            }
+            out.push_str("  ret void\n}\n\n");
+            writeln!(out, "define void @{mark_name}(ptr %frame) {{").unwrap();
+            out.push_str("entry:\n  %mark_data = call ptr @aura_task_frame_data(ptr %frame)\n");
+            for (index, parameter) in function.params.iter().enumerate() {
+                let by_ref = function
+                    .closure_captures
+                    .get(index)
+                    .is_some_and(|capture| capture.by_ref);
+                if !by_ref && !is_pointer_value_type(&parameter.ty) {
+                    continue;
+                }
+                let address = format!("%mark_addr_{index}");
+                let raw = format!("%mark_raw_{index}");
+                let value = format!("%mark_value_{index}");
+                writeln!(
+                    out,
+                    "  {address} = getelementptr i64, ptr %mark_data, i64 {index}"
+                )
+                .unwrap();
+                writeln!(out, "  {raw} = load i64, ptr {address}").unwrap();
+                writeln!(out, "  {value} = inttoptr i64 {raw} to ptr").unwrap();
+                writeln!(out, "  call void @aura_gc_mark_ptr(ptr {value})").unwrap();
+            }
+            out.push_str("  ret void\n}\n\n");
+        }
+        match body.return_ty {
+            Ty::Unit => {
+                writeln!(out, "define i32 @{poll_name}(ptr %frame) {{").unwrap();
+                out.push_str("entry:\n");
+                let exception_id = out.lines().count();
+                writeln!(
+                    out,
+                    "  %spawn_ex_buf{exception_id} = alloca [256 x i8], align 16"
+                )
+                .unwrap();
+                writeln!(
+                    out,
+                    "  call void @aura_try_enter(ptr %spawn_ex_buf{exception_id})"
+                )
+                .unwrap();
+                writeln!(out, "  %spawn_ex_jump{exception_id} = call i32 @_setjmp(ptr %spawn_ex_buf{exception_id})").unwrap();
+                writeln!(out, "  %spawn_ex_thrown{exception_id} = icmp ne i32 %spawn_ex_jump{exception_id}, 0").unwrap();
+                writeln!(out, "  br i1 %spawn_ex_thrown{exception_id}, label %spawn_ex_fail{exception_id}, label %spawn_try{exception_id}").unwrap();
+                writeln!(out, "spawn_try{exception_id}:").unwrap();
+                let args = emit_spawn_poll_arguments(out, function)?;
+                writeln!(
+                    out,
+                    "  call void @{}({args})",
+                    symbol_name(package, &function.name)
+                )
+                .unwrap();
+                out.push_str("  call void @aura_try_leave()\n  ret i32 2\n");
+                writeln!(out, "spawn_ex_fail{exception_id}:").unwrap();
+                writeln!(out, "  %spawn_ex_result{exception_id} = call i32 @aura_llvm_task_fail_from_exception(ptr %frame)").unwrap();
+                writeln!(out, "  ret i32 %spawn_ex_result{exception_id}\n}}\n\n").unwrap();
+            }
+            Ty::Int => {
+                writeln!(out, "define i32 @{poll_name}(ptr %frame) {{").unwrap();
+                out.push_str("entry:\n");
+                let exception_id = out.lines().count();
+                writeln!(
+                    out,
+                    "  %spawn_ex_buf{exception_id} = alloca [256 x i8], align 16"
+                )
+                .unwrap();
+                writeln!(
+                    out,
+                    "  call void @aura_try_enter(ptr %spawn_ex_buf{exception_id})"
+                )
+                .unwrap();
+                writeln!(out, "  %spawn_ex_jump{exception_id} = call i32 @_setjmp(ptr %spawn_ex_buf{exception_id})").unwrap();
+                writeln!(out, "  %spawn_ex_thrown{exception_id} = icmp ne i32 %spawn_ex_jump{exception_id}, 0").unwrap();
+                writeln!(out, "  br i1 %spawn_ex_thrown{exception_id}, label %spawn_ex_fail{exception_id}, label %spawn_try{exception_id}").unwrap();
+                writeln!(out, "spawn_try{exception_id}:").unwrap();
+                let args = emit_spawn_poll_arguments(out, function)?;
+                let value = "%task_result";
+                writeln!(
+                    out,
+                    "  {value} = call i64 @{}({args})",
+                    symbol_name(package, &function.name)
+                )
+                .unwrap();
+                writeln!(
+                    out,
+                    "  call void @aura_llvm_task_set_i64(ptr %frame, i64 {value})"
+                )
+                .unwrap();
+                out.push_str("  call void @aura_try_leave()\n  ret i32 2\n");
+                writeln!(out, "spawn_ex_fail{exception_id}:").unwrap();
+                writeln!(out, "  %spawn_ex_result{exception_id} = call i32 @aura_llvm_task_fail_from_exception(ptr %frame)").unwrap();
+                writeln!(out, "  ret i32 %spawn_ex_result{exception_id}\n}}\n\n").unwrap();
+            }
+            ref ty if is_pointer_value_type(ty) => {
+                writeln!(out, "define i32 @{poll_name}(ptr %frame) {{").unwrap();
+                out.push_str("entry:\n");
+                let exception_id = out.lines().count();
+                writeln!(
+                    out,
+                    "  %spawn_ex_buf{exception_id} = alloca [256 x i8], align 16"
+                )
+                .unwrap();
+                writeln!(
+                    out,
+                    "  call void @aura_try_enter(ptr %spawn_ex_buf{exception_id})"
+                )
+                .unwrap();
+                writeln!(out, "  %spawn_ex_jump{exception_id} = call i32 @_setjmp(ptr %spawn_ex_buf{exception_id})").unwrap();
+                writeln!(out, "  %spawn_ex_thrown{exception_id} = icmp ne i32 %spawn_ex_jump{exception_id}, 0").unwrap();
+                writeln!(out, "  br i1 %spawn_ex_thrown{exception_id}, label %spawn_ex_fail{exception_id}, label %spawn_try{exception_id}").unwrap();
+                writeln!(out, "spawn_try{exception_id}:").unwrap();
+                let args = emit_spawn_poll_arguments(out, function)?;
+                let value = "%task_result";
+                writeln!(
+                    out,
+                    "  {value} = call ptr @{}({args})",
+                    symbol_name(package, &function.name)
+                )
+                .unwrap();
+                let drop_name = format!(
+                    "@aura_llvm_drop_result_{}",
+                    symbol_name(package, &function.name)
+                );
+                writeln!(
+                    out,
+                    "  call void @aura_llvm_task_set_ptr(ptr %frame, ptr {value}, ptr {drop_name})"
+                )
+                .unwrap();
+                out.push_str("  call void @aura_try_leave()\n  ret i32 2\n");
+                writeln!(out, "spawn_ex_fail{exception_id}:").unwrap();
+                writeln!(out, "  %spawn_ex_result{exception_id} = call i32 @aura_llvm_task_fail_from_exception(ptr %frame)").unwrap();
+                writeln!(out, "  ret i32 %spawn_ex_result{exception_id}\n}}\n\n").unwrap();
+            }
+            _ => continue,
+        }
+    }
+    Ok(())
+}
+
+fn emit_spawn_poll_arguments(
+    out: &mut String,
+    function: &FunctionIr,
+) -> Result<String, CodegenError> {
+    if function.params.is_empty() {
+        return Ok(String::new());
+    }
+    out.push_str("  %capture_data = call ptr @aura_task_frame_data(ptr %frame)\n");
+    let mut arguments = Vec::new();
+    for (index, parameter) in function.params.iter().enumerate() {
+        let address = format!("%capture_addr_{index}");
+        let raw = format!("%capture_raw_{index}");
+        writeln!(
+            out,
+            "  {address} = getelementptr i64, ptr %capture_data, i64 {index}"
+        )
+        .unwrap();
+        writeln!(out, "  {raw} = load i64, ptr {address}").unwrap();
+        let value = match &parameter.ty {
+            Ty::Int => raw,
+            Ty::Bool => {
+                let value = format!("%capture_bool_{index}");
+                writeln!(out, "  {value} = trunc i64 {raw} to i1").unwrap();
+                value
+            }
+            Ty::Float => {
+                let value = format!("%capture_float_{index}");
+                writeln!(out, "  {value} = bitcast i64 {raw} to double").unwrap();
+                value
+            }
+            _ty if function
+                .closure_captures
+                .get(index)
+                .is_some_and(|capture| capture.by_ref) =>
+            {
+                let value = format!("%capture_box_{index}");
+                writeln!(out, "  {value} = inttoptr i64 {raw} to ptr").unwrap();
+                value
+            }
+            ty if is_pointer_value_type(ty) => {
+                let value = format!("%capture_ptr_{index}");
+                writeln!(out, "  {value} = inttoptr i64 {raw} to ptr").unwrap();
+                value
+            }
+            _ => return Err(unsupported("scheduler-backed spawn capture type")),
+        };
+        arguments.push(format!("{} {value}", llvm_type(&parameter.ty)?));
+    }
+    Ok(arguments.join(", "))
+}
+
+fn emit_async_wrappers(
+    out: &mut String,
+    program: &LoweredProgram,
+    functions: &[FunctionIr],
+) -> Result<(), CodegenError> {
+    for declaration in &program.source().ast.async_functions {
+        if matches!(declaration.name.name.as_str(), "serve" | "serveConnection") {
+            continue;
+        }
+        let origin_package = if declaration.origin_package.is_empty() {
+            program.checked().package.as_str()
+        } else {
+            declaration.origin_package.as_str()
+        };
+        let Some(function) = functions.iter().find(|candidate| {
+            candidate.package == origin_package
+                && (candidate.name == format!("__aura_async_body_{}", declaration.name.name)
+                    || candidate
+                        .name
+                        .starts_with(&format!("__aura_async_body_{}_", declaration.name.name)))
+        }) else {
+            continue;
+        };
+        let Some(body) = &function.body else { continue };
+        if !(matches!(body.return_ty, Ty::Unit | Ty::Int) || is_pointer_value_type(&body.return_ty))
+        {
+            continue;
+        }
+        let public_symbol = symbol_name(origin_package, &declaration.name.name);
+        let body_symbol = symbol_name(&function.package, &function.name);
+        let poll_name = format!("aura_llvm_poll_async_{public_symbol}");
+        let result_drop = format!("aura_llvm_drop_async_result_{public_symbol}");
+        let parameter_tys = body
+            .locals
+            .iter()
+            .take(declaration.params.len())
+            .map(|local| local.ty.clone())
+            .collect::<Vec<_>>();
+        if is_pointer_value_type(&body.return_ty) {
+            writeln!(out, "define void @{result_drop}(ptr %data, i64 %size) {{").unwrap();
+            out.push_str("entry:\n  %value = load ptr, ptr %data\n");
+            let helper = if body.return_ty == Ty::String {
+                "aura_llvm_str_release"
+            } else if is_array_type(&body.return_ty) {
+                "aura_llvm_array_release"
+            } else {
+                "aura_llvm_class_release"
+            };
+            writeln!(out, "  call void @{helper}(ptr %value)\n  call void @free(ptr %data)\n  ret void\n}}\n\n").unwrap();
+        }
+        writeln!(out, "define i32 @{poll_name}(ptr %frame) {{").unwrap();
+        out.push_str("entry:\n");
+        let exception_id = out.lines().count();
+        writeln!(
+            out,
+            "  %async_ex_buf{exception_id} = alloca [256 x i8], align 16"
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "  call void @aura_try_enter(ptr %async_ex_buf{exception_id})"
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "  %async_ex_jump{exception_id} = call i32 @_setjmp(ptr %async_ex_buf{exception_id})"
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "  %async_ex_thrown{exception_id} = icmp ne i32 %async_ex_jump{exception_id}, 0"
+        )
+        .unwrap();
+        writeln!(out, "  br i1 %async_ex_thrown{exception_id}, label %async_ex_fail{exception_id}, label %async_try{exception_id}").unwrap();
+        writeln!(out, "async_try{exception_id}:").unwrap();
+        let data = if parameter_tys.is_empty() {
+            None
+        } else {
+            let data = "%async_data";
+            writeln!(out, "  {data} = call ptr @aura_task_frame_data(ptr %frame)").unwrap();
+            Some(data)
+        };
+        let mut call_args = Vec::new();
+        for (index, ty) in parameter_tys.iter().enumerate() {
+            let data = data.expect("async wrapper data for parameters");
+            let address = next_temp(out);
+            writeln!(
+                out,
+                "  {address} = getelementptr i64, ptr {data}, i64 {index}"
+            )
+            .unwrap();
+            let raw = next_temp(out);
+            writeln!(out, "  {raw} = load i64, ptr {address}").unwrap();
+            let value = match ty {
+                Ty::Int => raw,
+                Ty::Bool => {
+                    let value = next_temp(out);
+                    writeln!(out, "  {value} = trunc i64 {raw} to i1").unwrap();
+                    value
+                }
+                Ty::Float => {
+                    let value = next_temp(out);
+                    writeln!(out, "  {value} = bitcast i64 {raw} to double").unwrap();
+                    value
+                }
+                _ if is_pointer_value_type(ty) => {
+                    let value = next_temp(out);
+                    writeln!(out, "  {value} = inttoptr i64 {raw} to ptr").unwrap();
+                    value
+                }
+                _ => return Err(unsupported("async wrapper parameter type")),
+            };
+            call_args.push(format!("{} {value}", llvm_type(ty)?));
+        }
+        let call_args = call_args.join(", ");
+        if body.return_ty == Ty::Unit {
+            writeln!(out, "  call void @{body_symbol}({call_args})").unwrap();
+        } else if is_pointer_value_type(&body.return_ty) {
+            let value = "%async_result";
+            writeln!(out, "  {value} = call ptr @{body_symbol}({call_args})").unwrap();
+            writeln!(
+                out,
+                "  call void @aura_llvm_task_set_ptr(ptr %frame, ptr {value}, ptr @{result_drop})"
+            )
+            .unwrap();
+        } else {
+            let value = "%async_result";
+            writeln!(out, "  {value} = call i64 @{body_symbol}({call_args})").unwrap();
+            writeln!(
+                out,
+                "  call void @aura_llvm_task_set_i64(ptr %frame, i64 {value})"
+            )
+            .unwrap();
+        }
+        out.push_str("  call void @aura_try_leave()\n  ret i32 2\n");
+        writeln!(out, "async_ex_fail{exception_id}:").unwrap();
+        writeln!(out, "  %async_ex_result{exception_id} = call i32 @aura_llvm_task_fail_from_exception(ptr %frame)").unwrap();
+        writeln!(out, "  ret i32 %async_ex_result{exception_id}\n}}\n\n").unwrap();
+        let public_params = parameter_tys
+            .iter()
+            .enumerate()
+            .map(|(index, ty)| format!("{} %arg{index}", llvm_type(ty).unwrap()))
+            .collect::<Vec<_>>()
+            .join(", ");
+        writeln!(out, "define ptr @{public_symbol}({public_params}) {{").unwrap();
+        out.push_str("entry:\n");
+        out.push_str("  %executor = call ptr @aura_llvm_executor()\n");
+        writeln!(
+            out,
+            "  %frame = call ptr @aura_task_frame_new(i64 {}, ptr @{poll_name}, ptr null)",
+            parameter_tys.len() * 8
+        )
+        .unwrap();
+        if !parameter_tys.is_empty() {
+            out.push_str("  %data = call ptr @aura_task_frame_data(ptr %frame)\n");
+            for (index, ty) in parameter_tys.iter().enumerate() {
+                let raw = if matches!(ty, Ty::Int) {
+                    format!("%arg{index}")
+                } else if matches!(ty, Ty::Bool) {
+                    let value = format!("%arg_raw{index}");
+                    writeln!(out, "  {value} = zext i1 %arg{index} to i64").unwrap();
+                    value
+                } else if matches!(ty, Ty::Float) {
+                    let value = format!("%arg_raw{index}");
+                    writeln!(out, "  {value} = bitcast double %arg{index} to i64").unwrap();
+                    value
+                } else {
+                    let value = format!("%arg_raw{index}");
+                    writeln!(out, "  {value} = ptrtoint ptr %arg{index} to i64").unwrap();
+                    value
+                };
+                writeln!(
+                    out,
+                    "  %arg_slot{index} = getelementptr i64, ptr %data, i64 {index}"
+                )
+                .unwrap();
+                writeln!(out, "  store i64 {raw}, ptr %arg_slot{index}").unwrap();
+            }
+        }
+        out.push_str(
+            "  %submitted = call i32 @aura_task_executor_submit(ptr %executor, ptr %frame)\n",
+        );
+        out.push_str("  ret ptr %frame\n}\n\n");
+    }
+    Ok(())
 }
 
 fn synthetic_function(body: &MirBody, package: String, parameter_count: usize) -> FunctionIr {
@@ -333,6 +992,7 @@ fn synthetic_function(body: &MirBody, package: String, parameter_count: usize) -
                 span: Span::new(0, 0),
             })
             .collect(),
+        closure_captures: Vec::new(),
         ret: aura_ir::ValueFact {
             ty: body.return_ty.clone(),
             ownership: aura_ir::ownership::mode_for_ty(&body.return_ty),
@@ -355,10 +1015,26 @@ fn lambda_functions(program: &LoweredProgram) -> Result<Vec<FunctionIr>, Codegen
             .source()
             .lambda_captures
             .get(&lambda.span.start)
-            .map(|captures| !captures.is_empty())
-            .unwrap_or(false);
-        if captures {
-            return Err(unsupported("capturing lambda"));
+            .cloned()
+            .unwrap_or_default();
+        if captures.iter().any(|capture| {
+            (capture.by_ref && !is_boxable_capture_type(&capture.ty))
+                || (!matches!(
+                    capture.ty,
+                    Ty::Int
+                        | Ty::Bool
+                        | Ty::Float
+                        | Ty::String
+                        | Ty::Fun { .. }
+                        | Ty::Class(_)
+                        | Ty::ClassApp { .. }
+                        | Ty::Interface(_)
+                        | Ty::InterfaceApp { .. }
+                ) && !is_array_type(&capture.ty))
+        }) {
+            return Err(unsupported(
+                "unsupported mutable or aggregate lambda capture",
+            ));
         }
         let Some(Ty::Fun { params, ret }) = program.source().lambda_tys.get(&lambda.span.start)
         else {
@@ -377,12 +1053,19 @@ fn lambda_functions(program: &LoweredProgram) -> Result<Vec<FunctionIr>, Codegen
             },
             LambdaBody::Block(body) => body.clone(),
         };
-        let parameters = lambda
-            .params
+        let body = aura_ir::lowering::normalize_nested_call_awaits(&body, program.source());
+        let mut parameters = captures
             .iter()
-            .zip(params)
-            .map(|(parameter, ty)| (parameter.name.name.clone(), ty.clone()))
+            .map(|capture| (capture.name.clone(), capture.ty.clone()))
             .collect::<Vec<_>>();
+        parameters.extend(
+            lambda
+                .params
+                .iter()
+                .zip(params)
+                .map(|(parameter, ty)| (parameter.name.name.clone(), ty.clone()))
+                .collect::<Vec<_>>(),
+        );
         let name = format!("__lambda_{}", lambda.span.start);
         let body = aura_ir::lowering::lower_body(
             &name,
@@ -402,6 +1085,15 @@ fn lambda_functions(program: &LoweredProgram) -> Result<Vec<FunctionIr>, Codegen
                     ty: ty.clone(),
                     ownership: aura_ir::ownership::mode_for_ty(ty),
                     span: lambda.span,
+                })
+                .collect(),
+            closure_captures: captures
+                .iter()
+                .enumerate()
+                .map(|(index, capture)| aura_ir::mir::ClosureCapture {
+                    source: aura_ir::mir::Place { local: index },
+                    ty: capture.ty.clone(),
+                    by_ref: capture.by_ref,
                 })
                 .collect(),
             ret: aura_ir::ValueFact {
@@ -599,25 +1291,123 @@ fn emit_function(
     body: &MirBody,
     context: &mut EmitContext,
 ) -> Result<(), CodegenError> {
+    let mut body = body.clone();
+    let mut capture_indices = function
+        .closure_captures
+        .iter()
+        .filter(|capture| capture.by_ref)
+        .map(|capture| capture.source.local)
+        .collect::<HashSet<_>>();
+    for block in &body.blocks {
+        for statement in &block.statements {
+            let value = match statement {
+                Statement::Assign { value, .. } | Statement::Evaluate(value) => value,
+                _ => continue,
+            };
+            match value {
+                Rvalue::Function { captures, .. } => capture_indices.extend(
+                    captures
+                        .iter()
+                        .filter(|capture| capture.by_ref)
+                        .map(|capture| capture.source.local),
+                ),
+                Rvalue::AsyncOp(aura_ir::mir::AsyncOp::Spawn { captures, .. }) => capture_indices
+                    .extend(
+                        captures
+                            .iter()
+                            .filter(|capture| capture.by_ref)
+                            .map(|capture| capture.source.local),
+                    ),
+                _ => {}
+            }
+        }
+    }
+    for (index, local) in body.locals.iter_mut().enumerate() {
+        let captured = capture_indices.contains(&index);
+        if captured && is_boxable_capture_type(&local.ty) {
+            local.name = if capture_indices.contains(&index) {
+                format!("__aura_borrowed_boxed_{index}")
+            } else {
+                format!("__aura_boxed_{index}")
+            };
+        }
+    }
     let ret = llvm_type(&function.ret.ty)?;
+    let is_lambda = function.name.starts_with("__lambda_");
+    let capture_count = function.closure_captures.len();
     let params = function
         .params
         .iter()
+        .skip(if is_lambda { capture_count } else { 0 })
         .enumerate()
-        .map(|(index, value)| Ok(format!("{} %arg{index}", llvm_type(&value.ty)?)))
+        .map(|(index, value)| {
+            let index = index + usize::from(is_lambda);
+            let by_ref = !is_lambda
+                && function
+                    .closure_captures
+                    .get(index)
+                    .is_some_and(|capture| capture.by_ref);
+            let ty = if by_ref { "ptr" } else { llvm_type(&value.ty)? };
+            Ok(format!("{ty} %arg{index}"))
+        })
         .collect::<Result<Vec<_>, CodegenError>>()?
         .join(", ");
-    writeln!(
-        out,
-        "define {ret} @{}({params}) {{",
-        symbol_name(&function.package, &function.name)
-    )
-    .unwrap();
+    let params = if is_lambda {
+        if params.is_empty() {
+            "ptr %arg0".to_string()
+        } else {
+            format!("ptr %arg0, {params}")
+        }
+    } else {
+        params
+    };
+    let symbol = symbol_name(&function.package, &function.name);
+    if function.name.contains("linkCancellation_") && function.params.len() == 2 {
+        writeln!(out, "define i1 @{symbol}({params}) {{").unwrap();
+        out.push_str("entry:\n");
+        let result = next_temp(out);
+        writeln!(
+            out,
+            "  {result} = call i32 @aura_task_frame_link_cancellation(ptr %arg0, ptr %arg1)"
+        )
+        .unwrap();
+        writeln!(out, "  %link_ok = icmp ne i32 {result}, 0").unwrap();
+        out.push_str("  ret i1 %link_ok\n}\n\n");
+        return Ok(());
+    }
+    if function.name.contains("cancelTask_") && function.params.len() == 1 {
+        writeln!(out, "define void @{symbol}({params}) {{").unwrap();
+        out.push_str("entry:\n");
+        let executor = next_temp(out);
+        writeln!(out, "  {executor} = call ptr @aura_llvm_executor()").unwrap();
+        writeln!(
+            out,
+            "  call i32 @aura_llvm_task_cancel(ptr {executor}, ptr %arg0)"
+        )
+        .unwrap();
+        out.push_str("  ret void\n}\n\n");
+        return Ok(());
+    }
+    writeln!(out, "define {ret} @{}({params}) {{", symbol).unwrap();
     out.push_str("entry:\n");
     for (index, local) in body.locals.iter().enumerate() {
         if local.ty != Ty::Unit {
-            let ty = llvm_type(&local.ty)?;
+            let ty = if is_boxed_local(&body.locals[index]) {
+                "ptr"
+            } else {
+                llvm_type(&local.ty)?
+            };
             writeln!(out, "  %slot{index} = alloca {ty}").unwrap();
+            if is_boxed_local(&body.locals[index]) {
+                if is_lambda && capture_indices.contains(&index) {
+                    writeln!(out, "  store ptr null, ptr %slot{index}").unwrap();
+                    continue;
+                }
+                let boxed = box_new_expression(&local.ty)?;
+                writeln!(out, "  %box{index} = {boxed}").unwrap();
+                writeln!(out, "  store ptr %box{index}, ptr %slot{index}").unwrap();
+                continue;
+            }
             writeln!(
                 out,
                 "  store {ty} {}, ptr %slot{index}",
@@ -626,26 +1416,149 @@ fn emit_function(
             .unwrap();
         }
     }
-    for (index, local) in body.locals.iter().take(function.params.len()).enumerate() {
-        if local.ty != Ty::Unit {
+    if is_lambda && capture_count > 0 {
+        for (index, capture) in function.closure_captures.iter().enumerate() {
+            let address = next_temp(out);
             writeln!(
                 out,
-                "  store {} %arg{index}, ptr %slot{index}",
-                llvm_type(&local.ty)?
+                "  {address} = getelementptr %{}, ptr %arg0, i32 0, i32 {}",
+                closure_env_name(&function.name),
+                index + 2
             )
             .unwrap();
+            let value = next_temp(out);
+            let value_ty = if capture.by_ref {
+                "ptr"
+            } else {
+                llvm_type(&capture.ty)?
+            };
+            writeln!(out, "  {value} = load {value_ty}, ptr {address}").unwrap();
+            if capture.by_ref {
+                writeln!(
+                    out,
+                    "  store ptr {value}, ptr %slot{}",
+                    capture.source.local
+                )
+                .unwrap();
+                continue;
+            } else if capture.ty == Ty::String {
+                writeln!(out, "  call void @aura_llvm_str_retain(ptr {value})").unwrap();
+            } else if matches!(capture.ty, Ty::Fun { .. }) {
+                writeln!(
+                    out,
+                    "  call void @aura_llvm_fun_retain(%AuraLlvmFun {value})"
+                )
+                .unwrap();
+            } else if is_array_type(&capture.ty) {
+                writeln!(out, "  call void @aura_llvm_array_retain(ptr {value})").unwrap();
+            } else if matches!(
+                capture.ty,
+                Ty::Class(_) | Ty::ClassApp { .. } | Ty::Interface(_) | Ty::InterfaceApp { .. }
+            ) {
+                writeln!(out, "  call void @aura_llvm_class_retain(ptr {value})").unwrap();
+            }
+            writeln!(
+                out,
+                "  store {} {value}, ptr %slot{}",
+                llvm_type(&capture.ty)?,
+                capture.source.local
+            )
+            .unwrap();
+        }
+    }
+    for (index, local) in body.locals.iter().take(function.params.len()).enumerate() {
+        if is_lambda && index < capture_count {
+            continue;
+        }
+        if local.ty != Ty::Unit {
+            let arg_index = if is_lambda {
+                index - capture_count + 1
+            } else {
+                index
+            };
+            let by_ref = !is_lambda
+                && function
+                    .closure_captures
+                    .get(index)
+                    .is_some_and(|capture| capture.by_ref);
+            if by_ref {
+                writeln!(out, "  store ptr %arg{arg_index}, ptr %slot{index}").unwrap();
+            } else {
+                writeln!(
+                    out,
+                    "  store {} %arg{arg_index}, ptr %slot{index}",
+                    llvm_type(&local.ty)?
+                )
+                .unwrap();
+            }
         }
     }
     writeln!(out, "  br label %bb{}", body.entry).unwrap();
     for (index, block) in body.blocks.iter().enumerate() {
         writeln!(out, "bb{index}:").unwrap();
         for statement in &block.statements {
-            emit_statement(out, statement, body, context, &function.package)?;
+            emit_statement(out, statement, &body, context, &function.package)?;
         }
-        emit_terminator(out, &block.terminator, body, ret, context)?;
+        emit_terminator(out, &block.terminator, &body, ret, context)?;
     }
     out.push_str("}\n\n");
     Ok(())
+}
+
+fn is_boxable_capture_type(ty: &Ty) -> bool {
+    matches!(
+        ty,
+        Ty::Int
+            | Ty::Bool
+            | Ty::Float
+            | Ty::String
+            | Ty::Fun { .. }
+            | Ty::Class(_)
+            | Ty::ClassApp { .. }
+            | Ty::Interface(_)
+            | Ty::InterfaceApp { .. }
+    ) || is_array_type(ty)
+}
+
+pub(super) fn is_boxed_local(local: &aura_ir::mir::Local) -> bool {
+    local.name.starts_with("__aura_boxed_") || local.name.starts_with("__aura_borrowed_boxed_")
+}
+
+pub(super) fn is_borrowed_box_local(local: &aura_ir::mir::Local) -> bool {
+    local.name.starts_with("__aura_borrowed_boxed_")
+}
+
+fn box_new_expression(ty: &Ty) -> Result<String, CodegenError> {
+    let expression = match ty {
+        Ty::Int => "call ptr @aura_box_i64_new(i64 0)",
+        Ty::Bool => "call ptr @aura_box_bool_new(i1 false)",
+        Ty::Float => "call ptr @aura_box_f64_new(double 0.0)",
+        Ty::String => "call ptr @aura_box_str_new(ptr null)",
+        Ty::Fun { .. } => "call ptr @aura_box_ptr_new(ptr null, ptr @aura_llvm_fun_box_drop)",
+        ty if is_array_type(ty) => {
+            "call ptr @aura_box_ptr_new(ptr null, ptr @aura_llvm_array_release)"
+        }
+        Ty::Class(_) | Ty::ClassApp { .. } | Ty::Interface(_) | Ty::InterfaceApp { .. } => {
+            "call ptr @aura_box_ptr_new(ptr null, ptr @aura_llvm_class_release)"
+        }
+        _ => return Err(unsupported("mutable capture type")),
+    };
+    Ok(expression.into())
+}
+
+fn box_release_helper(ty: &Ty) -> Result<&'static str, CodegenError> {
+    match ty {
+        Ty::Int => Ok("aura_box_i64_release"),
+        Ty::Bool => Ok("aura_box_bool_release"),
+        Ty::Float => Ok("aura_box_f64_release"),
+        Ty::String => Ok("aura_box_str_release"),
+        Ty::Fun { .. } | Ty::Class(_) | Ty::Interface(_) | Ty::InterfaceApp { .. } => {
+            Ok("aura_box_ptr_release")
+        }
+        ty if is_array_type(ty) => Ok("aura_box_ptr_release"),
+        Ty::ClassApp { .. } => Ok("aura_box_ptr_release"),
+        _ => Err(unsupported("mutable capture type")),
+    }
 }
 
 fn emit_terminator(
@@ -714,27 +1627,83 @@ fn emit_terminator(
             let Some(payload_ty) = task_payload_type(task_ty) else {
                 return Err(unsupported("awaiting a non-task value"));
             };
-            let value = if *payload_ty == Ty::Unit {
-                None
-            } else {
-                Some(load_place(out, *task, body)?)
-            };
-            if let Some(value) = value {
-                if body.locals[result.local].ty != *payload_ty {
-                    return Err(unsupported("await result type"));
-                }
+            let handle = load_place(out, *task, body)?;
+            let executor = next_temp(out);
+            writeln!(out, "  {executor} = call ptr @aura_llvm_executor()").unwrap();
+            if *payload_ty == Ty::Unit {
+                let status = next_temp(out);
                 writeln!(
                     out,
-                    "  store {} {value}, ptr %slot{}",
-                    llvm_type(payload_ty)?,
-                    result.local
+                    "  {status} = call i32 @aura_llvm_task_join_status(ptr {executor}, ptr {handle})"
                 )
                 .unwrap();
+                let await_id = out.lines().count();
+                writeln!(out, "  %await_ok{await_id} = icmp eq i32 {status}, 2").unwrap();
+                writeln!(out, "  br i1 %await_ok{await_id}, label %await_resume{await_id}, label %await_fail{await_id}").unwrap();
+                writeln!(out, "await_fail{await_id}:").unwrap();
+                writeln!(
+                    out,
+                    "  call void @aura_llvm_task_raise_failure(ptr {handle})"
+                )
+                .unwrap();
+                out.push_str("  unreachable\n");
+                writeln!(out, "await_resume{await_id}:").unwrap();
+            } else if *payload_ty == Ty::Int && body.locals[result.local].ty == Ty::Int {
+                let slot = next_temp(out);
+                let status = next_temp(out);
+                writeln!(out, "  {slot} = alloca i64").unwrap();
+                writeln!(
+                    out,
+                    "  call i32 @aura_llvm_task_join_i64(ptr {executor}, ptr {handle}, ptr {slot})"
+                )
+                .unwrap();
+                writeln!(out, "  {status} = call i32 @aura_llvm_task_join_status(ptr {executor}, ptr {handle})").unwrap();
+                let await_id = out.lines().count();
+                writeln!(out, "  %await_ok{await_id} = icmp eq i32 {status}, 2").unwrap();
+                writeln!(out, "  br i1 %await_ok{await_id}, label %await_resume{await_id}, label %await_fail{await_id}").unwrap();
+                writeln!(out, "await_fail{await_id}:").unwrap();
+                writeln!(
+                    out,
+                    "  call void @aura_llvm_task_raise_failure(ptr {handle})"
+                )
+                .unwrap();
+                out.push_str("  unreachable\n");
+                writeln!(out, "await_resume{await_id}:").unwrap();
+                let value = next_temp(out);
+                writeln!(out, "  {value} = load i64, ptr {slot}").unwrap();
+                writeln!(out, "  store i64 {value}, ptr %slot{}", result.local).unwrap();
+            } else if is_pointer_value_type(payload_ty)
+                && body.locals[result.local].ty == *payload_ty
+            {
+                let slot = next_temp(out);
+                let status = next_temp(out);
+                writeln!(out, "  {slot} = alloca ptr").unwrap();
+                writeln!(
+                    out,
+                    "  call i32 @aura_llvm_task_join_ptr(ptr {executor}, ptr {handle}, ptr {slot})"
+                )
+                .unwrap();
+                writeln!(out, "  {status} = call i32 @aura_llvm_task_join_status(ptr {executor}, ptr {handle})").unwrap();
+                let await_id = out.lines().count();
+                writeln!(out, "  %await_ok{await_id} = icmp eq i32 {status}, 2").unwrap();
+                writeln!(out, "  br i1 %await_ok{await_id}, label %await_resume{await_id}, label %await_fail{await_id}").unwrap();
+                writeln!(out, "await_fail{await_id}:").unwrap();
+                writeln!(
+                    out,
+                    "  call void @aura_llvm_task_raise_failure(ptr {handle})"
+                )
+                .unwrap();
+                out.push_str("  unreachable\n");
+                writeln!(out, "await_resume{await_id}:").unwrap();
+                let value = next_temp(out);
+                writeln!(out, "  {value} = load ptr, ptr {slot}").unwrap();
+                retain_pointer_value(out, &value, payload_ty)?;
+                writeln!(out, "  store ptr {value}, ptr %slot{}", result.local).unwrap();
+            } else {
+                return Err(unsupported("scheduler-backed await payload"));
             }
             writeln!(out, "  br label %bb{resume}").unwrap();
-            if unwind.is_some() {
-                return Err(unsupported("async unwind edges"));
-            }
+            let _ = unwind;
         }
         Terminator::Throw { value, .. } => {
             let ty = &body.locals[value.local].ty;
@@ -791,7 +1760,13 @@ fn emit_terminator(
             out.push_str("  unreachable\n");
         }
         Terminator::Cancel => {
-            return Err(unsupported("cancellation control flow"));
+            // Cancellation is terminal in the immediate ABI. There is no
+            // scheduler-owned frame to resume, so return the typed zero value.
+            if ret == "void" {
+                out.push_str("  ret void\n");
+            } else {
+                writeln!(out, "  ret {ret} {}", llvm_zero(&body.return_ty)?).unwrap();
+            }
         }
     }
     Ok(())
@@ -927,7 +1902,7 @@ fn dynamic_method_targets(
             let (package, name) = context.signatures.keys().find(|(_, name)| {
                 (!suffix.is_empty() && *name == format!("{generic_prefix}{suffix}"))
                     || (!suffix.is_empty() && name.starts_with(&generic_prefix))
-                    || (suffix.is_empty() && *name == method)
+                    || *name == method
             })?;
             let type_id = *context.class_type_ids.get(&class)?;
             Some((type_id, symbol_name(package, name)))
@@ -958,7 +1933,17 @@ fn class_release_symbol(name: &str) -> String {
 
 fn emit_class_destructors(out: &mut String, classes: &HashMap<String, Vec<(String, Ty)>>) {
     for (name, fields) in classes {
-        if !class_has_pointer_fields(fields) {
+        let lazy_handle = name
+            .split('@')
+            .next()
+            .is_some_and(|base| base == "std_sync_Lazy")
+            .then(|| {
+                fields
+                    .iter()
+                    .position(|(field, ty)| field == "runtimeHandle" && *ty == Ty::Int)
+            })
+            .flatten();
+        if !class_has_pointer_fields(fields) && lazy_handle.is_none() {
             continue;
         }
         let symbol = class_release_symbol(name);
@@ -991,12 +1976,8 @@ fn emit_class_destructors(out: &mut String, classes: &HashMap<String, Vec<(Strin
                 "  %field_raw{index} = load i64, ptr %field_address{index}"
             )
             .unwrap();
-            let helper = match ty {
-                Ty::String => "aura_llvm_str_release",
-                Ty::Class(_) | Ty::ClassApp { .. } => "aura_llvm_class_release",
-                Ty::Enum(_) | Ty::EnumApp { .. } => "aura_llvm_enum_release",
-                Ty::ForeignHandle(_) => "aura_llvm_class_release",
-                _ => unreachable!("pointer field type checked above"),
+            let Some(helper) = pointer_release_helper(ty, classes) else {
+                continue;
             };
             writeln!(
                 out,
@@ -1005,10 +1986,123 @@ fn emit_class_destructors(out: &mut String, classes: &HashMap<String, Vec<(Strin
             .unwrap();
             writeln!(out, "  call void @{helper}(ptr %field_ptr{index})").unwrap();
         }
+        if let Some(index) = lazy_handle {
+            writeln!(out, "  %lazy_address = getelementptr %AuraLlvmClass, ptr %value, i32 0, i32 1, i64 {index}").unwrap();
+            out.push_str("  %lazy_raw = load i64, ptr %lazy_address\n  %lazy_cell = inttoptr i64 %lazy_raw to ptr\n  call void @aura_llvm_lazy_int_destroy(ptr %lazy_cell)\n");
+        }
         out.push_str("  call void @free(ptr %value)\n");
         out.push_str("  br label %done\n");
         out.push_str("done:\n  ret void\n}\n\n");
     }
+}
+
+fn enum_destructor_symbol(
+    variant: Option<&str>,
+    fields: &[(String, Ty)],
+    context: &mut EmitContext,
+) -> String {
+    let Some(variant) = variant else {
+        return "null".into();
+    };
+    let pointer_fields = fields
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (_, ty))| is_pointer_value_type(ty).then(|| (index, ty.clone())))
+        .collect::<Vec<_>>();
+    if pointer_fields.is_empty() {
+        return "null".into();
+    }
+    let suffix = pointer_fields
+        .iter()
+        .map(|(_, ty)| ty.mono_suffix())
+        .collect::<Vec<_>>()
+        .join("_");
+    let symbol = format!(
+        "aura_llvm_enum_drop_{}_{}",
+        sanitize_symbol(variant),
+        sanitize_symbol(&suffix)
+    );
+    context
+        .enum_destructors
+        .entry(symbol.clone())
+        .or_insert(pointer_fields);
+    format!("@{symbol}")
+}
+
+fn enum_payload_destructor_symbol(ty: &Ty) -> String {
+    let ty = match ty {
+        Ty::Nullable(inner) => inner.as_ref(),
+        other => other,
+    };
+    let symbol = match ty {
+        Ty::String => "@aura_llvm_enum_drop_string",
+        Ty::Class(_) | Ty::ClassApp { .. } | Ty::Interface(_) | Ty::InterfaceApp { .. } => {
+            "@aura_llvm_enum_drop_class"
+        }
+        Ty::Enum(_) | Ty::EnumApp { .. } => "@aura_llvm_enum_drop_enum",
+        Ty::ForeignHandle(_) => "@aura_llvm_enum_drop_class",
+        ty if is_array_type(ty) => "@aura_llvm_enum_drop_array",
+        _ => "null",
+    };
+    symbol.into()
+}
+
+fn emit_enum_destructors(
+    out: &mut String,
+    destructors: &HashMap<String, Vec<(usize, Ty)>>,
+    classes: &HashMap<String, Vec<(String, Ty)>>,
+) {
+    for (symbol, fields) in destructors {
+        writeln!(out, "define void @{symbol}(ptr %value) {{").unwrap();
+        out.push_str("entry:\n");
+        for (index, (field_index, ty)) in fields.iter().enumerate() {
+            let address = format!("%field_address{index}");
+            let raw = format!("%field_raw{index}");
+            let value = format!("%field_value{index}");
+            writeln!(
+                out,
+                "  {address} = getelementptr %AuraLlvmEnum, ptr %value, i32 0, i32 3, i64 {field_index}"
+            )
+            .unwrap();
+            writeln!(out, "  {raw} = load i64, ptr {address}").unwrap();
+            writeln!(out, "  {value} = inttoptr i64 {raw} to ptr").unwrap();
+            let Some(helper) = pointer_release_helper(ty, classes) else {
+                continue;
+            };
+            writeln!(out, "  call void @{helper}(ptr {value})").unwrap();
+        }
+        out.push_str("  ret void\n}\n\n");
+    }
+}
+
+fn pointer_release_helper(ty: &Ty, classes: &HashMap<String, Vec<(String, Ty)>>) -> Option<String> {
+    let ty = match ty {
+        Ty::Nullable(inner) => inner.as_ref(),
+        other => other,
+    };
+    if is_array_type(ty) {
+        return Some("aura_llvm_array_release".into());
+    }
+    Some(match ty {
+        Ty::String => "aura_llvm_str_release".into(),
+        Ty::Class(name) | Ty::ClassApp { name, .. } => classes
+            .get(name.split('@').next().unwrap_or(name))
+            .filter(|fields| class_has_pointer_fields(fields))
+            .map(|_| class_release_symbol(name.split('@').next().unwrap_or(name)))
+            .unwrap_or_else(|| "aura_llvm_class_release".into()),
+        Ty::Interface(_) | Ty::InterfaceApp { .. } | Ty::ForeignHandle(_) => {
+            "aura_llvm_class_release".into()
+        }
+        Ty::Enum(_) | Ty::EnumApp { .. } => "aura_llvm_enum_release".into(),
+        _ => return None,
+    })
+}
+
+fn sanitize_symbol(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+        .collect()
 }
 
 fn is_print_call(target: &aura_ir::mir::CallTarget) -> bool {
@@ -1050,6 +2144,18 @@ fn symbol_name(package: &str, name: &str) -> String {
     let package = sanitize(package);
     let name = sanitize(name);
     format!("aura_{}_{}", package, name)
+}
+
+fn closure_env_name(function: &str) -> String {
+    let name = function
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+        .collect::<String>();
+    format!("AuraLlvmClosureEnv_{name}")
+}
+
+fn closure_drop_name(function: &str) -> String {
+    format!("aura_llvm_closure_drop_{}", closure_env_name(function))
 }
 
 fn exception_type_global(name: &str) -> String {

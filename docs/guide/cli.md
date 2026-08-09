@@ -94,7 +94,7 @@ With no path, package commands look for `./aura.toml`. Package mode unlocks mult
 
 ## Runtime and linking
 
-`build` / `run` use the **C backend** by default: Aura → C → system `cc`, linked with `runtime.c` (embedded in the CLI, or from the release tree / `AURA_RUNTIME`). Use `aura emit-llvm` to inspect LLVM IR or `aura build --backend llvm` for complete scalar-MIR programs. LLVM builds require `clang`; unsupported MIR operations are rejected before an artifact is created.
+`build` / `run` use the **C backend** by default: Aura → C → system `cc`, linked with `runtime.c` (embedded in the CLI, or from the release tree / `AURA_RUNTIME`). Use `aura emit-llvm` to inspect LLVM IR or `aura build --backend llvm` for MIR programs covered by the LLVM ABI, including heap values, nullable primitives, closures, and scheduler-backed task handles. LLVM builds require `clang`; unsupported MIR operations are rejected before an artifact is created.
 
 The LLVM implementation is organized under `crates/aura-codegen/src/backends/llvm/`: the facade, options, MIR emitter, native compiler adapter, and tests are separate modules.
 

@@ -55,6 +55,14 @@ typedef struct
   size_t size;
 } AuraTaskResult;
 
+AuraTaskPollState aura_task_executor_join(AuraTaskExecutor *executor,
+                                          AuraTaskFrame *frame,
+                                          AuraTaskResult *out_result,
+                                          AuraTaskResult *out_error);
+int aura_task_executor_cancel(AuraTaskExecutor *executor, AuraTaskFrame *frame);
+int aura_task_executor_release(AuraTaskExecutor *executor,
+                               AuraTaskFrame **handle);
+
 /* A join observation is a borrowed, immutable snapshot of a terminal frame.
  * The state is authoritative: result is populated only for COMPLETE and
  * error is populated only for FAILED.  Neither payload is transferred by
@@ -457,6 +465,1517 @@ AuraTaskFrame *aura_task_frame_new_blocking(
     return NULL;
   }
   return frame;
+}
+#endif
+
+/* LLVM std.udp receive bridge. The generated backend supplies the concrete
+ * class type ids, while this runtime owns the readiness loop and socket data. */
+#if defined(AURA_LLVM_RUNTIME)
+extern int aura_task_frame_wait_fd(AuraTaskFrame *frame, int fd, short events);
+extern void aura_task_frame_set_result(AuraTaskFrame *frame, void *data, size_t size,
+                                       AuraTaskResultDestroyFn destroy);
+extern void aura_task_frame_set_error_at(AuraTaskFrame *frame, void *data, size_t size,
+                                         AuraTaskResultDestroyFn destroy, uint32_t source_id);
+extern int64_t aura_io_read_fd(int fd, void *buffer, uint64_t capacity);
+extern int64_t aura_io_write_fd(int fd, const void *buffer, uint64_t length);
+extern void *aura_llvm_str_data(void *value);
+extern void *aura_llvm_str_new(const char *source);
+extern void aura_llvm_str_release(void *value);
+
+typedef struct
+{
+  int fd;
+  int write_mode;
+  int64_t capacity;
+  int64_t offset;
+  char *buffer;
+  int outcome_mode;
+  int64_t ok_tag;
+  int64_t err_tag;
+  void *ok_destructor;
+  void *err_destructor;
+} AuraLlvmFdIoData;
+
+static void aura_llvm_fd_io_destroy(AuraTaskFrame *frame)
+{
+  AuraLlvmFdIoData *data = (AuraLlvmFdIoData *)aura_task_frame_data(frame);
+  if (data != NULL) free(data->buffer);
+}
+
+static void aura_llvm_fd_outcome_destroy(void *raw, size_t size);
+static void aura_llvm_fd_error_destroy(void *raw, size_t size);
+
+static void aura_llvm_fd_io_set_error(AuraTaskFrame *frame, const char *message)
+{
+  size_t length = strlen(message) + 1;
+  char *copy = (char *)malloc(length);
+  if (copy == NULL) return;
+  memcpy(copy, message, length);
+  aura_task_frame_set_error_at(frame, copy, length, aura_llvm_fd_error_destroy, 0);
+}
+
+static void aura_llvm_fd_error_destroy(void *raw, size_t size)
+{
+  (void)size;
+  free(raw);
+}
+
+static void aura_llvm_fd_string_destroy(void *raw, size_t size)
+{
+  (void)size;
+  if (raw != NULL)
+  {
+    aura_llvm_str_release(*(void **)raw);
+    free(raw);
+  }
+}
+
+static void aura_llvm_fd_i64_destroy(void *raw, size_t size)
+{
+  (void)size;
+  free(raw);
+}
+
+extern void *aura_llvm_enum_alloc(int64_t fields, void *destructor);
+extern void aura_llvm_enum_release(void *value);
+
+static int aura_llvm_fd_set_outcome(AuraTaskFrame *frame, int64_t tag,
+                                    int64_t raw, void *destructor)
+{
+  void **slot = (void **)malloc(sizeof(*slot));
+  void *outcome;
+  if (slot == NULL) return 0;
+  outcome = aura_llvm_enum_alloc(1, destructor);
+  if (outcome == NULL) { free(slot); return 0; }
+  ((int64_t *)outcome)[1] = tag;
+  ((int64_t *)outcome)[3] = raw;
+  *slot = outcome;
+  aura_task_frame_set_result(frame, slot, sizeof(*slot), aura_llvm_fd_outcome_destroy);
+  return 1;
+}
+
+static void aura_llvm_fd_outcome_destroy(void *raw, size_t size)
+{
+  (void)size;
+  if (raw != NULL)
+  {
+    aura_llvm_enum_release(*(void **)raw);
+    free(raw);
+  }
+}
+
+static int aura_llvm_fd_set_error_outcome(AuraTaskFrame *frame, AuraLlvmFdIoData *data)
+{
+  void *error = aura_llvm_str_new(data->write_mode ? "writeFd failed" : "readFd failed");
+  if (error == NULL) return 0;
+  if (!aura_llvm_fd_set_outcome(frame, data->err_tag, (int64_t)(uintptr_t)error,
+                                data->err_destructor))
+  {
+    aura_llvm_str_release(error);
+    return 0;
+  }
+  return 1;
+}
+
+static AuraTaskPollState aura_llvm_fd_io_poll(AuraTaskFrame *frame)
+{
+  AuraLlvmFdIoData *data = (AuraLlvmFdIoData *)aura_task_frame_data(frame);
+  if (data == NULL || aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;
+  if (data->write_mode)
+  {
+    int64_t count = aura_io_write_fd(data->fd, data->buffer + data->offset,
+                                     (uint64_t)(data->capacity - data->offset));
+    if (count < 0)
+    {
+      if (count == -EAGAIN || count == -EWOULDBLOCK)
+      {
+        if (!aura_task_frame_wait_fd(frame, data->fd, POLLOUT)) return AURA_TASK_FAILED;
+        return AURA_TASK_PENDING;
+      }
+      if (data->outcome_mode) return aura_llvm_fd_set_error_outcome(frame, data) ? AURA_TASK_COMPLETE : AURA_TASK_FAILED;
+      aura_llvm_fd_io_set_error(frame, "writeFd failed"); return AURA_TASK_FAILED;
+    }
+    if (count == 0)
+    {
+      if (data->outcome_mode) return aura_llvm_fd_set_error_outcome(frame, data) ? AURA_TASK_COMPLETE : AURA_TASK_FAILED;
+      aura_llvm_fd_io_set_error(frame, "writeFd failed"); return AURA_TASK_FAILED;
+    }
+    data->offset += count;
+    if (data->offset < data->capacity)
+    {
+      if (!aura_task_frame_wait_fd(frame, data->fd, POLLOUT)) return AURA_TASK_FAILED;
+      return AURA_TASK_PENDING;
+    }
+    int64_t *result = (int64_t *)malloc(sizeof(*result));
+    if (result == NULL) return AURA_TASK_FAILED;
+    *result = data->offset;
+    if (data->outcome_mode)
+    {
+      int complete = aura_llvm_fd_set_outcome(frame, data->ok_tag, *result, data->ok_destructor);
+      free(result);
+      return complete ? AURA_TASK_COMPLETE : AURA_TASK_FAILED;
+    }
+    aura_task_frame_set_result(frame, result, sizeof(*result), aura_llvm_fd_i64_destroy);
+    return AURA_TASK_COMPLETE;
+  }
+
+  int64_t count = aura_io_read_fd(data->fd, data->buffer, (uint64_t)data->capacity);
+  if (count < 0)
+  {
+    if (count == -EAGAIN || count == -EWOULDBLOCK)
+    {
+      if (!aura_task_frame_wait_fd(frame, data->fd, POLLIN)) return AURA_TASK_FAILED;
+      return AURA_TASK_PENDING;
+    }
+    if (data->outcome_mode) return aura_llvm_fd_set_error_outcome(frame, data) ? AURA_TASK_COMPLETE : AURA_TASK_FAILED;
+    aura_llvm_fd_io_set_error(frame, "readFd failed"); return AURA_TASK_FAILED;
+  }
+  data->buffer[count] = '\0';
+  void **result = (void **)malloc(sizeof(*result));
+  if (result == NULL) return AURA_TASK_FAILED;
+  *result = aura_llvm_str_new(data->buffer);
+  if (*result == NULL) { free(result); return AURA_TASK_FAILED; }
+  if (data->outcome_mode)
+  {
+    int complete = aura_llvm_fd_set_outcome(frame, data->ok_tag, (int64_t)(uintptr_t)*result, data->ok_destructor);
+    free(result);
+    return complete ? AURA_TASK_COMPLETE : AURA_TASK_FAILED;
+  }
+  aura_task_frame_set_result(frame, result, sizeof(*result), aura_llvm_fd_string_destroy);
+  return AURA_TASK_COMPLETE;
+}
+
+void *aura_llvm_io_read_fd_task(void *executor, int64_t fd, int64_t capacity)
+{
+  AuraTaskFrame *frame;
+  AuraLlvmFdIoData *data;
+  if (executor == NULL || fd < 0 || capacity <= 0) return NULL;
+  frame = aura_task_frame_new(sizeof(*data), aura_llvm_fd_io_poll, aura_llvm_fd_io_destroy);
+  if (frame == NULL) return NULL;
+  data = (AuraLlvmFdIoData *)aura_task_frame_data(frame);
+  memset(data, 0, sizeof(*data)); data->fd = (int)fd; data->capacity = capacity;
+  data->buffer = (char *)malloc((size_t)capacity + 1);
+  if (data->buffer == NULL || !aura_task_executor_submit((AuraTaskExecutor *)executor, frame))
+  { aura_task_frame_destroy(frame); return NULL; }
+  return frame;
+}
+
+void *aura_llvm_io_write_fd_task(void *executor, int64_t fd, void *content)
+{
+  AuraTaskFrame *frame;
+  AuraLlvmFdIoData *data;
+  const char *text = (const char *)aura_llvm_str_data(content);
+  if (executor == NULL || fd < 0 || text == NULL) return NULL;
+  frame = aura_task_frame_new(sizeof(*data), aura_llvm_fd_io_poll, aura_llvm_fd_io_destroy);
+  if (frame == NULL) return NULL;
+  data = (AuraLlvmFdIoData *)aura_task_frame_data(frame);
+  memset(data, 0, sizeof(*data)); data->fd = (int)fd; data->write_mode = 1;
+  data->capacity = (int64_t)strlen(text); data->buffer = strdup(text);
+  if (data->buffer == NULL || !aura_task_executor_submit((AuraTaskExecutor *)executor, frame))
+  { aura_task_frame_destroy(frame); return NULL; }
+  return frame;
+}
+
+void *aura_llvm_io_read_fd_result_task(void *executor, int64_t fd, int64_t capacity,
+                                       int64_t ok_tag, int64_t err_tag,
+                                       void *ok_destructor, void *err_destructor)
+{
+  AuraTaskFrame *frame = (AuraTaskFrame *)aura_llvm_io_read_fd_task(executor, fd, capacity);
+  AuraLlvmFdIoData *data;
+  if (frame == NULL) return NULL;
+  data = (AuraLlvmFdIoData *)aura_task_frame_data(frame);
+  data->outcome_mode = 1; data->ok_tag = ok_tag; data->err_tag = err_tag;
+  data->ok_destructor = ok_destructor; data->err_destructor = err_destructor;
+  return frame;
+}
+
+void *aura_llvm_io_write_fd_result_task(void *executor, int64_t fd, void *content,
+                                        int64_t ok_tag, int64_t err_tag,
+                                        void *ok_destructor, void *err_destructor)
+{
+  AuraTaskFrame *frame = (AuraTaskFrame *)aura_llvm_io_write_fd_task(executor, fd, content);
+  AuraLlvmFdIoData *data;
+  if (frame == NULL) return NULL;
+  data = (AuraLlvmFdIoData *)aura_task_frame_data(frame);
+  data->outcome_mode = 1; data->ok_tag = ok_tag; data->err_tag = err_tag;
+  data->ok_destructor = ok_destructor; data->err_destructor = err_destructor;
+  return frame;
+}
+
+extern void *aura_llvm_class_alloc(uint64_t field_count, uint64_t type_id);
+extern void *aura_llvm_str_new(const char *value);
+extern void aura_llvm_class_release(void *value);
+uint32_t aura_task_frame_resume_state(const AuraTaskFrame *frame);
+void aura_task_frame_set_resume_state(AuraTaskFrame *frame, uint32_t state);
+void aura_task_frame_set_result(AuraTaskFrame *frame, void *data, size_t size,
+                                AuraTaskResultDestroyFn destroy);
+
+typedef struct
+{
+  char *host;
+  int64_t port;
+  int64_t capacity;
+  uint64_t endpoint_type;
+  uint64_t datagram_type;
+} AuraLlvmUdpReceiveData;
+
+static void aura_llvm_udp_receive_destroy(AuraTaskFrame *frame)
+{
+  AuraLlvmUdpReceiveData *data = (AuraLlvmUdpReceiveData *)aura_task_frame_data(frame);
+  if (data != NULL) free(data->host);
+}
+
+static void aura_llvm_udp_receive_result_destroy(void *raw, size_t size)
+{
+  (void)size;
+  if (raw != NULL)
+  {
+    void *value = *(void **)raw;
+    aura_llvm_class_release(value);
+    free(raw);
+  }
+}
+
+static AuraTaskPollState aura_llvm_udp_receive_poll(AuraTaskFrame *frame)
+{
+  AuraLlvmUdpReceiveData *data = (AuraLlvmUdpReceiveData *)aura_task_frame_data(frame);
+  if (data == NULL || aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;
+  if (aura_task_frame_resume_state(frame) == 0)
+  {
+    if (data->capacity <= 0 || !aura_udp_bind(data->host, data->port)) return AURA_TASK_FAILED;
+    aura_task_frame_set_resume_state(frame, 1);
+  }
+  if (!aura_udp_wait(data->host, data->port, 0))
+  {
+    if (!aura_task_frame_wait_deadline(frame, 1)) return AURA_TASK_FAILED;
+    return AURA_TASK_PENDING;
+  }
+  int64_t source_port = 0;
+  const char *source_host = NULL;
+  const char *payload = aura_udp_receive(data->host, data->port, data->capacity,
+                                         &source_port, &source_host);
+  if (payload == NULL || source_host == NULL) return AURA_TASK_FAILED;
+  void *source = aura_llvm_class_alloc(2, data->endpoint_type);
+  void *source_name = aura_llvm_str_new(source_host);
+  void *body = aura_llvm_str_new(payload);
+  free((void *)source_host);
+  free((void *)payload);
+  if (source == NULL || source_name == NULL || body == NULL) return AURA_TASK_FAILED;
+  ((uint64_t *)source)[1] = (uint64_t)(uintptr_t)source_name;
+  ((uint64_t *)source)[2] = (uint64_t)source_port;
+  void *result = aura_llvm_class_alloc(2, data->datagram_type);
+  if (result == NULL) return AURA_TASK_FAILED;
+  ((uint64_t *)result)[1] = (uint64_t)(uintptr_t)source;
+  ((uint64_t *)result)[2] = (uint64_t)(uintptr_t)body;
+  void **result_slot = (void **)malloc(sizeof(*result_slot));
+  if (result_slot == NULL) return AURA_TASK_FAILED;
+  *result_slot = result;
+  aura_task_frame_set_result(frame, result_slot, sizeof(*result_slot), aura_llvm_udp_receive_result_destroy);
+  return AURA_TASK_COMPLETE;
+}
+
+AuraTaskFrame *aura_llvm_udp_receive_task(AuraTaskExecutor *executor, const char *host,
+                                          int64_t port, int64_t capacity,
+                                          uint64_t endpoint_type, uint64_t datagram_type)
+{
+  AuraTaskFrame *frame;
+  AuraLlvmUdpReceiveData *data;
+  if (executor == NULL || host == NULL) return NULL;
+  frame = aura_task_frame_new(sizeof(*data), aura_llvm_udp_receive_poll,
+                              aura_llvm_udp_receive_destroy);
+  if (frame == NULL) return NULL;
+  data = (AuraLlvmUdpReceiveData *)aura_task_frame_data(frame);
+  data->host = strdup(host);
+  data->port = port;
+  data->capacity = capacity;
+  data->endpoint_type = endpoint_type;
+  data->datagram_type = datagram_type;
+  if (data->host == NULL || !aura_task_executor_submit(executor, frame))
+  {
+    aura_task_frame_destroy(frame);
+    return NULL;
+  }
+  return frame;
+}
+#endif
+
+#if defined(AURA_LLVM_RUNTIME)
+extern void *aura_llvm_str_data(void *value);
+extern void *aura_llvm_str_new(const char *value);
+extern void aura_llvm_str_release(void *value);
+extern void *aura_llvm_enum_alloc(int64_t fields, void *destructor);
+extern void aura_llvm_enum_release(void *value);
+int aura_task_frame_wait_tcp_stream(AuraTaskFrame *frame,
+                                    const AuraTcpStream *stream,
+                                    short events);
+
+static void aura_llvm_destroy_tcp_stream(void *resource)
+{
+  if (resource != NULL) aura_tcp_stream_destroy((AuraTcpStream *)resource);
+}
+
+static void aura_llvm_destroy_tcp_listener(void *resource)
+{
+  if (resource != NULL) aura_tcp_listener_destroy((AuraTcpListener *)resource);
+}
+
+void *aura_llvm_net_listen(void *endpoint)
+{
+  AuraTcpListener *listener = NULL;
+  AuraFfiOpaqueHandle *handle = NULL;
+  const char *text = (const char *)aura_llvm_str_data(endpoint);
+  uint16_t port = 0;
+  if (text == NULL || aura_tcp_listener_bind_endpoint(text, &port, &listener) != AURA_TCP_OK ||
+      listener == NULL || aura_ffi_handle_new(listener, aura_llvm_destroy_tcp_listener, &handle) != AURA_FFI_OK)
+  {
+    if (listener != NULL) aura_tcp_listener_destroy(listener);
+    return NULL;
+  }
+  return handle;
+}
+
+void *aura_llvm_net_connect(void *endpoint, int64_t timeout_ms)
+{
+  AuraTcpStream *stream = NULL;
+  AuraFfiOpaqueHandle *handle = NULL;
+  const char *text = (const char *)aura_llvm_str_data(endpoint);
+  if (text == NULL || timeout_ms < 0 ||
+      aura_tcp_stream_connect_endpoint(text, (int)timeout_ms, &stream) != AURA_TCP_OK ||
+      stream == NULL || aura_ffi_handle_new(stream, aura_llvm_destroy_tcp_stream, &handle) != AURA_FFI_OK)
+  {
+    if (stream != NULL) aura_tcp_stream_destroy(stream);
+    return NULL;
+  }
+  return handle;
+}
+
+int32_t aura_llvm_net_close_listener(void *handle)
+{
+  AuraFfiHandlePin pin;
+  int32_t result;
+  if (handle == NULL || aura_ffi_handle_pin((AuraFfiOpaqueHandle *)handle, &pin) != AURA_FFI_OK)
+    return 0;
+  result = aura_tcp_listener_close((AuraTcpListener *)pin.resource);
+  (void)aura_ffi_handle_unpin(&pin);
+  return result == 0 ? 1 : 0;
+}
+
+int32_t aura_llvm_net_close_stream(void *handle)
+{
+  AuraFfiHandlePin pin;
+  int32_t result;
+  if (handle == NULL || aura_ffi_handle_pin((AuraFfiOpaqueHandle *)handle, &pin) != AURA_FFI_OK)
+    return 0;
+  result = aura_tcp_stream_close((AuraTcpStream *)pin.resource);
+  (void)aura_ffi_handle_unpin(&pin);
+  return result == 0 ? 1 : 0;
+}
+
+typedef struct
+{
+  AuraFfiOpaqueHandle *handle;
+  AuraFfiHandlePin pin;
+  int64_t capacity;
+  int64_t offset;
+  char *buffer;
+  int write_mode;
+  int outcome_mode;
+  int64_t outcome_tag;
+  void *outcome_destructor;
+} AuraLlvmNetIoData;
+
+static void aura_llvm_net_io_destroy(AuraTaskFrame *frame)
+{
+  AuraLlvmNetIoData *data = (AuraLlvmNetIoData *)aura_task_frame_data(frame);
+  if (data != NULL)
+  {
+    free(data->buffer);
+    if (data->pin.handle != NULL) (void)aura_ffi_handle_unpin(&data->pin);
+  }
+}
+
+static void aura_llvm_net_io_result_destroy(void *raw, size_t size)
+{
+  (void)size;
+  if (raw != NULL)
+  {
+    aura_llvm_str_release(*(void **)raw);
+    free(raw);
+  }
+}
+
+static void aura_llvm_net_i64_destroy(void *raw, size_t size)
+{
+  (void)size;
+  free(raw);
+}
+
+static void aura_llvm_net_outcome_destroy(void *raw, size_t size)
+{
+  (void)size;
+  if (raw != NULL)
+  {
+    aura_llvm_enum_release(*(void **)raw);
+    free(raw);
+  }
+}
+
+static AuraTaskPollState aura_llvm_net_io_poll(AuraTaskFrame *frame)
+{
+  AuraLlvmNetIoData *data = (AuraLlvmNetIoData *)aura_task_frame_data(frame);
+  size_t count = 0;
+  AuraTcpStatus status;
+  if (data == NULL || aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;
+  if (data->pin.handle == NULL)
+  {
+    if (data->handle == NULL || aura_ffi_handle_pin_for_boundary(data->handle, AURA_FFI_BOUNDARY_TASK, &data->pin) != AURA_FFI_OK)
+      return AURA_TASK_FAILED;
+    if (!data->write_mode)
+    {
+      data->buffer = (char *)malloc((size_t)data->capacity + 1);
+      if (data->buffer == NULL) return AURA_TASK_FAILED;
+    }
+  }
+  if (data->write_mode)
+    status = aura_tcp_stream_write((AuraTcpStream *)data->pin.resource, data->buffer + data->offset,
+                                   (size_t)(data->capacity - data->offset), &count, 0);
+  else
+    status = aura_tcp_stream_read((AuraTcpStream *)data->pin.resource, data->buffer,
+                                  (size_t)data->capacity, &count, 0);
+  if (status == AURA_TCP_PENDING || status == AURA_TCP_TIMEOUT)
+  {
+    if (!aura_task_frame_wait_tcp_stream(frame, (const AuraTcpStream *)data->pin.resource,
+                                         data->write_mode ? 4 : 1)) return AURA_TASK_FAILED;
+    return AURA_TASK_PENDING;
+  }
+  if (status != AURA_TCP_OK && !(status == AURA_TCP_EOF && !data->write_mode)) return AURA_TASK_FAILED;
+  if (data->write_mode)
+  {
+    data->offset += (int64_t)count;
+    if (data->offset < data->capacity) return count == 0 ? AURA_TASK_FAILED : AURA_TASK_PENDING;
+    int64_t *result = (int64_t *)malloc(sizeof(*result));
+    if (result == NULL) return AURA_TASK_FAILED;
+    *result = data->offset;
+    if (data->outcome_mode)
+    {
+      void **outcome_slot = (void **)malloc(sizeof(*outcome_slot));
+      void *outcome;
+      if (outcome_slot == NULL) { free(result); return AURA_TASK_FAILED; }
+      outcome = aura_llvm_enum_alloc(1, data->outcome_destructor);
+      if (outcome == NULL) { free(outcome_slot); free(result); return AURA_TASK_FAILED; }
+      ((int64_t *)outcome)[1] = data->outcome_tag;
+      ((int64_t *)outcome)[3] = *result;
+      *outcome_slot = outcome;
+      free(result);
+      aura_task_frame_set_result(frame, outcome_slot, sizeof(*outcome_slot), aura_llvm_net_outcome_destroy);
+    }
+    else aura_task_frame_set_result(frame, result, sizeof(*result), aura_llvm_net_i64_destroy);
+  }
+  else
+  {
+    void **result = (void **)malloc(sizeof(*result));
+    if (result == NULL) return AURA_TASK_FAILED;
+    data->buffer[count] = '\0';
+    *result = aura_llvm_str_new(data->buffer);
+    if (*result == NULL) { free(result); return AURA_TASK_FAILED; }
+    if (data->outcome_mode)
+    {
+      void **outcome_slot = (void **)malloc(sizeof(*outcome_slot));
+      void *outcome;
+      if (outcome_slot == NULL) { free(*result); free(result); return AURA_TASK_FAILED; }
+      outcome = aura_llvm_enum_alloc(1, data->outcome_destructor);
+      if (outcome == NULL) { free(outcome_slot); free(*result); free(result); return AURA_TASK_FAILED; }
+      ((int64_t *)outcome)[1] = data->outcome_tag;
+      ((int64_t *)outcome)[3] = (int64_t)(uintptr_t)*result;
+      *outcome_slot = outcome;
+      free(result);
+      aura_task_frame_set_result(frame, outcome_slot, sizeof(*outcome_slot), aura_llvm_net_outcome_destroy);
+    }
+    else aura_task_frame_set_result(frame, result, sizeof(*result), aura_llvm_net_io_result_destroy);
+  }
+  return AURA_TASK_COMPLETE;
+}
+
+void *aura_llvm_net_read_task(void *executor, void *handle, int64_t capacity, int64_t unused)
+{
+  AuraTaskFrame *frame;
+  AuraLlvmNetIoData *data;
+  (void)unused;
+  if (executor == NULL || handle == NULL || capacity <= 0) return NULL;
+  frame = aura_task_frame_new(sizeof(*data), aura_llvm_net_io_poll, aura_llvm_net_io_destroy);
+  if (frame == NULL) return NULL;
+  data = (AuraLlvmNetIoData *)aura_task_frame_data(frame);
+  memset(data, 0, sizeof(*data)); data->handle = (AuraFfiOpaqueHandle *)handle; data->capacity = capacity;
+  if (!aura_task_executor_submit((AuraTaskExecutor *)executor, frame)) { aura_task_frame_destroy(frame); return NULL; }
+  return frame;
+}
+
+void *aura_llvm_net_write_task(void *executor, void *handle, void *content, int64_t unused)
+{
+  AuraTaskFrame *frame;
+  AuraLlvmNetIoData *data;
+  const char *text = (const char *)aura_llvm_str_data(content);
+  (void)unused;
+  if (executor == NULL || handle == NULL || text == NULL) return NULL;
+  frame = aura_task_frame_new(sizeof(*data), aura_llvm_net_io_poll, aura_llvm_net_io_destroy);
+  if (frame == NULL) return NULL;
+  data = (AuraLlvmNetIoData *)aura_task_frame_data(frame);
+  memset(data, 0, sizeof(*data)); data->handle = (AuraFfiOpaqueHandle *)handle;
+  data->capacity = (int64_t)strlen(text); data->write_mode = 1; data->buffer = strdup(text);
+  if (data->buffer == NULL || !aura_task_executor_submit((AuraTaskExecutor *)executor, frame)) { aura_task_frame_destroy(frame); return NULL; }
+  return frame;
+}
+
+void *aura_llvm_net_read_result_task(void *executor, void *handle, int64_t capacity,
+                                     int64_t tag, void *destructor)
+{
+  AuraTaskFrame *frame = (AuraTaskFrame *)aura_llvm_net_read_task(executor, handle, capacity, 0);
+  AuraLlvmNetIoData *data;
+  if (frame == NULL) return NULL;
+  data = (AuraLlvmNetIoData *)aura_task_frame_data(frame);
+  data->outcome_mode = 1; data->outcome_tag = tag; data->outcome_destructor = destructor;
+  return frame;
+}
+
+void *aura_llvm_net_write_result_task(void *executor, void *handle, void *content,
+                                      int64_t tag, void *destructor)
+{
+  AuraTaskFrame *frame = (AuraTaskFrame *)aura_llvm_net_write_task(executor, handle, content, 0);
+  AuraLlvmNetIoData *data;
+  if (frame == NULL) return NULL;
+  data = (AuraLlvmNetIoData *)aura_task_frame_data(frame);
+  data->outcome_mode = 1; data->outcome_tag = tag; data->outcome_destructor = destructor;
+  return frame;
+}
+
+extern void *aura_llvm_array_alloc(int64_t length, int64_t kind);
+extern int64_t aura_llvm_array_len(void *value);
+extern int64_t aura_llvm_array_get(void *value, int64_t index);
+extern void aura_llvm_array_set(void *value, int64_t index, int64_t raw);
+extern void *aura_llvm_class_alloc(uint64_t field_count, uint64_t type_id);
+int aura_task_frame_wait_tcp_stream(AuraTaskFrame *frame, const AuraTcpStream *stream, short events);
+int aura_task_frame_wait_tcp_stream_timeout(AuraTaskFrame *frame, const AuraTcpStream *stream, short events, int timeout_ms);
+
+typedef struct {
+  AuraFfiOpaqueHandle *handle;
+  AuraFfiHandlePin pin;
+  int64_t length;
+  int64_t offset;
+  int64_t deadline_ms;
+  uint8_t *buffer;
+  uint64_t class_type_id;
+} AuraLlvmNetExactData;
+
+static void aura_llvm_net_exact_destroy(AuraTaskFrame *frame)
+{
+  AuraLlvmNetExactData *data = (AuraLlvmNetExactData *)aura_task_frame_data(frame);
+  if (data != NULL) { free(data->buffer); if (data->pin.handle != NULL) (void)aura_ffi_handle_unpin(&data->pin); }
+}
+
+static void aura_llvm_net_exact_result_destroy(void *raw, size_t size)
+{
+  (void)size;
+  if (raw != NULL) { aura_llvm_class_release(*(void **)raw); free(raw); }
+}
+
+static AuraTaskPollState aura_llvm_net_exact_poll(AuraTaskFrame *frame)
+{
+  AuraLlvmNetExactData *data = (AuraLlvmNetExactData *)aura_task_frame_data(frame);
+  size_t count = 0;
+  AuraTcpStatus status;
+  if (data == NULL || aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;
+  if (data->pin.handle == NULL)
+  {
+    if (data->handle == NULL || aura_ffi_handle_pin_for_boundary(data->handle, AURA_FFI_BOUNDARY_TASK, &data->pin) != AURA_FFI_OK) return AURA_TASK_FAILED;
+    data->buffer = (uint8_t *)malloc((size_t)data->length);
+    if (data->buffer == NULL) return AURA_TASK_FAILED;
+  }
+  status = aura_tcp_stream_read((AuraTcpStream *)data->pin.resource, data->buffer + data->offset,
+                                (size_t)(data->length - data->offset), &count, 0);
+  data->offset += (int64_t)count;
+  if (data->offset == data->length)
+  {
+    void *array = aura_llvm_array_alloc(data->length, 0);
+    void *result = aura_llvm_class_alloc(1, data->class_type_id);
+    void **slot;
+    if (array == NULL || result == NULL) return AURA_TASK_FAILED;
+    for (int64_t index = 0; index < data->length; index++) aura_llvm_array_set(array, index, (int64_t)data->buffer[index]);
+    ((uint64_t *)result)[1] = (uint64_t)(uintptr_t)array;
+    slot = (void **)malloc(sizeof(*slot));
+    if (slot == NULL) return AURA_TASK_FAILED;
+    *slot = result;
+    aura_task_frame_set_result(frame, slot, sizeof(*slot), aura_llvm_net_exact_result_destroy);
+    return AURA_TASK_COMPLETE;
+  }
+  if (status == AURA_TCP_PENDING || status == AURA_TCP_TIMEOUT)
+  {
+    if (data->deadline_ms > 0)
+    {
+      int64_t left = data->deadline_ms - aura_time_monotonic_millis();
+      if (left <= 0 || !aura_task_frame_wait_tcp_stream_timeout(frame, (const AuraTcpStream *)data->pin.resource, 1, left > INT_MAX ? INT_MAX : (int)left)) return AURA_TASK_FAILED;
+    }
+    else if (!aura_task_frame_wait_tcp_stream(frame, (const AuraTcpStream *)data->pin.resource, 1)) return AURA_TASK_FAILED;
+    return AURA_TASK_PENDING;
+  }
+  return AURA_TASK_FAILED;
+}
+
+void *aura_llvm_net_read_exact_task(void *executor, void *handle, int64_t length,
+                                    int64_t timeout_ms, int64_t unused_type_id,
+                                    int64_t class_type_id)
+{
+  AuraTaskFrame *frame;
+  AuraLlvmNetExactData *data;
+  (void)unused_type_id;
+  if (executor == NULL || handle == NULL || length <= 0 || timeout_ms < 0) return NULL;
+  frame = aura_task_frame_new(sizeof(*data), aura_llvm_net_exact_poll, aura_llvm_net_exact_destroy);
+  if (frame == NULL) return NULL;
+  data = (AuraLlvmNetExactData *)aura_task_frame_data(frame);
+  memset(data, 0, sizeof(*data)); data->handle = (AuraFfiOpaqueHandle *)handle; data->length = length; data->class_type_id = (uint64_t)class_type_id;
+  if (timeout_ms > 0) { int64_t now = aura_time_monotonic_millis(); if (now <= 0 || now > INT64_MAX - timeout_ms) { aura_task_frame_destroy(frame); return NULL; } data->deadline_ms = now + timeout_ms; }
+  if (!aura_task_executor_submit((AuraTaskExecutor *)executor, frame)) { aura_task_frame_destroy(frame); return NULL; }
+  return frame;
+}
+
+typedef struct {
+  AuraFfiOpaqueHandle *handle;
+  AuraFfiHandlePin pin;
+  int64_t length;
+  int64_t offset;
+  uint8_t *buffer;
+} AuraLlvmNetWriteAllData;
+
+static void aura_llvm_net_write_all_destroy(AuraTaskFrame *frame)
+{
+  AuraLlvmNetWriteAllData *data = (AuraLlvmNetWriteAllData *)aura_task_frame_data(frame);
+  if (data != NULL) { free(data->buffer); if (data->pin.handle != NULL) (void)aura_ffi_handle_unpin(&data->pin); }
+}
+
+static AuraTaskPollState aura_llvm_net_write_all_poll(AuraTaskFrame *frame)
+{
+  AuraLlvmNetWriteAllData *data = (AuraLlvmNetWriteAllData *)aura_task_frame_data(frame);
+  size_t count = 0;
+  AuraTcpStatus status;
+  if (data == NULL || aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;
+  if (data->pin.handle == NULL)
+  {
+    if (data->handle == NULL || aura_ffi_handle_pin_for_boundary(data->handle, AURA_FFI_BOUNDARY_TASK, &data->pin) != AURA_FFI_OK) return AURA_TASK_FAILED;
+  }
+  status = aura_tcp_stream_write((AuraTcpStream *)data->pin.resource, data->buffer + data->offset,
+                                 (size_t)(data->length - data->offset), &count, 0);
+  data->offset += (int64_t)count;
+  if (data->offset == data->length)
+  {
+    int64_t *result = (int64_t *)malloc(sizeof(*result));
+    if (result == NULL) return AURA_TASK_FAILED;
+    *result = data->offset;
+    aura_task_frame_set_result(frame, result, sizeof(*result), aura_llvm_net_i64_destroy);
+    return AURA_TASK_COMPLETE;
+  }
+  if (status == AURA_TCP_PENDING || status == AURA_TCP_TIMEOUT)
+  {
+    if (!aura_task_frame_wait_tcp_stream(frame, (const AuraTcpStream *)data->pin.resource, 4)) return AURA_TASK_FAILED;
+    return AURA_TASK_PENDING;
+  }
+  return AURA_TASK_FAILED;
+}
+
+void *aura_llvm_net_write_all_task(void *executor, void *handle, void *buffer, int64_t unused)
+{
+  AuraTaskFrame *frame;
+  AuraLlvmNetWriteAllData *data;
+  void *array;
+  int64_t length;
+  (void)unused;
+  if (executor == NULL || handle == NULL || buffer == NULL) return NULL;
+  array = (void *)(uintptr_t)((uint64_t *)buffer)[1];
+  length = aura_llvm_array_len(array);
+  if (array == NULL || length < 0) return NULL;
+  frame = aura_task_frame_new(sizeof(*data), aura_llvm_net_write_all_poll, aura_llvm_net_write_all_destroy);
+  if (frame == NULL) return NULL;
+  data = (AuraLlvmNetWriteAllData *)aura_task_frame_data(frame);
+  memset(data, 0, sizeof(*data)); data->handle = (AuraFfiOpaqueHandle *)handle; data->length = length;
+  data->buffer = (uint8_t *)malloc((size_t)length);
+  if (data->buffer == NULL && length != 0) { aura_task_frame_destroy(frame); return NULL; }
+  for (int64_t index = 0; index < length; index++) data->buffer[index] = (uint8_t)aura_llvm_array_get(array, index);
+  if (!aura_task_executor_submit((AuraTaskExecutor *)executor, frame)) { aura_task_frame_destroy(frame); return NULL; }
+  return frame;
+}
+
+extern short aura_tls_pending_events(const char *endpoint);
+extern AuraTcpStream *aura_tls_stream(const char *endpoint);
+extern int aura_tls_read_bytes(const char *endpoint, void *output, size_t capacity, size_t *out_bytes, int timeout_ms);
+extern int aura_tls_write_bytes(const char *endpoint, const void *input, size_t length, size_t *out_bytes, int timeout_ms);
+
+typedef struct {
+  char *endpoint;
+  int64_t length;
+  int64_t offset;
+  int64_t deadline_ms;
+  uint8_t *buffer;
+  uint64_t class_type_id;
+  int write_mode;
+} AuraLlvmTlsData;
+
+static void aura_llvm_tls_destroy(AuraTaskFrame *frame)
+{
+  AuraLlvmTlsData *data = (AuraLlvmTlsData *)aura_task_frame_data(frame);
+  if (data != NULL) { free(data->endpoint); free(data->buffer); }
+}
+
+static AuraTaskPollState aura_llvm_tls_poll(AuraTaskFrame *frame)
+{
+  AuraLlvmTlsData *data = (AuraLlvmTlsData *)aura_task_frame_data(frame);
+  size_t count = 0;
+  int status;
+  if (data == NULL || aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;
+  if (data->deadline_ms > 0 && aura_time_monotonic_millis() >= data->deadline_ms) return AURA_TASK_FAILED;
+  if (aura_tls_stream(data->endpoint) == NULL) return AURA_TASK_FAILED;
+  if (!data->write_mode && data->offset == data->length)
+  {
+    void *array = aura_llvm_array_alloc(data->length, 0);
+    void *result = aura_llvm_class_alloc(1, data->class_type_id);
+    void **slot;
+    if (array == NULL || result == NULL) return AURA_TASK_FAILED;
+    for (int64_t index = 0; index < data->length; index++) aura_llvm_array_set(array, index, (int64_t)data->buffer[index]);
+    ((uint64_t *)result)[1] = (uint64_t)(uintptr_t)array;
+    slot = (void **)malloc(sizeof(*slot));
+    if (slot == NULL) return AURA_TASK_FAILED;
+    *slot = result;
+    aura_task_frame_set_result(frame, slot, sizeof(*slot), aura_llvm_net_exact_result_destroy);
+    return AURA_TASK_COMPLETE;
+  }
+  if (data->write_mode && data->offset == data->length)
+  {
+    int64_t *result = (int64_t *)malloc(sizeof(*result));
+    if (result == NULL) return AURA_TASK_FAILED;
+    *result = data->offset;
+    aura_task_frame_set_result(frame, result, sizeof(*result), aura_llvm_net_i64_destroy);
+    return AURA_TASK_COMPLETE;
+  }
+  if (data->write_mode)
+    status = aura_tls_write_bytes(data->endpoint, data->buffer + data->offset, (size_t)(data->length - data->offset), &count, 0);
+  else
+    status = aura_tls_read_bytes(data->endpoint, data->buffer + data->offset, (size_t)(data->length - data->offset), &count, 0);
+  data->offset += (int64_t)count;
+  /* TLS reads are capacity reads, unlike the exact TCP helper: return the
+   * first successful/EOF chunk even when it is shorter than the capacity. */
+  if (!data->write_mode && (status == 0 || status == 1)) data->length = data->offset;
+  if ((!data->write_mode && data->offset == data->length) || (data->write_mode && data->offset == data->length)) return aura_llvm_tls_poll(frame);
+  if (status == 3)
+  {
+    int timeout = -1;
+    if (data->deadline_ms > 0)
+    {
+      int64_t left = data->deadline_ms - aura_time_monotonic_millis();
+      if (left <= 0) return AURA_TASK_FAILED;
+      timeout = left > INT_MAX ? INT_MAX : (int)left;
+    }
+    if (timeout < 0)
+    {
+      if (!aura_task_frame_wait_tcp_stream(frame, (const AuraTcpStream *)aura_tls_stream(data->endpoint), aura_tls_pending_events(data->endpoint))) return AURA_TASK_FAILED;
+    }
+    else if (!aura_task_frame_wait_tcp_stream_timeout(frame, (const AuraTcpStream *)aura_tls_stream(data->endpoint), aura_tls_pending_events(data->endpoint), timeout)) return AURA_TASK_FAILED;
+    return AURA_TASK_PENDING;
+  }
+  return AURA_TASK_FAILED;
+}
+
+static void *aura_llvm_tls_task_new(void *executor, const char *endpoint, int64_t length,
+                                    int64_t timeout_ms, int64_t class_type_id,
+                                    uint8_t *buffer, int write_mode)
+{
+  AuraTaskFrame *frame;
+  AuraLlvmTlsData *data;
+  if (executor == NULL || endpoint == NULL || length < 0 || timeout_ms < 0) { free(buffer); return NULL; }
+  frame = aura_task_frame_new(sizeof(*data), aura_llvm_tls_poll, aura_llvm_tls_destroy);
+  if (frame == NULL) { free(buffer); return NULL; }
+  data = (AuraLlvmTlsData *)aura_task_frame_data(frame);
+  memset(data, 0, sizeof(*data)); data->endpoint = strdup(endpoint); data->length = length; data->class_type_id = (uint64_t)class_type_id; data->buffer = buffer; data->write_mode = write_mode;
+  if (data->endpoint == NULL) { aura_task_frame_destroy(frame); return NULL; }
+  if (timeout_ms > 0) { int64_t now = aura_time_monotonic_millis(); if (now <= 0 || now > INT64_MAX - timeout_ms) { aura_task_frame_destroy(frame); return NULL; } data->deadline_ms = now + timeout_ms; }
+  if (!aura_task_executor_submit((AuraTaskExecutor *)executor, frame)) { aura_task_frame_destroy(frame); return NULL; }
+  return frame;
+}
+
+void *aura_llvm_tls_read_task(void *executor, void *endpoint, int64_t capacity, int64_t timeout_ms, int64_t class_type_id)
+{
+  return aura_llvm_tls_task_new(executor, (const char *)aura_llvm_str_data(endpoint), capacity, timeout_ms, class_type_id, capacity > 0 ? (uint8_t *)calloc((size_t)capacity, 1) : NULL, 0);
+}
+
+void *aura_llvm_tls_write_task(void *executor, void *endpoint, void *buffer, int64_t timeout_ms)
+{
+  void *array = buffer == NULL ? NULL : (void *)(uintptr_t)((uint64_t *)buffer)[1];
+  int64_t length = array == NULL ? 0 : aura_llvm_array_len(array);
+  uint8_t *copy = length > 0 ? (uint8_t *)malloc((size_t)length) : NULL;
+  if (length > 0 && copy == NULL) return NULL;
+  for (int64_t index = 0; index < length; index++) copy[index] = (uint8_t)aura_llvm_array_get(array, index);
+  return aura_llvm_tls_task_new(executor, (const char *)aura_llvm_str_data(endpoint), length, timeout_ms, 0, copy, 1);
+}
+
+typedef struct
+{
+  AuraFfiOpaqueHandle *handle;
+  AuraFfiHandlePin pin;
+  int64_t capacity;
+  char *buffer;
+  int read_active;
+  int outcome_mode;
+  int64_t outcome_tag;
+  void *outcome_destructor;
+} AuraLlvmHttpReadData;
+
+static void aura_llvm_http_read_destroy(AuraTaskFrame *frame)
+{
+  AuraLlvmHttpReadData *data = (AuraLlvmHttpReadData *)aura_task_frame_data(frame);
+  if (data != NULL)
+  {
+    if (data->read_active && data->pin.handle != NULL)
+      aura_http_request_body_read_end((const AuraHttpRequest *)data->pin.resource);
+    free(data->buffer);
+    if (data->pin.handle != NULL) (void)aura_ffi_handle_unpin(&data->pin);
+  }
+}
+
+static AuraTaskPollState aura_llvm_http_read_poll(AuraTaskFrame *frame)
+{
+  AuraLlvmHttpReadData *data = (AuraLlvmHttpReadData *)aura_task_frame_data(frame);
+  size_t count = 0;
+  int status;
+  if (data == NULL || aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;
+  if (data->pin.handle == NULL)
+  {
+    if (data->handle == NULL || data->capacity <= 0 ||
+        aura_ffi_handle_pin_for_boundary(data->handle, AURA_FFI_BOUNDARY_TASK, &data->pin) != AURA_FFI_OK)
+      return AURA_TASK_FAILED;
+    if (!aura_http_request_body_read_begin((const AuraHttpRequest *)data->pin.resource)) return AURA_TASK_FAILED;
+    data->read_active = 1;
+    data->buffer = (char *)malloc((size_t)data->capacity + 1);
+    if (data->buffer == NULL) return AURA_TASK_FAILED;
+  }
+  status = aura_http_request_read_body((const AuraHttpRequest *)data->pin.resource,
+                                       (unsigned char *)data->buffer,
+                                       (size_t)data->capacity, &count);
+  if (status == AURA_TCP_PENDING || status == AURA_TCP_TIMEOUT)
+  {
+    if (!aura_http_request_wait_body(frame, (const AuraHttpRequest *)data->pin.resource)) return AURA_TASK_FAILED;
+    return AURA_TASK_PENDING;
+  }
+  if (data->read_active) aura_http_request_body_read_end((const AuraHttpRequest *)data->pin.resource);
+  data->read_active = 0;
+  if (status != AURA_TCP_OK && status != AURA_TCP_EOF) return AURA_TASK_FAILED;
+  {
+    void **result = (void **)malloc(sizeof(*result));
+    if (result == NULL) return AURA_TASK_FAILED;
+    data->buffer[count] = '\0';
+    *result = aura_llvm_str_new(data->buffer);
+    if (*result == NULL) { free(result); return AURA_TASK_FAILED; }
+    if (data->outcome_mode)
+    {
+      void **outcome_slot = (void **)malloc(sizeof(*outcome_slot));
+      void *outcome = aura_llvm_enum_alloc(1, data->outcome_destructor);
+      if (outcome_slot == NULL || outcome == NULL)
+      {
+        free(outcome_slot); if (outcome != NULL) aura_llvm_enum_release(outcome);
+        aura_llvm_str_release(*result); free(result); return AURA_TASK_FAILED;
+      }
+      ((int64_t *)outcome)[1] = data->outcome_tag;
+      ((int64_t *)outcome)[3] = (int64_t)(uintptr_t)*result;
+      *outcome_slot = outcome; free(result);
+      aura_task_frame_set_result(frame, outcome_slot, sizeof(*outcome_slot), aura_llvm_net_outcome_destroy);
+    }
+    else aura_task_frame_set_result(frame, result, sizeof(*result), aura_llvm_net_io_result_destroy);
+  }
+  return AURA_TASK_COMPLETE;
+}
+
+void *aura_llvm_http_read_chunk_task(void *executor, void *handle, int64_t capacity)
+{
+  AuraTaskFrame *frame;
+  AuraLlvmHttpReadData *data;
+  if (executor == NULL || handle == NULL || capacity <= 0) return NULL;
+  frame = aura_task_frame_new(sizeof(*data), aura_llvm_http_read_poll, aura_llvm_http_read_destroy);
+  if (frame == NULL) return NULL;
+  data = (AuraLlvmHttpReadData *)aura_task_frame_data(frame);
+  memset(data, 0, sizeof(*data)); data->handle = (AuraFfiOpaqueHandle *)handle; data->capacity = capacity;
+  if (!aura_task_executor_submit((AuraTaskExecutor *)executor, frame)) { aura_task_frame_destroy(frame); return NULL; }
+  return frame;
+}
+
+void *aura_llvm_http_read_chunk_result_task(void *executor, void *handle, int64_t capacity,
+                                            int64_t tag, void *destructor)
+{
+  AuraTaskFrame *frame = (AuraTaskFrame *)aura_llvm_http_read_chunk_task(executor, handle, capacity);
+  AuraLlvmHttpReadData *data;
+  if (frame == NULL) return NULL;
+  data = (AuraLlvmHttpReadData *)aura_task_frame_data(frame);
+  data->outcome_mode = 1; data->outcome_tag = tag; data->outcome_destructor = destructor;
+  return frame;
+}
+
+typedef struct
+{
+  AuraFfiOpaqueHandle *response_handle;
+  AuraFfiOpaqueHandle *connection_handle;
+  AuraFfiHandlePin response_pin;
+  AuraFfiHandlePin connection_pin;
+  char *body;
+  char *output;
+  size_t output_length;
+  size_t output_offset;
+  int outcome_mode;
+  int64_t outcome_tag;
+  void *outcome_destructor;
+} AuraLlvmHttpWriteData;
+
+static void aura_llvm_http_write_destroy(AuraTaskFrame *frame)
+{
+  AuraLlvmHttpWriteData *data = (AuraLlvmHttpWriteData *)aura_task_frame_data(frame);
+  if (data != NULL)
+  {
+    free(data->body); free(data->output);
+    if (data->connection_pin.handle != NULL) (void)aura_ffi_handle_unpin(&data->connection_pin);
+    if (data->response_pin.handle != NULL) (void)aura_ffi_handle_unpin(&data->response_pin);
+  }
+}
+
+static AuraTaskPollState aura_llvm_http_write_poll(AuraTaskFrame *frame)
+{
+  AuraLlvmHttpWriteData *data = (AuraLlvmHttpWriteData *)aura_task_frame_data(frame);
+  if (data == NULL || aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;
+  if (data->response_pin.handle == NULL)
+  {
+    size_t headers = 0, chunk = 0, written = 0;
+    AuraHttpResponse *response;
+    AuraHttpConnection *connection;
+    if (data->response_handle == NULL || data->connection_handle == NULL || data->body == NULL) return AURA_TASK_FAILED;
+    if (aura_ffi_handle_pin_for_boundary(data->response_handle, AURA_FFI_BOUNDARY_TASK, &data->response_pin) != AURA_FFI_OK ||
+        aura_ffi_handle_pin_for_boundary(data->connection_handle, AURA_FFI_BOUNDARY_TASK, &data->connection_pin) != AURA_FFI_OK) return AURA_TASK_FAILED;
+    response = (AuraHttpResponse *)data->response_pin.resource;
+    connection = (AuraHttpConnection *)data->connection_pin.resource;
+    if (!aura_http_response_stream_started(response) && (aura_http_response_stream_begin(response, NULL, 0, &headers) != -3 || headers == 0)) return AURA_TASK_FAILED;
+    if (aura_http_response_stream_chunk(data->body, strlen(data->body), NULL, 0, &chunk) != -3 || chunk == 0 || headers > SIZE_MAX - chunk) return AURA_TASK_FAILED;
+    data->output_length = headers + chunk; data->output = (char *)malloc(data->output_length);
+    if (data->output == NULL) return AURA_TASK_FAILED;
+    if (headers != 0 && (aura_http_response_stream_begin(response, data->output, headers, &written) != 0 || written != headers)) return AURA_TASK_FAILED;
+    if (aura_http_response_stream_chunk(data->body, strlen(data->body), data->output + headers, chunk, &written) != 0 || written != chunk) return AURA_TASK_FAILED;
+    data->output_offset = 0;
+  }
+  while (data->output_offset < data->output_length)
+  {
+    size_t written = 0;
+    AuraTcpStatus status = aura_http_connection_stream_write((AuraHttpConnection *)data->connection_pin.resource,
+                                                             data->output + data->output_offset,
+                                                             data->output_length - data->output_offset, &written);
+    if (status == AURA_TCP_PENDING)
+    {
+      if (!aura_http_connection_wait_write(frame, (const AuraHttpConnection *)data->connection_pin.resource)) return AURA_TASK_FAILED;
+      return AURA_TASK_PENDING;
+    }
+    if (status != AURA_TCP_OK || written == 0) return AURA_TASK_FAILED;
+    data->output_offset += written;
+  }
+  if (data->outcome_mode)
+  {
+    void **outcome_slot = (void **)malloc(sizeof(*outcome_slot));
+    void *outcome = aura_llvm_enum_alloc(1, data->outcome_destructor);
+    if (outcome_slot == NULL || outcome == NULL)
+    {
+      free(outcome_slot); if (outcome != NULL) aura_llvm_enum_release(outcome);
+      return AURA_TASK_FAILED;
+    }
+    ((int64_t *)outcome)[1] = data->outcome_tag;
+    ((int64_t *)outcome)[3] = 1;
+    *outcome_slot = outcome;
+    aura_task_frame_set_result(frame, outcome_slot, sizeof(*outcome_slot), aura_llvm_net_outcome_destroy);
+  }
+  return AURA_TASK_COMPLETE;
+}
+
+void *aura_llvm_http_write_chunk_task(void *executor, void *response_handle, void *connection_handle,
+                                      void *body)
+{
+  AuraTaskFrame *frame;
+  AuraLlvmHttpWriteData *data;
+  const char *text = (const char *)aura_llvm_str_data(body);
+  if (executor == NULL || response_handle == NULL || connection_handle == NULL || text == NULL || text[0] == '\0') return NULL;
+  frame = aura_task_frame_new(sizeof(*data), aura_llvm_http_write_poll, aura_llvm_http_write_destroy);
+  if (frame == NULL) return NULL;
+  data = (AuraLlvmHttpWriteData *)aura_task_frame_data(frame);
+  memset(data, 0, sizeof(*data)); data->response_handle = (AuraFfiOpaqueHandle *)response_handle;
+  data->connection_handle = (AuraFfiOpaqueHandle *)connection_handle; data->body = strdup(text);
+  if (data->body == NULL || !aura_task_executor_submit((AuraTaskExecutor *)executor, frame)) { aura_task_frame_destroy(frame); return NULL; }
+  return frame;
+}
+
+void *aura_llvm_http_write_chunk_result_task(void *executor, void *response_handle,
+                                             void *connection_handle, void *body,
+                                             int64_t tag, void *destructor)
+{
+  AuraTaskFrame *frame = (AuraTaskFrame *)aura_llvm_http_write_chunk_task(
+      executor, response_handle, connection_handle, body);
+  AuraLlvmHttpWriteData *data;
+  if (frame == NULL) return NULL;
+  data = (AuraLlvmHttpWriteData *)aura_task_frame_data(frame);
+  data->outcome_mode = 1; data->outcome_tag = tag; data->outcome_destructor = destructor;
+  return frame;
+}
+
+typedef AuraTaskFrame *(*AuraLlvmHttpHandlerFn)(void *environment,
+                                                void *request,
+                                                void *response);
+
+typedef struct
+{
+  AuraFfiOpaqueHandle *stream_handle;
+  AuraFfiOpaqueHandle *connection_handle;
+  AuraFfiOpaqueHandle *request_handle;
+  AuraFfiOpaqueHandle *response_handle;
+  void *handler_environment;
+  AuraLlvmHttpHandlerFn handler;
+  void *request;
+  void *response;
+  AuraTaskFrame *child;
+  AuraTaskExecutor *executor;
+  uint64_t request_fields;
+  uint64_t request_type_id;
+  uint64_t response_fields;
+  uint64_t response_type_id;
+} AuraLlvmHttpServeData;
+
+extern void aura_fun_env_retain(void *environment);
+extern void aura_fun_env_free(void *environment);
+extern AuraTaskPollState aura_task_executor_poll_inline(AuraTaskExecutor *executor, AuraTaskFrame *frame);
+extern int aura_task_frame_wait_on(AuraTaskFrame *frame, AuraTaskFrame *child);
+extern int aura_task_frame_propagate_error(AuraTaskFrame *frame, const AuraTaskFrame *child);
+extern int aura_task_executor_release_terminal(AuraTaskExecutor *executor, AuraTaskFrame **frame);
+extern AuraTaskPollState aura_task_frame_state(const AuraTaskFrame *frame);
+extern int aura_task_frame_wait_tcp_listener(AuraTaskFrame *frame,
+                                             const AuraTcpListener *listener,
+                                             short events);
+extern void aura_llvm_class_release(void *value);
+
+static void aura_llvm_http_serve_destroy(AuraTaskFrame *frame)
+{
+  AuraLlvmHttpServeData *data = (AuraLlvmHttpServeData *)aura_task_frame_data(frame);
+  if (data == NULL) return;
+  if (data->child != NULL && data->executor != NULL)
+    (void)aura_task_executor_release(data->executor, &data->child);
+  if (data->request != NULL) aura_llvm_class_release(data->request);
+  if (data->response != NULL) aura_llvm_class_release(data->response);
+  if (data->request_handle != NULL) (void)aura_ffi_handle_drop(&data->request_handle);
+  if (data->response_handle != NULL) (void)aura_ffi_handle_drop(&data->response_handle);
+  if (data->connection_handle != NULL) (void)aura_ffi_handle_drop(&data->connection_handle);
+  if (data->stream_handle != NULL) (void)aura_ffi_handle_drop(&data->stream_handle);
+  aura_fun_env_free(data->handler_environment);
+}
+
+static AuraTaskPollState aura_llvm_http_serve_bridge(AuraTaskFrame *frame,
+                                                     const AuraHttpRequest *request,
+                                                     AuraHttpResponse *response,
+                                                     void *user_data)
+{
+  AuraLlvmHttpServeData *data = (AuraLlvmHttpServeData *)user_data;
+  AuraTaskPollState state;
+  if (data == NULL || request == NULL || response == NULL || data->handler == NULL)
+    return AURA_TASK_FAILED;
+  if (data->child == NULL)
+  {
+    if (aura_ffi_handle_new((void *)request, NULL, &data->request_handle) != AURA_FFI_OK ||
+        aura_ffi_handle_new((void *)response, NULL, &data->response_handle) != AURA_FFI_OK)
+      return AURA_TASK_FAILED;
+    data->request = aura_llvm_class_alloc(data->request_fields, data->request_type_id);
+    data->response = aura_llvm_class_alloc(data->response_fields, data->response_type_id);
+    if (data->request == NULL || data->response == NULL) return AURA_TASK_FAILED;
+    ((uint64_t *)data->request)[1] = (uint64_t)(uintptr_t)data->request_handle;
+    ((uint64_t *)data->response)[1] = (uint64_t)(uintptr_t)data->response_handle;
+    ((uint64_t *)data->response)[2] = (uint64_t)(uintptr_t)data->connection_handle;
+    data->child = data->handler(data->handler_environment, data->request, data->response);
+    if (data->child == NULL) return AURA_TASK_FAILED;
+  }
+  state = aura_task_frame_state(data->child);
+  if (state == AURA_TASK_READY)
+    state = aura_task_executor_poll_inline(data->executor, data->child);
+  if (state == AURA_TASK_PENDING)
+  {
+    if (!aura_task_frame_wait_on(frame, data->child)) return AURA_TASK_FAILED;
+    return AURA_TASK_PENDING;
+  }
+  if (state == AURA_TASK_FAILED)
+  {
+    (void)aura_task_frame_propagate_error(frame, data->child);
+    return AURA_TASK_FAILED;
+  }
+  if (state != AURA_TASK_COMPLETE) return state;
+  if (data->executor != NULL)
+    (void)aura_task_executor_release_terminal(data->executor, &data->child);
+  return AURA_TASK_COMPLETE;
+}
+
+static AuraTaskPollState aura_llvm_http_serve_poll(AuraTaskFrame *frame)
+{
+  AuraLlvmHttpServeData *data = (AuraLlvmHttpServeData *)aura_task_frame_data(frame);
+  AuraTcpStream *stream = NULL;
+  AuraHttpConnection *connection = NULL;
+  if (data == NULL || aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;
+  if (data->connection_handle == NULL)
+  {
+    void *raw = NULL;
+    if (aura_ffi_handle_take_owned(&data->stream_handle, &raw) != AURA_FFI_OK || raw == NULL ||
+        aura_http_connection_create_from_stream((AuraTcpStream *)raw, NULL, &connection) != AURA_HTTP_CONNECTION_OK ||
+        connection == NULL || aura_ffi_handle_new(connection, aura_http_connection_destroy_resource, &data->connection_handle) != AURA_FFI_OK)
+    {
+      if (raw != NULL && connection == NULL) aura_tcp_stream_destroy((AuraTcpStream *)raw);
+      return AURA_TASK_FAILED;
+    }
+  }
+  return aura_http_connection_poll_async_task_handle(frame, data->connection_handle,
+                                                       aura_llvm_http_serve_bridge, data);
+}
+
+void *aura_llvm_http_serve_connection_task(void *executor, void *stream_handle,
+                                           void *handler_environment, void *handler,
+                                           int64_t request_fields, int64_t request_type_id,
+                                           int64_t response_fields, int64_t response_type_id)
+{
+  AuraTaskFrame *frame;
+  AuraLlvmHttpServeData *data;
+  if (executor == NULL || stream_handle == NULL || handler == NULL || request_fields <= 0 || response_fields < 2)
+    return NULL;
+  frame = aura_task_frame_new(sizeof(*data), aura_llvm_http_serve_poll, aura_llvm_http_serve_destroy);
+  if (frame == NULL) return NULL;
+  data = (AuraLlvmHttpServeData *)aura_task_frame_data(frame);
+  memset(data, 0, sizeof(*data));
+  data->stream_handle = (AuraFfiOpaqueHandle *)stream_handle;
+  data->executor = (AuraTaskExecutor *)executor;
+  data->handler_environment = handler_environment;
+  data->handler = (AuraLlvmHttpHandlerFn)handler;
+  data->request_fields = (uint64_t)request_fields; data->request_type_id = (uint64_t)request_type_id;
+  data->response_fields = (uint64_t)response_fields; data->response_type_id = (uint64_t)response_type_id;
+  if (!aura_task_executor_submit((AuraTaskExecutor *)executor, frame)) { aura_task_frame_destroy(frame); return NULL; }
+  return frame;
+}
+
+typedef struct
+{
+  AuraTaskExecutor *executor;
+  AuraFfiOpaqueHandle *listener_handle;
+  AuraFfiHandlePin listener_pin;
+  void *handler_environment;
+  void *handler;
+  AuraTaskFrame **connections;
+  size_t connection_count;
+  size_t connection_capacity;
+  int stopping;
+  uint64_t request_fields;
+  uint64_t request_type_id;
+  uint64_t response_fields;
+  uint64_t response_type_id;
+} AuraLlvmHttpServeLoopData;
+
+static void aura_llvm_http_serve_loop_destroy(AuraTaskFrame *frame)
+{
+  AuraLlvmHttpServeLoopData *data = (AuraLlvmHttpServeLoopData *)aura_task_frame_data(frame);
+  if (data == NULL) return;
+  if (data->executor != NULL)
+  {
+    for (size_t index = 0; index < data->connection_count; index++)
+      (void)aura_task_executor_release(data->executor, &data->connections[index]);
+  }
+  free(data->connections);
+  if (data->listener_pin.handle != NULL) (void)aura_ffi_handle_unpin(&data->listener_pin);
+  if (data->listener_handle != NULL) (void)aura_ffi_handle_drop(&data->listener_handle);
+  aura_fun_env_free(data->handler_environment);
+}
+
+static AuraTaskPollState aura_llvm_http_serve_loop_poll(AuraTaskFrame *frame)
+{
+  AuraLlvmHttpServeLoopData *data = (AuraLlvmHttpServeLoopData *)aura_task_frame_data(frame);
+  if (data == NULL || aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;
+  for (size_t index = 0; index < data->connection_count;)
+  {
+    AuraTaskPollState state = aura_task_frame_state(data->connections[index]);
+    if (state == AURA_TASK_COMPLETE || state == AURA_TASK_FAILED || state == AURA_TASK_CANCELLED)
+    {
+      AuraTaskFrame *connection = data->connections[index];
+      if (!aura_task_executor_release_terminal(data->executor, &connection))
+      {
+        index++;
+        continue;
+      }
+      data->connection_count--;
+      data->connections[index] = data->connections[data->connection_count];
+      continue;
+    }
+    index++;
+  }
+  if (aura_signal_shutdown_requested() && !data->stopping)
+  {
+    (void)aura_tcp_listener_close((AuraTcpListener *)data->listener_pin.resource);
+    data->stopping = 1;
+  }
+  if (data->listener_pin.handle == NULL)
+  {
+    if (data->listener_handle == NULL ||
+        aura_ffi_handle_pin_for_boundary(data->listener_handle, AURA_FFI_BOUNDARY_TASK, &data->listener_pin) != AURA_FFI_OK)
+      return AURA_TASK_FAILED;
+  }
+  if (data->stopping)
+  {
+    if (data->connection_count == 0) return AURA_TASK_COMPLETE;
+    if (!aura_task_frame_wait_on(frame, data->connections[0])) return AURA_TASK_FAILED;
+    return AURA_TASK_PENDING;
+  }
+  if (data->connection_count >= 64)
+  {
+    if (!aura_task_frame_wait_on(frame, data->connections[0])) return AURA_TASK_FAILED;
+    return AURA_TASK_PENDING;
+  }
+  {
+    AuraTcpStream *stream = NULL;
+    AuraTcpStatus status = aura_tcp_listener_accept((AuraTcpListener *)data->listener_pin.resource, 0, &stream);
+    if (status == AURA_TCP_PENDING || status == AURA_TCP_TIMEOUT)
+    {
+      if (!aura_task_frame_wait_tcp_listener(frame, (const AuraTcpListener *)data->listener_pin.resource, 1)) return AURA_TASK_FAILED;
+      return AURA_TASK_PENDING;
+    }
+    if (status == AURA_TCP_CLOSED) return AURA_TASK_COMPLETE;
+    if (status != AURA_TCP_OK || stream == NULL) return AURA_TASK_FAILED;
+    AuraFfiOpaqueHandle *stream_handle = NULL;
+    if (aura_ffi_handle_new(stream, aura_llvm_destroy_tcp_stream, &stream_handle) != AURA_FFI_OK)
+    {
+      aura_tcp_stream_destroy(stream); return AURA_TASK_FAILED;
+    }
+    aura_fun_env_retain(data->handler_environment);
+    AuraTaskFrame *connection = (AuraTaskFrame *)aura_llvm_http_serve_connection_task(
+        data->executor, stream_handle, data->handler_environment, data->handler,
+        (int64_t)data->request_fields, (int64_t)data->request_type_id,
+        (int64_t)data->response_fields, (int64_t)data->response_type_id);
+    if (connection == NULL)
+    {
+      aura_fun_env_free(data->handler_environment);
+      (void)aura_ffi_handle_drop(&stream_handle);
+      return AURA_TASK_FAILED;
+    }
+    if (data->connection_count == data->connection_capacity)
+    {
+      size_t next_capacity = data->connection_capacity == 0 ? 8 : data->connection_capacity * 2;
+      AuraTaskFrame **next = (AuraTaskFrame **)realloc(
+          data->connections, next_capacity * sizeof(*next));
+      if (next == NULL)
+      {
+        (void)aura_task_executor_release(data->executor, &connection);
+        return AURA_TASK_FAILED;
+      }
+      data->connections = next;
+      data->connection_capacity = next_capacity;
+    }
+    data->connections[data->connection_count++] = connection;
+  }
+  return AURA_TASK_PENDING;
+}
+
+void *aura_llvm_http_serve_task(void *executor, void *listener_handle,
+                                void *handler_environment, void *handler,
+                                int64_t request_fields, int64_t request_type_id,
+                                int64_t response_fields, int64_t response_type_id)
+{
+  AuraTaskFrame *frame;
+  AuraLlvmHttpServeLoopData *data;
+  if (executor == NULL || listener_handle == NULL || handler == NULL) return NULL;
+  frame = aura_task_frame_new(sizeof(*data), aura_llvm_http_serve_loop_poll,
+                              aura_llvm_http_serve_loop_destroy);
+  if (frame == NULL) return NULL;
+  data = (AuraLlvmHttpServeLoopData *)aura_task_frame_data(frame);
+  memset(data, 0, sizeof(*data)); data->executor = (AuraTaskExecutor *)executor;
+  data->listener_handle = (AuraFfiOpaqueHandle *)listener_handle;
+  data->handler_environment = handler_environment; data->handler = handler;
+  data->request_fields = (uint64_t)request_fields; data->request_type_id = (uint64_t)request_type_id;
+  data->response_fields = (uint64_t)response_fields; data->response_type_id = (uint64_t)response_type_id;
+  if (!aura_task_executor_submit((AuraTaskExecutor *)executor, frame)) { aura_task_frame_destroy(frame); return NULL; }
+  return frame;
+}
+
+#endif
+
+#if defined(AURA_LLVM_RUNTIME)
+AuraLazyCell *aura_lazy_cell_new(AuraLazyInitFn init, void *environment,
+                                 AuraTaskBlockingEnvDestroyFn environment_destroy);
+void aura_lazy_cell_publish(AuraLazyCell *cell, void *value, size_t size,
+                            AuraLazyValueDestroyFn value_destroy);
+void *aura_lazy_cell_value(AuraLazyCell *cell);
+int aura_lazy_cell_is_initialized(AuraLazyCell *cell);
+void aura_lazy_cell_destroy(AuraLazyCell *cell);
+void aura_fun_env_free(void *environment);
+typedef int64_t (*AuraLlvmLazyIntFn)(void *environment);
+typedef struct
+{
+  void *environment;
+  AuraLlvmLazyIntFn function;
+} AuraLlvmLazyIntEnv;
+
+static void aura_llvm_lazy_int_init(AuraLazyCell *cell, void *value)
+{
+  AuraLlvmLazyIntEnv *env = (AuraLlvmLazyIntEnv *)value;
+  int64_t *result;
+  if (env == NULL || env->function == NULL)
+    return;
+  result = (int64_t *)malloc(sizeof(*result));
+  if (result == NULL)
+    return;
+  *result = env->function(env->environment);
+  aura_lazy_cell_publish(cell, result, sizeof(*result), free);
+}
+
+static void aura_llvm_lazy_int_env_destroy(void *value)
+{
+  AuraLlvmLazyIntEnv *env = (AuraLlvmLazyIntEnv *)value;
+  if (env == NULL)
+    return;
+  aura_fun_env_free(env->environment);
+  free(env);
+}
+
+void *aura_llvm_lazy_int_new(void *environment, void *function)
+{
+  AuraLlvmLazyIntEnv *env = (AuraLlvmLazyIntEnv *)calloc(1, sizeof(*env));
+  AuraLazyCell *cell;
+  if (env == NULL)
+    return NULL;
+  env->environment = environment;
+  env->function = (AuraLlvmLazyIntFn)function;
+  cell = aura_lazy_cell_new(
+      aura_llvm_lazy_int_init, env, aura_llvm_lazy_int_env_destroy);
+  if (cell == NULL)
+  {
+    aura_llvm_lazy_int_env_destroy(env);
+    return NULL;
+  }
+  return cell;
+}
+
+int64_t aura_llvm_lazy_int_get(void *value)
+{
+  int64_t *result = (int64_t *)aura_lazy_cell_value((AuraLazyCell *)value);
+  return result == NULL ? 0 : *result;
+}
+
+int aura_llvm_lazy_is_initialized(void *value)
+{
+  return aura_lazy_cell_is_initialized((AuraLazyCell *)value);
+}
+
+void aura_llvm_lazy_int_destroy(void *value)
+{
+  aura_lazy_cell_destroy((AuraLazyCell *)value);
+}
+
+int64_t aura_llvm_sync_load(int64_t *value)
+{
+  return value == NULL ? 0 : __atomic_load_n(value, __ATOMIC_SEQ_CST);
+}
+
+void aura_llvm_sync_store(int64_t *value, int64_t next)
+{
+  if (value != NULL)
+    __atomic_store_n(value, next, __ATOMIC_SEQ_CST);
+}
+
+int64_t aura_llvm_sync_fetch_add(int64_t *value, int64_t amount)
+{
+  return value == NULL ? 0 : __atomic_fetch_add(value, amount, __ATOMIC_SEQ_CST);
+}
+
+int aura_llvm_sync_compare_exchange(int64_t *value, int64_t expected,
+                                     int64_t desired)
+{
+  return value != NULL &&
+         __atomic_compare_exchange_n(value, &expected, desired, false,
+                                     __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
+}
+
+int aura_llvm_sync_try_lock(int64_t *value)
+{
+  return aura_llvm_sync_compare_exchange(value, 0, 1);
+}
+
+void aura_llvm_sync_unlock(int64_t *value)
+{
+  aura_llvm_sync_store(value, 0);
+}
+
+int aura_llvm_sync_is_locked(int64_t *value)
+{
+  return aura_llvm_sync_load(value) != 0;
+}
+
+int aura_llvm_sync_try_read(int64_t *value)
+{
+  int64_t state;
+  if (value == NULL)
+    return 0;
+  state = aura_llvm_sync_load(value);
+  while (state >= 0 && state != INT64_MAX)
+  {
+    if (__atomic_compare_exchange_n(value, &state, state + 1, false,
+                                    __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+      return 1;
+  }
+  return 0;
+}
+
+int aura_llvm_sync_try_write(int64_t *value)
+{
+  return aura_llvm_sync_compare_exchange(value, 0, -1);
+}
+
+void aura_llvm_sync_unlock_read(int64_t *value)
+{
+  int64_t state;
+  if (value == NULL)
+    return;
+  state = aura_llvm_sync_load(value);
+  while (state > 0 && !__atomic_compare_exchange_n(
+             value, &state, state - 1, false, __ATOMIC_SEQ_CST,
+             __ATOMIC_SEQ_CST))
+  {
+  }
+}
+
+void aura_llvm_sync_unlock_write(int64_t *value)
+{
+  (void)aura_llvm_sync_compare_exchange(value, -1, 0);
+}
+
+int64_t aura_llvm_sync_reader_count(int64_t *value)
+{
+  int64_t state = aura_llvm_sync_load(value);
+  return state > 0 ? state : 0;
+}
+
+int aura_llvm_sync_is_write_locked(int64_t *value)
+{
+  return aura_llvm_sync_load(value) == -1;
+}
+
+void aura_task_frame_set_error(AuraTaskFrame *frame, void *data, size_t size,
+                               AuraTaskResultDestroyFn destroy);
+char *aura_ex_message_copy(void);
+static void aura_llvm_task_exception_destroy(void *data, size_t size)
+{
+  (void)size;
+  free(data);
+}
+
+int aura_llvm_task_fail_from_exception(AuraTaskFrame *frame)
+{
+  char *copy = aura_ex_message_copy();
+  if (copy != NULL)
+    aura_task_frame_set_error(frame, copy, strlen(copy) + 1,
+                              aura_llvm_task_exception_destroy);
+  aura_ex_clear();
+  aura_try_leave();
+  return AURA_TASK_FAILED;
 }
 #endif
 
@@ -1629,6 +3148,13 @@ const char *aura_task_frame_error_type_name(const AuraTaskFrame *frame)
   return frame != NULL ? frame->error_type_name : NULL;
 }
 
+const char *aura_llvm_task_error_message(const AuraTaskFrame *frame)
+{
+  return frame != NULL && frame->error.data != NULL
+             ? (const char *)frame->error.data
+             : "task failed";
+}
+
 uint32_t aura_task_frame_error_source_id(const AuraTaskFrame *frame)
 {
   return frame != NULL ? frame->error_source_id : 0;
@@ -1977,6 +3503,83 @@ AuraTaskResult aura_task_frame_result(const AuraTaskFrame *frame)
 {
   AuraTaskResult empty = {NULL, 0};
   return frame != NULL ? frame->result : empty;
+}
+
+int aura_llvm_task_join_i64(AuraTaskExecutor *executor, AuraTaskFrame *frame,
+                            int64_t *out)
+{
+  AuraTaskResult result = {NULL, 0};
+  AuraTaskResult error = {NULL, 0};
+  AuraTaskPollState state;
+  if (out == NULL)
+  {
+    return 0;
+  }
+  state = aura_task_executor_join(executor, frame, &result, &error);
+  if (state != AURA_TASK_COMPLETE || result.data == NULL ||
+      result.size != sizeof(*out))
+  {
+    return 0;
+  }
+  memcpy(out, result.data, sizeof(*out));
+  return 1;
+}
+
+int aura_llvm_task_join_ptr(AuraTaskExecutor *executor, AuraTaskFrame *frame,
+                            void **out)
+{
+  AuraTaskResult result = {NULL, 0};
+  AuraTaskResult error = {NULL, 0};
+  AuraTaskPollState state;
+  if (out == NULL)
+  {
+    return 0;
+  }
+  state = aura_task_executor_join(executor, frame, &result, &error);
+  if (state != AURA_TASK_COMPLETE || result.data == NULL ||
+      result.size != sizeof(*out))
+  {
+    return 0;
+  }
+  memcpy(out, result.data, sizeof(*out));
+  return 1;
+}
+
+int aura_llvm_task_join_unit(AuraTaskExecutor *executor, AuraTaskFrame *frame)
+{
+  AuraTaskResult result = {NULL, 0};
+  AuraTaskResult error = {NULL, 0};
+  return aura_task_executor_join(executor, frame, &result, &error) ==
+         AURA_TASK_COMPLETE;
+}
+
+int aura_llvm_task_join_status(AuraTaskExecutor *executor, AuraTaskFrame *frame)
+{
+  AuraTaskResult result = {NULL, 0};
+  AuraTaskResult error = {NULL, 0};
+  return aura_task_executor_join(executor, frame, &result, &error);
+}
+
+const char *aura_llvm_task_error_message(const AuraTaskFrame *frame);
+
+void aura_llvm_task_raise_failure(AuraTaskFrame *frame)
+{
+  if (frame != NULL && frame->state == AURA_TASK_CANCELLED)
+  {
+    aura_throw_string("task cancelled");
+  }
+  aura_throw_string(aura_llvm_task_error_message(frame));
+}
+
+int aura_llvm_task_cancel(AuraTaskExecutor *executor, AuraTaskFrame *frame)
+{
+  return aura_task_executor_cancel(executor, frame);
+}
+
+int aura_llvm_task_release(AuraTaskExecutor *executor, AuraTaskFrame *frame)
+{
+  AuraTaskFrame *owned = frame;
+  return aura_task_executor_release(executor, &owned);
 }
 
 static void *aura_type_erased_result_clone(const void *raw, size_t size,

@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
 use aura_ast::*;
+use aura_ir::intrinsic_registry::{lookup_type as lookup_std_type, TypeIntrinsic};
 use aura_sema::{CheckedFile, Ty};
 
 use crate::ctx::EmitCtx;
@@ -660,10 +661,14 @@ fn emit_class_gc_hooks(
         let _ = writeln!(out, "static void {}(void *p) {{", c_dtor_name(mono));
         let _ = writeln!(out, "  {cty} *self = ({cty} *)p;");
         out.push_str("  if (self == NULL) { return; }\n");
-        if class_decl_package(c, checked) == "std.sync" && c.name.name == "Lazy" {
+        if lookup_std_type(&class_decl_package(c, checked), &c.name.name)
+            == Some(TypeIntrinsic::SyncLazy)
+        {
             out.push_str("  if (self->runtimeHandle != 0) { aura_lazy_cell_destroy((AuraLazyCell *)(uintptr_t)self->runtimeHandle); self->runtimeHandle = 0; }\n");
         }
-        if class_decl_package(c, checked) == "std.task" && c.name.name == "Select" {
+        if lookup_std_type(&class_decl_package(c, checked), &c.name.name)
+            == Some(TypeIntrinsic::TaskSelect)
+        {
             out.push_str("  if (self->runtimeHandle != 0) { aura_task_select_destroy((AuraTaskSelect *)(uintptr_t)self->runtimeHandle); self->runtimeHandle = 0; }\n");
         }
         for name in &string_fields {
@@ -830,49 +835,49 @@ pub(crate) fn emit_class_defs(
         }
         let method_monos = generic_method_monos(c, m, args, checked);
         for method_args in method_monos {
-            if class_decl_package(c, checked) == "std.http"
-                && c.name.name == "RequestBody"
+            if lookup_std_type(&class_decl_package(c, checked), &c.name.name)
+                == Some(TypeIntrinsic::HttpRequestBody)
                 && m.name.name == "readChunk"
             {
                 emit_http_request_body_read_chunk_method(out, c, m, checked, &params, args, &mono);
-            } else if class_decl_package(c, checked) == "std.http"
-                && c.name.name == "Response"
+            } else if lookup_std_type(&class_decl_package(c, checked), &c.name.name)
+                == Some(TypeIntrinsic::HttpResponse)
                 && m.name.name == "writeChunk"
             {
                 emit_http_response_write_chunk_method(out, c, m, checked, &params, args, &mono);
-            } else if class_decl_package(c, checked) == "std.sync"
-                && c.name.name == "AtomicInt"
+            } else if lookup_std_type(&class_decl_package(c, checked), &c.name.name)
+                == Some(TypeIntrinsic::SyncAtomicInt)
                 && emit_atomic_int_method(out, c, m, checked, &params, args, &mono)
             {
                 // The AtomicInt methods use compiler atomics rather than ordinary
                 // field loads/stores; the fallback body remains only for unknown
                 // methods added to the class.
-            } else if class_decl_package(c, checked) == "std.sync"
-                && c.name.name == "Mutex"
+            } else if lookup_std_type(&class_decl_package(c, checked), &c.name.name)
+                == Some(TypeIntrinsic::SyncMutex)
                 && emit_mutex_method(out, c, m, checked, &params, args, &mono)
             {
-            } else if class_decl_package(c, checked) == "std.sync"
-                && c.name.name == "RwLock"
+            } else if lookup_std_type(&class_decl_package(c, checked), &c.name.name)
+                == Some(TypeIntrinsic::SyncRwLock)
                 && emit_rwlock_method(out, c, m, checked, &params, args, &mono)
             {
-            } else if class_decl_package(c, checked) == "std.sync"
-                && c.name.name == "Once"
+            } else if lookup_std_type(&class_decl_package(c, checked), &c.name.name)
+                == Some(TypeIntrinsic::SyncOnce)
                 && emit_once_method(out, c, m, checked, &params, args, &mono)
             {
-            } else if class_decl_package(c, checked) == "std.sync"
-                && c.name.name == "Lazy"
+            } else if lookup_std_type(&class_decl_package(c, checked), &c.name.name)
+                == Some(TypeIntrinsic::SyncLazy)
                 && emit_lazy_method(out, c, m, checked, &params, args, &mono)
             {
-            } else if class_decl_package(c, checked) == "std.task"
-                && c.name.name == "Select"
+            } else if lookup_std_type(&class_decl_package(c, checked), &c.name.name)
+                == Some(TypeIntrinsic::TaskSelect)
                 && emit_select_next_method(out, c, m, checked, &params, args, &mono)
             {
-            } else if class_decl_package(c, checked) == "std.task"
-                && c.name.name == "Select"
+            } else if lookup_std_type(&class_decl_package(c, checked), &c.name.name)
+                == Some(TypeIntrinsic::TaskSelect)
                 && emit_select_method(out, c, m, checked, &params, args, &mono)
             {
-            } else if class_decl_package(c, checked) == "std.metrics"
-                && c.name.name == "Counter"
+            } else if lookup_std_type(&class_decl_package(c, checked), &c.name.name)
+                == Some(TypeIntrinsic::MetricsCounter)
                 && emit_counter_method(out, c, m, checked, &params, args, &mono)
             {
             } else if is_async_class_method(m) {

@@ -95,9 +95,11 @@ const char *aura_fs_list_names(const char *path)
   size_t used = 0;
   const size_t limit = 65536;
   char *out;
-  if (path == NULL || (directory = opendir(path)) == NULL) return NULL;
+  // String is non-nullable at the Aura ABI boundary; use a visible fallback
+  // when the host cannot enumerate the requested directory.
+  if (path == NULL || (directory = opendir(path)) == NULL) return aura_bytes_copy(".");
   out = (char *)malloc(limit + 1);
-  if (out == NULL) { closedir(directory); return NULL; }
+  if (out == NULL) { closedir(directory); return aura_bytes_copy("."); }
   while ((entry = readdir(directory)) != NULL)
   {
     size_t length = strlen(entry->d_name);
@@ -105,7 +107,7 @@ const char *aura_fs_list_names(const char *path)
     {
       free(out);
       closedir(directory);
-      return NULL;
+      return aura_bytes_copy(".");
     }
     if (used != 0) out[used++] = '\n';
     memcpy(out + used, entry->d_name, length);
@@ -512,4 +514,3 @@ const char *aura_read_all_stdin(void)
   buf[n] = '\0';
   return buf;
 }
-

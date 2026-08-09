@@ -8,6 +8,18 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 ## Open
 
+### LLVM-003 specialized async operations (2026-08-09)
+
+- Area: `spawnBlocking`, UDP, and remaining async MIR shapes.
+- Symptom: capture-free scheduler tasks, descriptor `readFd`/`writeFd` frames,
+  binary stream exact-read/write and TLS frames, and the LLVM blocking-worker
+  path work, but cancellation/worker stress coverage and several specialized
+  async MIR shapes remain incomplete.
+- Why deferred: worker execution, cancellation, and frame ownership need one
+  backend-neutral operation contract rather than another C compatibility path.
+- Next step: materialize the remaining operation descriptors in MIR, emit LLVM
+  poll/drop hooks, and verify cancellation plus runtime sanitizer fixtures.
+
 ### GC-001 concurrent tracing collector contract (2026-08-04)
 
 - Area: `runtime/src/memory/gc.c`, generated heap ownership, task roots
@@ -50,9 +62,9 @@ commits, RFCs, or release notes instead of appending progress for every change.
 ### ASYNC-002 richer async protocol shapes (2026-08-03)
 
 - Area: async lowering, file I/O, channels, and native operation adapters
-- Symptom: file operations and some native adapters do not suspend through the
-  scheduler; richer iterator/protocol shapes, nested aggregate layouts, and
-  async cancellation boundaries remain bounded.
+- Symptom: file operations and some native adapters do not yet suspend through
+  the LLVM scheduler; richer iterator/protocol shapes, nested aggregate
+  layouts, and async cancellation boundaries remain bounded.
 - Why deferred: suspension, backpressure, cancellation, and ownership must be
   specified together for each operation family.
 - Next step: define one async I/O adapter contract, then migrate file and
@@ -74,6 +86,17 @@ commits, RFCs, or release notes instead of appending progress for every change.
   unavailable in the current sandbox; cross-host sanitizer evidence is absent.
 - Next step: run the full matrix on supported clean hosts and retain the host,
   target, and sanitizer configuration with the release evidence.
+
+### CODEGEN-001 remaining stdlib intrinsic migration (2026-08-09)
+
+- Area: C backend stdlib lowering and runtime ABI adapters
+- Symptom: the shared intrinsic/ABI registry now covers the migrated LLVM and
+  selected C paths, but older C emitter branches still compare `std.*`
+  package strings directly.
+- Why deferred: those branches mix source adaptation, ownership/layout logic,
+  and native ABI calls; moving them safely needs per-family output tests.
+- Next step: migrate one stdlib family at a time to the registry and remove
+  direct package checks after its C and LLVM coverage is in place.
 
 ## Resolved History
 

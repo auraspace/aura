@@ -289,13 +289,113 @@ fn emits_non_unit_control_flow_with_unreachable_joins() {
 }
 
 #[test]
-fn emits_async_mir_as_immediate_tasks() {
+fn emits_async_mir_as_scheduler_backed_tasks() {
     let file = parse_file("package demo\nasync fun tick(): Int { return 1 }\n").unwrap();
     let checked = check_file(&file).unwrap();
     let program = LoweredProgram::from_checked(checked);
     let module = LlvmBackend::emit_module(&program).unwrap();
-    assert!(module.contains("define i64 @aura_demo_tick"));
+    assert!(module.contains("define i64 @aura_demo___aura_async_body_tick"));
+    assert!(module.contains("define ptr @aura_demo_tick"));
     assert_llvm_compiles(&module, "async-module");
+}
+
+#[test]
+fn emits_capture_free_spawn_through_the_task_executor() {
+    let file = parse_file(
+        "package demo\nfun main() { val task: TaskHandle<Int> = spawn { return 23 } }\n",
+    )
+    .unwrap();
+    let checked = check_file(&file).unwrap();
+    let module = LlvmBackend::emit_module(&LoweredProgram::from_checked(checked)).unwrap();
+    assert!(module.contains("call ptr @aura_task_frame_new"));
+    assert!(module.contains("call i32 @aura_task_executor_submit"));
+    assert!(module.contains("define i32 @aura_llvm_poll_aura_demo___spawn_"));
+    assert_llvm_compiles(&module, "spawn-module");
+}
+
+#[test]
+fn emits_async_call_as_a_task_handle() {
+    let file = parse_file(
+        "package demo\nasync fun child(): Int { return 7 }\nasync fun parent(): Int { return await child() }\n",
+    )
+    .unwrap();
+    let checked = check_file(&file).unwrap();
+    let module = LlvmBackend::emit_module(&LoweredProgram::from_checked(checked)).unwrap();
+    assert_llvm_compiles(&module, "async-await-module");
+}
+
+#[test]
+fn emits_integer_join_as_a_result_value() {
+    let file = parse_file(
+        "package demo\nfun main() { val task: TaskHandle<Int> = spawn { return 23 } val result = join(task) }\n",
+    )
+    .unwrap();
+    let checked = check_file(&file).unwrap();
+    let module = LlvmBackend::emit_module(&LoweredProgram::from_checked(checked)).unwrap();
+    assert_llvm_compiles(&module, "join-module");
+}
+
+#[test]
+fn runs_capture_free_spawn_and_join_through_the_scheduler() {
+    assert_llvm_source_runs(
+        include_str!("../../../../../corpus/async/no_await.aura"),
+        "scheduler-no-await",
+        "async\n",
+    );
+}
+
+#[test]
+fn runs_integer_spawn_capture_through_the_scheduler() {
+    assert_llvm_source_runs(
+        "package demo\nfun main() { val value: Int = 23 val task: TaskHandle<Int> = spawn { println(value.toString()) return value } join(task) }\n",
+        "scheduler-int-capture",
+        "23\n",
+    );
+}
+
+#[test]
+fn runs_string_spawn_capture_with_frame_gc_hooks() {
+    assert_llvm_source_runs(
+        "package demo\nfun main() { val value: String = \"captured\" val task: TaskHandle<Int> = spawn { println(value) return 1 } join(task) }\n",
+        "scheduler-string-capture",
+        "captured\n",
+    );
+}
+
+#[test]
+fn runs_string_task_completion_and_join() {
+    assert_llvm_source_runs(
+        "package demo\nfun main() { val task: TaskHandle<String> = spawn { return \"result\" } join(task) }\n",
+        "scheduler-string-task",
+        "",
+    );
+}
+
+#[test]
+fn runs_string_async_function_through_await() {
+    assert_llvm_source_runs(
+        "package demo\nasync fun answer(): String { return \"async-result\" }\nfun main() { val task: TaskHandle<Unit> = spawn { val value: String = await answer() println(value) return } join(task) }\n",
+        "scheduler-string-await",
+        "async-result\n",
+    );
+}
+
+#[test]
+fn runs_class_spawn_capture_with_frame_ownership() {
+    assert_llvm_source_runs(
+        include_str!("../../../../../corpus/async/mutable_spawn_capture.aura"),
+        "scheduler-class-capture",
+        "2\n2\n",
+    );
+}
+
+#[test]
+fn cancellation_prevents_a_queued_llvm_task_from_running() {
+    assert_llvm_source_runs(
+        "package demo\nfun main() { val task: TaskHandle<Int> = spawn { println(\"ran\") return 1 } cancel(task) }\n",
+        "scheduler-cancel",
+        "",
+    );
 }
 
 #[test]
@@ -427,6 +527,15 @@ fn runs_nullable_string_unwrap() {
 }
 
 #[test]
+fn runs_nullable_safe_method_calls() {
+    assert_llvm_source_runs(
+        include_str!("../../../../../corpus/class/safe_call.aura"),
+        "safe-call",
+        "null\nhi\n",
+    );
+}
+
+#[test]
 fn runs_tagged_nullable_returns_from_null_and_value_paths() {
     assert_llvm_source_runs(
         r#"package demo
@@ -442,6 +551,27 @@ fun main() {
 "#,
         "nullable-return-paths",
         "nullable-ok\n",
+    );
+}
+
+#[test]
+fn runs_nullable_primitive_reassignments() {
+    assert_llvm_source_runs(
+        r#"package demo
+fun main() {
+    var flag: Bool? = null
+    flag = true
+    assert(flag != null)
+    var value: Int? = 5
+    value = null
+    assert(value == null)
+    value = 42
+    assert(value!! == 42)
+    println("nullable-reassign-ok")
+}
+"#,
+        "nullable-reassignments",
+        "nullable-reassign-ok\n",
     );
 }
 
@@ -659,6 +789,106 @@ fn runs_non_capturing_lambda_function_values() {
 }
 
 #[test]
+fn runs_immutable_scalar_lambda_capture() {
+    assert_llvm_source_runs(
+        "package demo.lambda\nfun main() { val base = 40 val add = (x: Int) => base + x println(add(2).toString()) }\n",
+        "lambda-capture-int",
+        "42\n",
+    );
+}
+
+#[test]
+fn runs_immutable_string_lambda_capture() {
+    assert_llvm_source_runs(
+        "package demo.lambda\nfun main() { val prefix = \"hi\" val greet = (value: String) => prefix + value println(greet(\"!\")) }\n",
+        "lambda-capture-string",
+        "hi!\n",
+    );
+}
+
+#[test]
+fn runs_immutable_class_lambda_capture() {
+    assert_llvm_source_runs(
+        "package demo.lambda\nclass Box(val value: Int) { }\nfun main() { val box = Box(7) val get = () => box.value println(get().toString()) }\n",
+        "lambda-capture-class",
+        "7\n",
+    );
+}
+
+#[test]
+fn runs_higher_order_lambdas_with_scalar_capture() {
+    assert_llvm_source_exits(
+        include_str!("../../../../../corpus/fun/lambda_hof.aura"),
+        "lambda-hof",
+        14,
+    );
+}
+
+#[test]
+fn runs_class_and_array_lambda_captures() {
+    assert_llvm_source_exits(
+        include_str!("../../../../../corpus/fun/lambda_capture_class.aura"),
+        "lambda-capture-class-fixture",
+        49,
+    );
+    assert_llvm_source_exits(
+        include_str!("../../../../../corpus/fun/lambda_capture_array.aura"),
+        "lambda-capture-array",
+        159,
+    );
+}
+
+#[test]
+fn runs_nested_function_lambda_captures() {
+    assert_llvm_source_exits(
+        include_str!("../../../../../corpus/fun/lambda_capture_fun.aura"),
+        "lambda-capture-fun",
+        89,
+    );
+}
+
+#[test]
+fn runs_mutable_scalar_lambda_captures() {
+    assert_llvm_source_exits(
+        include_str!("../../../../../corpus/fun/lambda_capture_var.aura"),
+        "lambda-capture-var",
+        52,
+    );
+}
+
+#[test]
+fn runs_mutable_string_lambda_captures() {
+    assert_llvm_source_exits(
+        include_str!("../../../../../corpus/fun/lambda_capture_var_str.aura"),
+        "lambda-capture-var-string",
+        24,
+    );
+}
+
+#[test]
+fn runs_mutable_function_lambda_captures() {
+    assert_llvm_source_exits(
+        include_str!("../../../../../corpus/fun/lambda_capture_var_fun.aura"),
+        "lambda-capture-var-fun",
+        22,
+    );
+}
+
+#[test]
+fn runs_mutable_heap_lambda_captures() {
+    assert_llvm_source_exits(
+        include_str!("../../../../../corpus/fun/lambda_capture_var_array.aura"),
+        "lambda-capture-var-array",
+        38,
+    );
+    assert_llvm_source_exits(
+        include_str!("../../../../../corpus/fun/lambda_capture_var_class.aura"),
+        "lambda-capture-var-class",
+        72,
+    );
+}
+
+#[test]
 fn runs_generic_class_methods_with_owned_array_fields() {
     assert_llvm_source_runs(
         include_str!("../../../../../corpus/generic/array_field_return.aura"),
@@ -739,6 +969,63 @@ fn emits_foreign_declarations_without_lowering_bodies() {
     assert_llvm_compiles(&module, "ffi-declaration");
 }
 
+#[test]
+fn runs_heap_enum_payloads_with_nested_ownership() {
+    assert_llvm_source_runs(
+        r#"
+package demo.llvm_enum_heap
+
+enum Inner {
+    case Text(value: String)
+}
+
+enum Outer {
+    case Nested(value: Inner)
+}
+
+fun main() {
+    val inner = Text("owned")
+    val outer = Nested(inner)
+    println("ok")
+}
+"#,
+        "enum-heap-payload",
+        "ok\n",
+    );
+}
+
+#[test]
+fn runs_enum_exception_catch_dispatch() {
+    assert_llvm_source_runs(
+        r#"
+package demo.llvm_enum_exception
+
+enum Problem {
+    case Bad(value: Int)
+}
+
+fun main() {
+    try {
+        throw Bad(7)
+    } catch (error: Problem) {
+        println("caught")
+    }
+}
+"#,
+        "enum-exception",
+        "caught\n",
+    );
+}
+
+#[test]
+fn runs_class_array_field_reassignment_with_ownership() {
+    assert_llvm_source_runs(
+        include_str!("../../../../../corpus/generic/array_field_move.aura"),
+        "class-array-field",
+        "moved\nh2\nok\nx0\nb1\nrep\n",
+    );
+}
+
 fn assert_llvm_compiles(module: &str, suffix: &str) {
     let ir_path = PathBuf::from(format!("/tmp/aura-llvm-{suffix}-{}.ll", std::process::id()));
     let object_path = ir_path.with_extension("o");
@@ -780,6 +1067,33 @@ fn assert_llvm_source_runs(source: &str, suffix: &str, expected: &str) {
     let output = std::process::Command::new(&out).output().unwrap();
     assert!(output.status.success(), "{output:?}");
     assert_eq!(String::from_utf8_lossy(&output.stdout), expected);
+    let _ = std::fs::remove_file(&out);
+    let _ = std::fs::remove_file(out.with_file_name(format!(
+        "{}.aura.ll",
+        out.file_name().unwrap().to_string_lossy()
+    )));
+}
+
+fn assert_llvm_source_exits(source: &str, suffix: &str, expected: i32) {
+    let file = parse_file(source).unwrap();
+    let checked = check_file(&file).unwrap();
+    let program = LoweredProgram::from_checked(checked);
+    assert!(program.mir_is_complete());
+    let out = PathBuf::from(format!("/tmp/aura-llvm-{suffix}-{}", std::process::id()));
+    let options = BackendBuildOptions {
+        backend: Backend::Llvm,
+        target: Target::Native,
+        profile: Profile::Debug,
+        optimization: OptimizationLevel::O0,
+        debug: false,
+        lto: Lto::Off,
+        panic: PanicStrategy::Abort,
+        output: OutputKind::Executable,
+        features: Vec::new(),
+    };
+    LlvmBackend::compile(&program, &out, &options).unwrap();
+    let status = std::process::Command::new(&out).status().unwrap();
+    assert_eq!(status.code(), Some(expected));
     let _ = std::fs::remove_file(&out);
     let _ = std::fs::remove_file(out.with_file_name(format!(
         "{}.aura.ll",

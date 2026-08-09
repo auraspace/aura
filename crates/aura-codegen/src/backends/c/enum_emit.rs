@@ -3,6 +3,7 @@
 use std::fmt::Write as _;
 
 use aura_ast::*;
+use aura_ir::intrinsic_registry::{lookup_enum, EnumIntrinsic};
 use aura_sema::{CheckedFile, Ty};
 
 use crate::names::*;
@@ -23,16 +24,18 @@ fn task_payload_ty(ty: &Ty) -> &Ty {
     }
 }
 
+fn enum_intrinsic(e: &EnumDecl, pkg: &str) -> Option<EnumIntrinsic> {
+    lookup_enum(pkg, &e.name.name)
+}
+
 fn task_result_string_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
-    pkg == "std.io"
-        && e.name.name == "Result"
+    enum_intrinsic(e, pkg) == Some(EnumIntrinsic::IoResult)
         && variant == "Ok"
         && matches!(args, [payload, Ty::Enum(name)] if matches!(task_payload_ty(payload), Ty::String) && name == "TaskError@std.io")
 }
 
 fn task_result_foreign_handle_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
-    pkg == "std.io"
-        && e.name.name == "Result"
+    enum_intrinsic(e, pkg) == Some(EnumIntrinsic::IoResult)
         && variant == "Ok"
         && matches!(args, [payload, Ty::Enum(name)] if matches!(task_payload_ty(payload), Ty::ForeignHandle(_)) && name == "TaskError@std.io")
 }
@@ -44,8 +47,7 @@ fn task_result_class_ok(
     variant: &str,
     checked: &CheckedFile,
 ) -> bool {
-    pkg == "std.io"
-        && e.name.name == "Result"
+    enum_intrinsic(e, pkg) == Some(EnumIntrinsic::IoResult)
         && variant == "Ok"
         && args.first().is_some_and(|ty| {
             matches!(task_payload_ty(ty), Ty::Class(_) | Ty::ClassApp { .. })
@@ -56,8 +58,7 @@ fn task_result_class_ok(
 }
 
 fn task_result_enum_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
-    pkg == "std.io"
-        && e.name.name == "Result"
+    enum_intrinsic(e, pkg) == Some(EnumIntrinsic::IoResult)
         && variant == "Ok"
         && args
             .first()
@@ -65,8 +66,7 @@ fn task_result_enum_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> b
 }
 
 fn task_result_array_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
-    pkg == "std.io"
-        && e.name.name == "Result"
+    enum_intrinsic(e, pkg) == Some(EnumIntrinsic::IoResult)
         && variant == "Ok"
         && args.first().is_some_and(|ty| {
             matches!(
@@ -84,8 +84,7 @@ fn task_result_struct_ok(
     variant: &str,
     checked: &CheckedFile,
 ) -> bool {
-    pkg == "std.io"
-        && e.name.name == "Result"
+    enum_intrinsic(e, pkg) == Some(EnumIntrinsic::IoResult)
         && variant == "Ok"
         && args.first().is_some_and(|ty| {
             let name = match task_payload_ty(ty) {
@@ -109,8 +108,7 @@ fn task_result_iface_ok(
     variant: &str,
     checked: &CheckedFile,
 ) -> bool {
-    pkg == "std.io"
-        && e.name.name == "Result"
+    enum_intrinsic(e, pkg) == Some(EnumIntrinsic::IoResult)
         && variant == "Ok"
         && args.first().is_some_and(|ty| {
             let key = match task_payload_ty(ty) {
@@ -123,15 +121,13 @@ fn task_result_iface_ok(
 }
 
 fn task_result_scheduler_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
-    pkg == "std.io"
-        && e.name.name == "Result"
+    enum_intrinsic(e, pkg) == Some(EnumIntrinsic::IoResult)
         && variant == "Ok"
         && matches!(args, [payload, Ty::Enum(name)] if matches!(task_payload_ty(payload), Ty::Task(_) | Ty::TaskHandle(_) | Ty::Channel(_)) && name == "TaskError@std.io")
 }
 
 fn shared_outcome_string_ok(e: &EnumDecl, pkg: &str, args: &[Ty], variant: &str) -> bool {
-    pkg == "std.error"
-        && e.name.name == "Outcome"
+    enum_intrinsic(e, pkg) == Some(EnumIntrinsic::ErrorOutcome)
         && variant == "OutcomeOk"
         && args
             .first()
@@ -145,8 +141,7 @@ fn shared_outcome_error_class(
     variant: &str,
     checked: &CheckedFile,
 ) -> bool {
-    pkg == "std.error"
-        && e.name.name == "Outcome"
+    enum_intrinsic(e, pkg) == Some(EnumIntrinsic::ErrorOutcome)
         && variant == "OutcomeErr"
         && args.get(1).is_some_and(|ty| {
             matches!(task_payload_ty(ty), Ty::Class(_) | Ty::ClassApp { .. })
@@ -180,7 +175,7 @@ pub(crate) fn emit_enum_typedef(
     let params: Vec<String> = e.type_params.iter().map(|p| p.name.name.clone()).collect();
     let pkg = enum_decl_package(e, checked);
     let mono = type_mono(&pkg, &e.name.name, args);
-    let task_error = pkg == "std.io" && e.name.name == "TaskError";
+    let task_error = enum_intrinsic(e, &pkg) == Some(EnumIntrinsic::IoTaskError);
     let _ = writeln!(out, "typedef struct {} {{", c_enum_type(&mono));
     out.push_str("  int tag;\n  union {\n");
     for v in &e.variants {
@@ -254,7 +249,7 @@ pub(crate) fn emit_enum_forwards(
         );
     }
     let cty = c_enum_type(&mono);
-    if pkg == "std.io" && e.name.name == "TaskError" {
+    if enum_intrinsic(e, &pkg) == Some(EnumIntrinsic::IoTaskError) {
         let _ = writeln!(
             out,
             "{cty} {}(const char *error);",
@@ -310,7 +305,7 @@ pub(crate) fn emit_enum_defs(out: &mut String, checked: &CheckedFile, e: &EnumDe
     let params: Vec<String> = e.type_params.iter().map(|p| p.name.name.clone()).collect();
     let pkg = enum_decl_package(e, checked);
     let mono = type_mono(&pkg, &e.name.name, args);
-    let task_error = pkg == "std.io" && e.name.name == "TaskError";
+    let task_error = enum_intrinsic(e, &pkg) == Some(EnumIntrinsic::IoTaskError);
     for (tag, v) in e.variants.iter().enumerate() {
         let _ = writeln!(
             out,
@@ -510,7 +505,7 @@ fn variant_has_owned_field(
 }
 
 fn task_error_variant(e: &EnumDecl, pkg: &str, variant: &str) -> bool {
-    pkg == "std.io" && e.name.name == "TaskError" && variant == "Failed"
+    enum_intrinsic(e, pkg) == Some(EnumIntrinsic::IoTaskError) && variant == "Failed"
 }
 
 fn emit_enum_clone_drop(out: &mut String, checked: &CheckedFile, e: &EnumDecl, args: &[Ty]) {

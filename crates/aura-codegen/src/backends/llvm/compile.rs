@@ -93,7 +93,7 @@ impl Backend for LlvmBackend {
         BackendCapabilities {
             requires_complete_mir: true,
             accepts_alpha_source: false,
-            requires_c_runtime: false,
+            requires_legacy_c_inputs: false,
             supports_native_compile: true,
         }
     }

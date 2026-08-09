@@ -86,7 +86,7 @@ cargo run -p aura-cli -- run corpus/std_collections/hashmap_int # generic HashMa
 cargo run -p aura-cli -- run corpus/std_collections/hashset_int # generic HashSet<Int> (C15)
 ```
 
-Native builds use the **C backend** by default (`aura emit-c` + system `cc`) linked with `runtime/runtime.c`. The LLVM backend consumes complete scalar MIR directly and emits textual LLVM IR through Clang (`aura emit-llvm` or `aura build --backend llvm`); programs outside the current common MIR contract fail with a diagnostic instead of falling back to C.
+Native builds use the **C backend** by default (`aura emit-c` + system `cc`) linked with `runtime/runtime.c`. The LLVM backend consumes complete MIR directly and emits textual LLVM IR through Clang (`aura emit-llvm` or `aura build --backend llvm`); its scheduler-backed task path covers the currently implemented task/frame subset, while unsupported MIR remains a diagnostic instead of silently falling back to C.
 
 ## Supported release targets
 

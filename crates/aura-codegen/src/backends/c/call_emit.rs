@@ -1,6 +1,7 @@
 //! Call-expression emission.
 
 use aura_ast::*;
+use aura_ir::intrinsic_registry::{lookup as lookup_std_intrinsic, Intrinsic as StdIntrinsic};
 use aura_sema::{subst_ty, type_subst_map, Ty};
 
 use crate::array_emit::is_array_type_key;
@@ -1845,13 +1846,18 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
             // Open generic bodies are emitted with erased type parameters and
             // are not runtime call targets. Typed JSON encoding is closed at
             // each concrete monomorph; keep the open fallback compilable.
-            if pkg == "std.json"
+            if lookup_std_intrinsic(pkg, &id.name)
+                .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Json)
                 && matches!(id.name.as_str(), "encode" | "stringify")
                 && targs.iter().any(Ty::is_open)
             {
                 return "NULL".into();
             }
-            if pkg == "std.task" && id.name == "isCancelled" && c.args.is_empty() {
+            if lookup_std_intrinsic(pkg, &id.name)
+                .is_some_and(|spec| spec.intrinsic == StdIntrinsic::TaskCancellation)
+                && id.name == "isCancelled"
+                && c.args.is_empty()
+            {
                 return ctx
                     .async_frame
                     .as_deref()
