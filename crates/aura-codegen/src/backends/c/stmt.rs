@@ -623,6 +623,18 @@ fn emit_remove_array_gc_roots(out: &mut String, indent: usize, names: &[String])
     }
 }
 
+pub(crate) fn emit_function_end_cleanup(out: &mut String, indent: usize, ctx: &EmitCtx<'_>) {
+    emit_remove_array_gc_roots(out, indent, &ctx.array_gc_roots_all());
+    emit_remove_gc_roots(out, indent, &ctx.gc_roots_all());
+    emit_free_array_owners(out, indent, ctx, &ctx.array_owners_all());
+    emit_free_fun_owners(out, indent, ctx, &ctx.fun_owners_all());
+    emit_free_string_owners(out, indent, &ctx.string_owners_all());
+    emit_destroy_channel_owners(out, indent, &ctx.channel_owners_all());
+    emit_free_task_result_owners(out, indent, ctx, &ctx.task_result_owners_all());
+    emit_release_task_handle_owners(out, indent, ctx, &ctx.task_handle_owners_all());
+    emit_release_box_locals(out, indent, ctx, &ctx.box_owners_all());
+}
+
 fn emit_add_array_gc_root(
     out: &mut String,
     indent: usize,
@@ -700,9 +712,8 @@ pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
     if is_compress_owned {
         return true;
     }
-    // Do not infer ownership from a String return type alone: user functions
-    // and foreign helpers may return borrowed/static storage.  Only the
-    // concrete allocating primitives below establish transfer ownership.
+    // Generic std helpers can return borrowed/static storage, but user-defined
+    // generic String functions return owned values by convention below.
     let is_array_string_get = match call.callee.as_ref() {
         Expr::Field(field) if field.field.name == "get" => {
             let receiver = resolve_type_name(&field.object, ctx)
@@ -717,7 +728,7 @@ pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
             .checked
             .call_instantiations
             .get(&call.span.start)
-            .is_some_and(|inst| !inst.type_args.is_empty())
+            .is_some_and(|inst| !inst.type_args.is_empty() && inst.package.starts_with("std."))
         && !is_array_string_get
     {
         return false;
@@ -1316,6 +1327,11 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 );
                 ctx.push_scope();
                 ctx.define_local(&f.name.name, elem_key);
+                // Array<String>.get() returns a heap copy for each iteration;
+                // release the binding when this iteration scope ends.
+                if ctx.lookup_local(&f.name.name) == Some("String") {
+                    ctx.mark_string_owner(&f.name.name);
+                }
                 for stmt in &f.body.stmts {
                     emit_stmt(out, stmt, indent + 2, ctx);
                 }

@@ -27,7 +27,7 @@ use crate::expr::{
 };
 use crate::iface::*;
 use crate::names::*;
-use crate::stmt::{emit_block, emit_return_fallback};
+use crate::stmt::{emit_block, emit_function_end_cleanup, emit_return_fallback};
 
 #[path = "json_decode.rs"]
 mod json_decode;
@@ -13492,9 +13492,7 @@ fn emit_async_body(
         }
     }
     emit_block(out, &f.body, 1, &mut ctx);
-    crate::stmt::emit_release_task_handle_owners(out, 1, &ctx, &ctx.task_handle_owners_all());
-    crate::stmt::emit_free_fun_owners(out, 1, &ctx, &ctx.fun_owners_all());
-    crate::stmt::emit_release_box_locals(out, 1, &ctx, &ctx.box_owners_all());
+    emit_function_end_cleanup(out, 1, &ctx);
     emit_return_fallback(out, &f.return_type, checked, params, &[]);
 }
 

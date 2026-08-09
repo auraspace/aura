@@ -2448,30 +2448,9 @@ pub(crate) fn emit_fun(
         }
     }
     emit_block(out, &f.body, 1, &mut ctx);
-    crate::stmt::emit_release_task_handle_owners(out, 1, &ctx, &ctx.task_handle_owners_all());
-    // Function parameters live in the outer emission scope, so the block
-    // cleanup above does not release owning Array parameters that were not
-    // moved or returned. Keep the parameter ownership invariant symmetric
-    // with the nested-block cleanup path.
-    let array_owners = ctx.array_owners_all();
-    crate::stmt::emit_free_array_owners(out, 1, &ctx, &array_owners);
-    // Drop param roots when leaving the function.
-    for name in ctx.array_gc_roots_all() {
-        let n = mangle_ident(&name);
-        let _ = writeln!(out, "  aura_gc_remove_array_root((void **)&{n}.data);");
-    }
-    for name in ctx.gc_roots_all() {
-        let n = if name == "this" {
-            "this".to_string()
-        } else {
-            mangle_ident(&name)
-        };
-        let _ = writeln!(out, "  aura_gc_remove_root((void **)&{n});");
-    }
-    // Free remaining Fun capture envs (params / locals not transferred by return).
-    crate::stmt::emit_free_fun_owners(out, 1, &ctx, &ctx.fun_owners_all());
-    // C12m: release remaining by-ref boxes (outer retain).
-    crate::stmt::emit_release_box_locals(out, 1, &ctx, &ctx.box_owners_all());
+    // Function parameters live in the outer emission scope, so clean every
+    // remaining owner here, including owned strings from generic returns.
+    crate::stmt::emit_function_end_cleanup(out, 1, &ctx);
     emit_return_fallback(out, &f.return_type, checked, &params, args);
     emit_c_type_fallback(
         out,

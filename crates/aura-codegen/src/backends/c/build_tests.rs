@@ -2371,6 +2371,42 @@ fun main() {
 }
 
 #[test]
+fn builds_and_runs_generic_string_identity_without_leaking() {
+    let file = aura_parser::parse_file(
+        r#"package demo
+fun id<T>(value: T): T {
+  return value
+}
+fun main() {
+  println(id<String>("Hello, Aura"))
+  println(id<String>("ok"))
+}
+"#,
+    )
+    .expect("parse generic string identity fixture");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(|path| path.parent())
+        .expect("workspace root");
+    let dir = std::env::temp_dir();
+    let stem = format!("aura-generic-string-identity-{}", std::process::id());
+    let bin = dir.join(&stem);
+    let generated_c = dir.join(format!("{stem}.aura.c"));
+    build_from_file(&file, &bin, &root.join("runtime/runtime.c"))
+        .expect("compile generic string identity fixture");
+    let output = Command::new(&bin)
+        .output()
+        .expect("run generic string identity fixture");
+    assert!(
+        output.status.success(),
+        "generic string identity leaked or failed: {output:?}"
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "Hello, Aura\nok\n");
+    let _ = fs::remove_file(bin);
+    let _ = fs::remove_file(generated_c);
+}
+
+#[test]
 fn builds_open_generic_async_identity_with_erased_payload_abi() {
     let file = aura_parser::parse_file(
         r#"package demo
