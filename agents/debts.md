@@ -8,19 +8,6 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 ## Open
 
-### GC-001 concurrent tracing collector contract (2026-08-04)
-
-- Area: `runtime/src/memory/gc.c`, generated heap ownership, task roots
-- Symptom: generated heap classes now have typed trace callbacks, task-frame
-  stack maps, tri-color barriers, and bounded incremental marking/sweeping, but
-  executor collection still uses a stop-the-world worker handshake; legacy
-  opaque allocations remain conservative.
-- Why deferred: the collector, compiler-generated barriers, and suspension-root
-  metadata must be designed and sanitized together; conservative scanning is not
-  a safe substitute for that contract.
-- Next step: add a synchronized concurrent root snapshot/safepoint protocol,
-  then prove it with race/sanitizer coverage before allowing background GC.
-
 ### ASYNC-001 remaining aggregate/runtime ownership cases (2026-08-03)
 
 - Area: async frames, task outcomes, channels, and generated ownership hooks
