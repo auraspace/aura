@@ -11,15 +11,15 @@ commits, RFCs, or release notes instead of appending progress for every change.
 ### GC-001 concurrent tracing collector contract (2026-08-04)
 
 - Area: `runtime/src/memory/gc.c`, generated heap ownership, task roots
-- Symptom: generated heap classes use precise typed trace callbacks, while
-  legacy opaque allocations remain conservative; collection is stop-the-world
-  mark/sweep and has no explicit concurrent tri-color write-barrier or stack-map
-  contract.
+- Symptom: generated heap classes now have typed trace callbacks, task-frame
+  stack maps, tri-color barriers, and bounded incremental marking/sweeping, but
+  executor collection still uses a stop-the-world worker handshake; legacy
+  opaque allocations remain conservative.
 - Why deferred: the collector, compiler-generated barriers, and suspension-root
   metadata must be designed and sanitized together; conservative scanning is not
   a safe substitute for that contract.
-- Next step: define the gray-work queue and write-barrier ABI, emit stack maps
-  for live task roots, then add concurrent collector and race/sanitizer coverage.
+- Next step: add a synchronized concurrent root snapshot/safepoint protocol,
+  then prove it with race/sanitizer coverage before allowing background GC.
 
 ### ASYNC-001 remaining aggregate/runtime ownership cases (2026-08-03)
 
@@ -65,6 +65,17 @@ commits, RFCs, or release notes instead of appending progress for every change.
   matrix on Linux amd64, Linux arm64, and macOS arm64; CI artifacts retain the
   host/target matrix as release evidence.
 - Next step: remove this entry after the first successful three-host CI run.
+
+### PLATFORM-001 non-POSIX runtime backends (2026-08-09)
+
+- Area: `runtime/src/platform`, file/network/reactor backends
+- Symptom: monotonic time now has a Windows backend, but file and socket
+  implementations still expose POSIX-only behavior through `AURA_TCP_POSIX`.
+- Why deferred: each backend needs matching ownership, timeout, cancellation,
+  and sanitizer fixtures; returning unsupported from one shared branch is not a
+  complete platform contract.
+- Next step: move file, socket, reactor, synchronization, and signal behavior
+  behind platform interfaces, then add Windows compile and runtime fixtures.
 
 ## Resolved History
 
