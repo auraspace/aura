@@ -56,13 +56,15 @@ commits, RFCs, or release notes instead of appending progress for every change.
 ### PLATFORM-001 non-POSIX runtime backends (2026-08-09)
 
 - Area: `runtime/src/platform`, file/network/reactor backends
-- Symptom: monotonic time now has a Windows backend, but file and socket
-  implementations still expose POSIX-only behavior through `AURA_TCP_POSIX`.
+- Symptom: file, TCP/UDP socket primitives, synchronization, signal handling,
+  and monotonic time now have platform entry points, but executor wake pipes,
+  multi-descriptor reactor polling, TLS polling, and crypto entropy still use
+  direct host APIs; Windows runtime compilation has not yet been exercised.
 - Why deferred: each backend needs matching ownership, timeout, cancellation,
   and sanitizer fixtures; returning unsupported from one shared branch is not a
   complete platform contract.
-- Next step: move file, socket, reactor, synchronization, and signal behavior
-  behind platform interfaces, then add Windows compile and runtime fixtures.
+- Next step: move wake/reactor/TLS/entropy behavior behind the same interfaces,
+  then run the Windows compile/runtime fixture before closing this entry.
 
 ## Resolved History
 
