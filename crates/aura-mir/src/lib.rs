@@ -1,6 +1,8 @@
 //! Target-neutral mid-level IR data model.
 
 pub use aura_ownership::OwnershipMode;
+
+pub mod opt;
 use aura_sema::Ty;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -8,6 +10,141 @@ pub enum Effect {
     Pure,
     Async,
     Throws,
+}
+pub mod state_machine {
+    use super::mir::{MirBody, Terminator};
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct StateMachine {
+        pub function: String,
+        pub entry: usize,
+        pub frame_locals: Vec<usize>,
+        pub states: Vec<State>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct State {
+        pub block: usize,
+        pub successors: Vec<usize>,
+        pub suspension: Option<Suspension>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Suspension {
+        pub task_local: usize,
+        pub result_local: usize,
+        pub resume: usize,
+        pub unwind: Option<usize>,
+        pub ownership: Vec<OwnershipTransfer>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct OwnershipTransfer {
+        pub local: usize,
+        pub action: aura_ownership::Action,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum BuildError {
+        InvalidMir,
+    }
+
+    impl StateMachine {
+        pub fn from_mir(body: &MirBody) -> Result<Self, BuildError> {
+            body.validate().map_err(|_| BuildError::InvalidMir)?;
+            let mut frame_locals = Vec::new();
+            let states = body
+                .blocks
+                .iter()
+                .enumerate()
+                .map(|(block, basic)| {
+                    let mut successors = Vec::new();
+                    let suspension = match &basic.terminator {
+                        Terminator::Goto { target } => {
+                            successors.push(*target);
+                            None
+                        }
+                        Terminator::SwitchInt {
+                            then_target,
+                            else_target,
+                            ..
+                        } => {
+                            successors.extend([*then_target, *else_target]);
+                            None
+                        }
+                        Terminator::SwitchTag {
+                            targets, otherwise, ..
+                        } => {
+                            successors.extend(targets.iter().map(|(_, target)| *target));
+                            successors.push(*otherwise);
+                            None
+                        }
+                        Terminator::Await {
+                            task,
+                            result,
+                            resume,
+                            unwind,
+                        } => {
+                            successors.push(*resume);
+                            if let Some(unwind) = unwind {
+                                successors.push(*unwind);
+                            }
+                            frame_locals.extend([task.local, result.local]);
+                            Some(Suspension {
+                                task_local: task.local,
+                                result_local: result.local,
+                                resume: *resume,
+                                unwind: *unwind,
+                                ownership: body
+                                    .locals
+                                    .iter()
+                                    .enumerate()
+                                    .filter_map(|(local, value)| {
+                                        let action =
+                                            aura_ownership::plan_for_ty(&value.ty).across_suspend;
+                                        (!matches!(
+                                            action,
+                                            aura_ownership::Action::Copy
+                                                | aura_ownership::Action::Noop
+                                        ))
+                                        .then_some(OwnershipTransfer { local, action })
+                                    })
+                                    .collect(),
+                            })
+                        }
+                        Terminator::Throw { target, .. } => {
+                            if let Some(target) = target {
+                                successors.push(*target);
+                            }
+                            None
+                        }
+                        Terminator::Return { .. }
+                        | Terminator::Cancel
+                        | Terminator::Unreachable => None,
+                    };
+                    State {
+                        block,
+                        successors,
+                        suspension,
+                    }
+                })
+                .collect::<Vec<_>>();
+            if states.iter().any(|state| state.suspension.is_some()) {
+                // Conservative frame placement is intentional until the
+                // liveness pass is introduced: every local may be observed
+                // by a resumed block, so none may remain stack-only.
+                frame_locals.extend(0..body.locals.len());
+            }
+            frame_locals.sort_unstable();
+            frame_locals.dedup();
+            Ok(Self {
+                function: body.name.clone(),
+                entry: body.entry,
+                frame_locals,
+                states,
+            })
+        }
+    }
 }
 
 pub mod mir {
