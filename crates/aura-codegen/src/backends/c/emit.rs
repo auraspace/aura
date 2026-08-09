@@ -1363,7 +1363,7 @@ pub(crate) fn emit_async_fun_decl(
     f: &AsyncFunDecl,
     checked: &CheckedFile,
     detector: bool,
-    mir_body: Option<&aura_ir::mir::MirBody>,
+    mir_body: Option<&aura_mir::mir::MirBody>,
 ) {
     let normalized = aura_ir::lowering::normalize_return_await(f);
     let lowered = normalized.as_ref().unwrap_or(f);
@@ -12743,7 +12743,7 @@ pub(crate) fn emit_async_fun_no_await(
     f: &AsyncFunDecl,
     checked: &CheckedFile,
     detector: bool,
-    mir_body: Option<&aura_ir::mir::MirBody>,
+    mir_body: Option<&aura_mir::mir::MirBody>,
 ) {
     emit_async_fun_no_await_args(out, f, checked, detector, &[], mir_body);
 }
@@ -12754,7 +12754,7 @@ fn emit_async_fun_no_await_args(
     checked: &CheckedFile,
     detector: bool,
     type_args: &[Ty],
-    mir_body: Option<&aura_ir::mir::MirBody>,
+    mir_body: Option<&aura_mir::mir::MirBody>,
 ) {
     let params: Vec<String> = f.type_params.iter().map(|p| p.name.name.clone()).collect();
     let pkg = async_fun_decl_package(f, checked);

@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use aura_ast::File;
-use aura_ir::{mir::Terminator, ForeignLinkIr, LoweredProgram};
+use aura_ir::{ForeignLinkIr, LoweredProgram};
+use aura_mir::mir::Terminator;
 use aura_sema::{check_file, CheckedFile};
 
 use crate::backends::llvm::LlvmBackend;

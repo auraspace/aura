@@ -5,7 +5,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::mir::{BasicBlock, BinaryOp, MirBody, Place, Rvalue, Statement, Terminator, UnaryOp};
+use aura_mir::mir::{BasicBlock, BinaryOp, MirBody, Place, Rvalue, Statement, Terminator, UnaryOp};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Constant {
@@ -338,7 +338,7 @@ fn references_in_rvalue(value: &Rvalue, used: &mut HashSet<usize>) {
             used.insert(callee.local);
             used.extend(args.iter().map(|place| place.local));
         }
-        Rvalue::AsyncOp(crate::mir::AsyncOp::Spawn { captures, .. }) => {
+        Rvalue::AsyncOp(aura_mir::mir::AsyncOp::Spawn { captures, .. }) => {
             used.extend(captures.iter().map(|capture| capture.source.local));
         }
         Rvalue::Function { captures, .. } => {
@@ -393,7 +393,7 @@ pub fn optimize(body: &mut MirBody) {
                 Statement::Assign { value, .. } | Statement::Evaluate(value) => value,
                 _ => continue,
             };
-            if let Rvalue::AsyncOp(crate::mir::AsyncOp::Spawn { body, .. }) = value {
+            if let Rvalue::AsyncOp(aura_mir::mir::AsyncOp::Spawn { body, .. }) = value {
                 optimize(body);
             }
         }
@@ -406,7 +406,8 @@ pub fn optimize(body: &mut MirBody) {
 #[cfg(test)]
 mod tests {
     use super::optimize;
-    use crate::{mir::*, Effect, OwnershipMode, Ty};
+    use crate::{Effect, OwnershipMode, Ty};
+    use aura_mir::mir::*;
 
     fn body(blocks: Vec<BasicBlock>) -> MirBody {
         MirBody {

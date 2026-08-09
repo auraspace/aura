@@ -46,6 +46,7 @@ dependencies = [
  "aura-ast",
  "aura-hir",
  "aura-ir",
+ "aura-mir",
  "aura-ownership",
  "aura-parser",
  "aura-sema",
@@ -72,6 +73,7 @@ version = "0.1.1-alpha.7"
 dependencies = [
  "aura-ast",
  "aura-hir",
+ "aura-mir",
  "aura-ownership",
  "aura-parser",
  "aura-sema",
@@ -94,6 +96,14 @@ dependencies = [
  "aura-package",
  "aura-sema",
  "serde_json",
+]
+
+[[package]]
+name = "aura-mir"
+version = "0.1.1-alpha.7"
+dependencies = [
+ "aura-ownership",
+ "aura-sema",
 ]
 
 [[package]]

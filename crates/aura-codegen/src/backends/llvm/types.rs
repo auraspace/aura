@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use aura_ir::{mir::MirBody, LoweredProgram};
+use aura_ir::LoweredProgram;
+use aura_mir::mir::MirBody;
 use aura_sema::Ty;
 
 use super::{symbol_name, unsupported, CodegenError, EnumVariantInfo, Signatures};
@@ -141,7 +142,7 @@ pub(crate) fn signatures(program: &LoweredProgram) -> Signatures {
 pub(crate) fn signature_for<'a>(
     signatures: &'a Signatures,
     package: &str,
-    target: &aura_ir::mir::CallTarget,
+    target: &aura_mir::mir::CallTarget,
 ) -> Option<&'a (Ty, Vec<Ty>)> {
     signatures
         .get(&(target.package.clone(), target.name.clone()))
@@ -162,8 +163,8 @@ pub(crate) fn signature_for<'a>(
 
 pub(crate) fn method_symbol_for(
     signatures: &Signatures,
-    target: &aura_ir::mir::CallTarget,
-    args: &[aura_ir::mir::Place],
+    target: &aura_mir::mir::CallTarget,
+    args: &[aura_mir::mir::Place],
     body: &MirBody,
     package: &str,
     result_ty: Option<&Ty>,
@@ -292,7 +293,7 @@ pub(crate) fn signature_for_symbol<'a>(
 
 pub(crate) fn monomorphized_symbol_for(
     signatures: &Signatures,
-    target: &aura_ir::mir::CallTarget,
+    target: &aura_mir::mir::CallTarget,
     package: &str,
     argument_tys: &[Ty],
 ) -> Option<String> {

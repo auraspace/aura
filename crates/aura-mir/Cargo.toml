@@ -1,0 +1,10 @@
+[package]
+name = "aura-mir"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Target-neutral mid-level IR data model for Aura"
+
+[dependencies]
+aura-ownership.workspace = true
+aura-sema.workspace = true

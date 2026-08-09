@@ -10,6 +10,7 @@ aura-ast.workspace = true
 aura-sema.workspace = true
 aura-ownership.workspace = true
 aura-hir.workspace = true
+aura-mir.workspace = true
 aura-ir.workspace = true
 sha2 = "0.10"
 

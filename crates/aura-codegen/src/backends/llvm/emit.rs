@@ -3,8 +3,8 @@ use std::fmt::Write as _;
 
 use aura_ast::Span;
 use aura_ir::intrinsic_registry::{RUNTIME_ABI_ID, RUNTIME_ABI_VERSION};
-use aura_ir::mir::{BinaryOp, Intrinsic, MirBody, Place, Rvalue, Statement, Terminator, UnaryOp};
 use aura_ir::{FunctionIr, LoweredProgram, SuperclassArgIr};
+use aura_mir::mir::{BinaryOp, Intrinsic, MirBody, Place, Rvalue, Statement, Terminator, UnaryOp};
 use aura_sema::Ty;
 
 use crate::error::CodegenError;
@@ -537,14 +537,14 @@ fn collect_spawn_functions(
                 Statement::Assign { value, .. } | Statement::Evaluate(value) => value,
                 _ => continue,
             };
-            let Rvalue::AsyncOp(aura_ir::mir::AsyncOp::Spawn { body, captures }) = value else {
+            let Rvalue::AsyncOp(aura_mir::mir::AsyncOp::Spawn { body, captures }) = value else {
                 continue;
             };
             if seen.insert(body.name.clone()) {
                 let mut function = synthetic_function(body, package.to_owned(), captures.len());
                 function.closure_captures = captures
                     .iter()
-                    .map(|capture| aura_ir::mir::ClosureCapture {
+                    .map(|capture| aura_mir::mir::ClosureCapture {
                         source: capture.source,
                         ty: body.locals[capture.source.local].ty.clone(),
                         by_ref: capture.by_ref,
@@ -1144,7 +1144,7 @@ fn emit_function(
                         .filter(|capture| capture.by_ref)
                         .map(|capture| capture.source.local),
                 ),
-                Rvalue::AsyncOp(aura_ir::mir::AsyncOp::Spawn { captures, .. }) => capture_indices
+                Rvalue::AsyncOp(aura_mir::mir::AsyncOp::Spawn { captures, .. }) => capture_indices
                     .extend(
                         captures
                             .iter()
@@ -1369,11 +1369,11 @@ fn is_boxable_capture_type(ty: &Ty) -> bool {
     ) || is_array_type(ty)
 }
 
-pub(super) fn is_boxed_local(local: &aura_ir::mir::Local) -> bool {
+pub(super) fn is_boxed_local(local: &aura_mir::mir::Local) -> bool {
     local.name.starts_with("__aura_boxed_") || local.name.starts_with("__aura_borrowed_boxed_")
 }
 
-pub(super) fn is_borrowed_box_local(local: &aura_ir::mir::Local) -> bool {
+pub(super) fn is_borrowed_box_local(local: &aura_mir::mir::Local) -> bool {
     local.name.starts_with("__aura_borrowed_boxed_")
 }
 
@@ -1695,7 +1695,7 @@ fn class_own_fields(context: &EmitContext, name: &str, args: &[Ty]) -> Option<Ve
 fn dynamic_method_targets(
     context: &EmitContext,
     receiver_ty: &Ty,
-    target: &aura_ir::mir::CallTarget,
+    target: &aura_mir::mir::CallTarget,
 ) -> Vec<(i64, String)> {
     let interface_base = match receiver_ty {
         Ty::Interface(name) => Some(name.split('@').next().unwrap_or(name)),
@@ -1966,7 +1966,7 @@ fn sanitize_symbol(value: &str) -> String {
         .collect()
 }
 
-fn is_print_call(target: &aura_ir::mir::CallTarget) -> bool {
+fn is_print_call(target: &aura_mir::mir::CallTarget) -> bool {
     matches!(
         target.name.as_str(),
         "print" | "println" | "eprint" | "eprintln"

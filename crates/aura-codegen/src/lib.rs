@@ -22,7 +22,9 @@ pub(crate) use backends::c::{
 };
 
 pub use aura_hir::TypedHir;
-pub use aura_ir::{CheckedIr, Effect, FunctionIr, LoweredProgram, OwnershipMode, ValueFact};
+pub use aura_ir::{CheckedIr, FunctionIr, LoweredProgram, ValueFact};
+pub use aura_mir::Effect;
+pub use aura_ownership::OwnershipMode;
 pub use backends::llvm::options as llvm_options;
 pub use backends::llvm::LlvmBackend;
 pub use build::{

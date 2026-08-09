@@ -1,12 +1,13 @@
 //! Small, deliberately total C renderer for the backend-neutral MIR subset.
 //!
 //! This renderer is a C backend concern; the operations and control-flow it
-//! consumes are defined in aura-ir. Unsupported shapes return `false` so the
+//! consumes are defined in aura-mir. Unsupported shapes return `false` so the
 //! alpha compatibility emitter remains the explicit fallback.
 
 use std::fmt::Write as _;
 
-use aura_ir::{mir, FunctionIr};
+use aura_ir::FunctionIr;
+use aura_mir::mir;
 use aura_sema::Ty;
 
 use crate::names::{c_fun_name, mangle_ident};

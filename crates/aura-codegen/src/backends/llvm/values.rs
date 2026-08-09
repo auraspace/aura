@@ -3560,7 +3560,7 @@ pub(super) fn emit_rvalue(
 
 fn emit_builtin_method(
     out: &mut String,
-    target: &aura_ir::mir::CallTarget,
+    target: &aura_mir::mir::CallTarget,
     args: &[Place],
     values: &[String],
     body: &MirBody,
@@ -4084,7 +4084,7 @@ fn emit_builtin_method(
 
 fn emit_std_io_intrinsic(
     out: &mut String,
-    target: &aura_ir::mir::CallTarget,
+    target: &aura_mir::mir::CallTarget,
     values: &[String],
     body: &MirBody,
     result_ty: Option<&Ty>,
@@ -4548,13 +4548,13 @@ fn emit_to_string(out: &mut String, value: &str, ty: &Ty) -> Result<String, Code
 
 pub(super) fn emit_async_op(
     out: &mut String,
-    operation: &aura_ir::mir::AsyncOp,
+    operation: &aura_mir::mir::AsyncOp,
     body: &MirBody,
     result_ty: Option<&Ty>,
     package: &str,
     context: &mut EmitContext,
 ) -> Result<String, CodegenError> {
-    use aura_ir::mir::AsyncOp;
+    use aura_mir::mir::AsyncOp;
 
     match operation {
         AsyncOp::Spawn {
