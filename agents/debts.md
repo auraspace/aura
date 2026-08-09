@@ -58,14 +58,13 @@ commits, RFCs, or release notes instead of appending progress for every change.
 - Area: `runtime/src/platform`, file/network/reactor backends
 - Symptom: file, TCP/UDP socket primitives, synchronization, signal handling,
   scheduler wakeups, multi-descriptor polling, TLS polling, crypto entropy,
-  monotonic time, and platform-sized socket waits now have platform entry
-  points; Windows runtime compilation and the regular-file descriptor ABI have
-  not yet been exercised.
+  monotonic time, and platform-sized file/socket waits now have platform entry
+  points; Windows runtime compilation and native backend execution have not yet
+  been exercised.
 - Why deferred: each backend needs matching ownership, timeout, cancellation,
   and sanitizer fixtures; returning unsupported from one shared branch is not a
   complete platform contract.
-- Next step: define a platform-sized file operation ABI, then run the Windows
-  compile/runtime fixture before closing this entry.
+- Next step: run the Windows compile/runtime fixture before closing this entry.
 
 ## Resolved History
 
