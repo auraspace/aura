@@ -1,14 +1,14 @@
 /* Small POSIX descriptor bridge used by compiler-generated std.io frames.
  * Encode errno as a negative result so generated C can retry EAGAIN without
  * exposing a process-global error slot across suspension. */
-int64_t aura_io_read_fd(int fd, void *buffer, uint64_t capacity)
+int64_t aura_io_read_fd(AuraPlatformFile file, void *buffer, uint64_t capacity)
 {
-  ssize_t result;
-  if (fd < 0 || (capacity != 0 && buffer == NULL) || capacity > SIZE_MAX)
+  int64_t result;
+  if (file == AURA_PLATFORM_FILE_INVALID || (capacity != 0 && buffer == NULL) || capacity > SIZE_MAX)
   {
     return -EINVAL;
   }
-  result = read(fd, buffer, (size_t)capacity);
+  result = aura_platform_file_read(file, buffer, (size_t)capacity);
   if (result < 0)
   {
     return -(int64_t)errno;
@@ -18,14 +18,14 @@ int64_t aura_io_read_fd(int fd, void *buffer, uint64_t capacity)
 
 /* Encode errno as a negative result so generated C can retry EAGAIN after
  * suspension without exposing a process-global error slot. */
-int64_t aura_io_write_fd(int fd, const void *buffer, uint64_t length)
+int64_t aura_io_write_fd(AuraPlatformFile file, const void *buffer, uint64_t length)
 {
-  ssize_t result;
-  if (fd < 0 || (length != 0 && buffer == NULL) || length > SIZE_MAX)
+  int64_t result;
+  if (file == AURA_PLATFORM_FILE_INVALID || (length != 0 && buffer == NULL) || length > SIZE_MAX)
   {
     return -EINVAL;
   }
-  result = write(fd, buffer, (size_t)length);
+  result = aura_platform_file_write(file, buffer, (size_t)length);
   if (result < 0)
   {
     return -(int64_t)errno;
@@ -50,7 +50,7 @@ struct AuraIoOperationHandle
   AuraTaskFrame *frame;
   AuraIoOperationKind kind;
   AuraIoOperationState state;
-  int fd;
+  AuraPlatformFile fd;
   short events;
   void *resource;
   AuraIoOperationCleanupFn cleanup;

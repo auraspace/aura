@@ -118,7 +118,10 @@ static inline int pthread_once(pthread_once_t *once, void (*f)(void))
 }
 #endif
 
+#ifndef AURA_PLATFORM_FILE_TYPE_DEFINED
+#define AURA_PLATFORM_FILE_TYPE_DEFINED 1
 typedef intptr_t AuraPlatformFile;
+#endif
 #define AURA_PLATFORM_FILE_INVALID ((AuraPlatformFile)-1)
 
 AuraPlatformFile aura_platform_file_open(const char *path, int flags);

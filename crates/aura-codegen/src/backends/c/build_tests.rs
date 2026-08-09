@@ -6887,7 +6887,7 @@ fun main() {
     assert!(generated.contains("compiler-generated std.io.writeFd"));
     assert!(generated.contains("aura_io_write_fd"));
     assert!(generated.contains("data->offset"));
-    assert!(generated.contains("aura_task_frame_wait_fd(frame, (int)data->fd, 4)"));
+    assert!(generated.contains("aura_task_frame_wait_fd(frame, (intptr_t)data->fd, 4)"));
 
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

@@ -316,8 +316,8 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str("void aura_append_file(const char *path, const char *content);\n");
     out.push_str("_Bool aura_file_exists(const char *path);\n");
     out.push_str("int64_t aura_file_size(const char *path);\n");
-    out.push_str("int64_t aura_io_read_fd(int fd, void *buffer, uint64_t capacity);\n");
-    out.push_str("int64_t aura_io_write_fd(int fd, const void *buffer, uint64_t length);\n");
+    out.push_str("int64_t aura_io_read_fd(intptr_t fd, void *buffer, uint64_t capacity);\n");
+    out.push_str("int64_t aura_io_write_fd(intptr_t fd, const void *buffer, uint64_t length);\n");
     out.push_str("int64_t aura_args_count(void);\n");
     out.push_str("const char *aura_args_get(int64_t i);\n");
     out.push_str("const char *aura_read_line(void);\n");
@@ -680,7 +680,7 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str("void aura_task_frame_set_waiting(AuraTaskFrame *frame, void *token);\n");
     out.push_str("void aura_task_frame_clear_waiting(AuraTaskFrame *frame);\n");
     out.push_str("void *aura_task_frame_waiting_token(const AuraTaskFrame *frame);\n");
-    out.push_str("int aura_task_frame_wait_fd(AuraTaskFrame *frame, int fd, short events);\n");
+    out.push_str("int aura_task_frame_wait_fd(AuraTaskFrame *frame, intptr_t fd, short events);\n");
     out.push_str("int aura_task_frame_wait_deadline(AuraTaskFrame *frame, int timeout_ms);\n");
     out.push_str("int aura_task_frame_take_fd_wait_timeout(AuraTaskFrame *frame);\n");
     out.push_str("int aura_task_frame_wait_file(AuraTaskFrame *frame, const AuraFile *file, short events);\n");
@@ -11240,15 +11240,15 @@ fn emit_async_fun_std_io_read_fd(
     out.push_str("      data->buffer = (char *)malloc((size_t)data->capacity + 1);\n");
     out.push_str("      if (data->buffer == NULL) return AURA_TASK_FAILED;\n");
     out.push_str(
-        "      if (!aura_task_frame_wait_fd(frame, (int)data->fd, 1)) return AURA_TASK_FAILED;\n",
+        "      if (!aura_task_frame_wait_fd(frame, (intptr_t)data->fd, 1)) return AURA_TASK_FAILED;\n",
     );
     out.push_str("      aura_task_frame_set_resume_state(frame, 1);\n");
     out.push_str("      /* fall through for descriptors that were already ready */\n");
     out.push_str("    case 1: {\n");
     out.push_str(
-        "      int64_t count = aura_io_read_fd((int)data->fd, data->buffer, data->capacity);\n",
+        "      int64_t count = aura_io_read_fd((intptr_t)data->fd, data->buffer, data->capacity);\n",
     );
-    out.push_str("      if (count == -EAGAIN || count == -EWOULDBLOCK) { if (!aura_task_frame_wait_fd(frame, (int)data->fd, 1)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n");
+    out.push_str("      if (count == -EAGAIN || count == -EWOULDBLOCK) { if (!aura_task_frame_wait_fd(frame, (intptr_t)data->fd, 1)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n");
     out.push_str("      if (count < 0) { const char *message = \"readFd failed\"; size_t length = strlen(message) + 1; char *error = (char *)malloc(length); if (error == NULL) return AURA_TASK_FAILED; memcpy(error, message, length); aura_task_frame_set_error_at(frame, error, length, ");
     out.push_str(&destroy_error);
     out.push_str(", UINT32_C(0)); return AURA_TASK_FAILED; }\n");
@@ -11317,13 +11317,13 @@ fn emit_async_fun_std_io_write_fd(
     out.push_str("      if (data->length == 0) { int64_t *result = (int64_t *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = 0; aura_task_frame_set_result(frame, result, sizeof(*result), ");
     out.push_str(&destroy_result);
     out.push_str("); return AURA_TASK_COMPLETE; }\n");
-    out.push_str("      if (!aura_task_frame_wait_fd(frame, (int)data->fd, 4)) return AURA_TASK_FAILED;\n      aura_task_frame_set_resume_state(frame, 1);\n      /* fall through for descriptors that were already ready */\n    case 1: {\n");
-    out.push_str("      int64_t count = aura_io_write_fd((int)data->fd, data->buffer + data->offset, data->length - data->offset);\n");
-    out.push_str("      if (count == -EAGAIN || count == -EWOULDBLOCK) { if (!aura_task_frame_wait_fd(frame, (int)data->fd, 4)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n");
+    out.push_str("      if (!aura_task_frame_wait_fd(frame, (intptr_t)data->fd, 4)) return AURA_TASK_FAILED;\n      aura_task_frame_set_resume_state(frame, 1);\n      /* fall through for descriptors that were already ready */\n    case 1: {\n");
+    out.push_str("      int64_t count = aura_io_write_fd((intptr_t)data->fd, data->buffer + data->offset, data->length - data->offset);\n");
+    out.push_str("      if (count == -EAGAIN || count == -EWOULDBLOCK) { if (!aura_task_frame_wait_fd(frame, (intptr_t)data->fd, 4)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n");
     out.push_str("      if (count <= 0) { const char *message = \"writeFd failed\"; size_t length = strlen(message) + 1; char *error = (char *)malloc(length); if (error == NULL) return AURA_TASK_FAILED; memcpy(error, message, length); aura_task_frame_set_error_at(frame, error, length, ");
     out.push_str(&destroy_error);
     out.push_str(", UINT32_C(0)); return AURA_TASK_FAILED; }\n");
-    out.push_str("      data->offset += (uint64_t)count; if (data->offset < data->length) { if (!aura_task_frame_wait_fd(frame, (int)data->fd, 4)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n");
+    out.push_str("      data->offset += (uint64_t)count; if (data->offset < data->length) { if (!aura_task_frame_wait_fd(frame, (intptr_t)data->fd, 4)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }\n");
     out.push_str("      int64_t *result = (int64_t *)malloc(sizeof(*result)); if (result == NULL) return AURA_TASK_FAILED; *result = (int64_t)data->offset; free(data->buffer); data->buffer = NULL; aura_task_frame_set_result(frame, result, sizeof(*result), ");
     out.push_str(&destroy_result);
     out.push_str(

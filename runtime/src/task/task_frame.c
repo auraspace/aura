@@ -520,13 +520,13 @@ AuraTaskFrame *aura_task_frame_new_blocking(
 /* LLVM std.udp receive bridge. The generated backend supplies the concrete
  * class type ids, while this runtime owns the readiness loop and socket data. */
 #if defined(AURA_LLVM_RUNTIME)
-extern int aura_task_frame_wait_fd(AuraTaskFrame *frame, int fd, short events);
+extern int aura_task_frame_wait_fd(AuraTaskFrame *frame, intptr_t fd, short events);
 extern void aura_task_frame_set_result(AuraTaskFrame *frame, void *data, size_t size,
                                        AuraTaskResultDestroyFn destroy);
 extern void aura_task_frame_set_error_at(AuraTaskFrame *frame, void *data, size_t size,
                                          AuraTaskResultDestroyFn destroy, uint32_t source_id);
-extern int64_t aura_io_read_fd(int fd, void *buffer, uint64_t capacity);
-extern int64_t aura_io_write_fd(int fd, const void *buffer, uint64_t length);
+extern int64_t aura_io_read_fd(AuraPlatformFile file, void *buffer, uint64_t capacity);
+extern int64_t aura_io_write_fd(AuraPlatformFile file, const void *buffer, uint64_t length);
 extern void *aura_llvm_str_data(void *value);
 extern void *aura_llvm_str_new(const char *source);
 extern void aura_llvm_str_release(void *value);
@@ -2187,7 +2187,7 @@ void *aura_task_frame_waiting_token(const AuraTaskFrame *frame)
  * adapter token allocation can outlive cancellation or destruction. A later
  * aura_task_executor_poll_waiting call performs the bounded poll and wakes the
  * frame through the same clear-before-queue protocol as other adapters. */
-int aura_task_frame_wait_fd(AuraTaskFrame *frame, int fd, short events)
+int aura_task_frame_wait_fd(AuraTaskFrame *frame, intptr_t fd, short events)
 {
   if (frame == NULL || fd < 0 || events == 0 || frame->state == AURA_TASK_COMPLETE ||
       frame->state == AURA_TASK_FAILED || frame->state == AURA_TASK_CANCELLED ||
