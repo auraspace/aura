@@ -1171,6 +1171,24 @@ fun main() {
 }
 
 #[test]
+fn emits_atomic_gc_store_for_heap_class_field_assignment() {
+    let file = aura_parser::parse_file(
+        r#"package demo
+class Node(var child: Node?) {
+  fun replace(next: Node?): Unit { this.child = next }
+}
+fun main() {
+  val node = Node(null)
+  node.replace(Node(null))
+}
+"#,
+    )
+    .expect("parse heap field barrier fixture");
+    let generated = emit_c_from_ast(&file).expect("emit heap field barrier fixture");
+    assert!(generated.contains("aura_gc_store_ptr"));
+}
+
+#[test]
 fn builds_and_runs_join_with_optional_primitive_payload() {
     let file = aura_parser::parse_file(
         r#"package std.io

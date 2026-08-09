@@ -469,6 +469,7 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     );
     out.push_str("void aura_gc_mark_ptr(void *obj);\n");
     out.push_str("void aura_gc_write_barrier(void *owner, void *value);\n");
+    out.push_str("void *aura_gc_store_ptr(void **slot, void *owner, void *value);\n");
     out.push_str("int aura_gc_step(size_t budget);\n");
     out.push_str("void aura_gc_add_root(void **slot);\n");
     out.push_str("void aura_gc_remove_root(void **slot);\n");

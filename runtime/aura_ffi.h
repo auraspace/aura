@@ -412,9 +412,19 @@ void aura_gc_mark_ptr(void *obj);
 /* Publish a pointer store from a managed object.  The owner is used to avoid
  * retaining values written into an untracked allocation. */
 void aura_gc_write_barrier(void *owner, void *value);
+/* Atomically publish a managed pointer field while holding the collector
+ * mutation lock; returns `value` for expression-oriented backends. */
+void *aura_gc_store_ptr(void **slot, void *owner, void *value);
 /* Advance an incremental collection by at most `budget` heap nodes. Returns
  * non-zero while marking or sweeping remains in progress. */
 int aura_gc_step(size_t budget);
+typedef int (*AuraGcPauseFn)(void *context);
+typedef void (*AuraGcResumeFn)(void *context);
+/* Start concurrent marking after the caller has paused its mutators. The
+ * collector requests the same pause callback again before sweeping. */
+int aura_gc_start_concurrent(void *context, AuraGcPauseFn pause,
+                             AuraGcResumeFn resume);
+void aura_gc_wait_background(void);
 /* Allocate an object whose callback precisely traces every GC field. */
 void *aura_gc_alloc_typed(size_t size, void (*dtor)(void *),
                           void (*trace)(void *));
@@ -619,6 +629,9 @@ void aura_task_frame_set_gc_mark(AuraTaskFrame *frame,
 void aura_task_frame_set_gc_stack_map(AuraTaskFrame *frame,
                                       const AuraTaskFrameGcSlot *slots,
                                       size_t slot_count);
+/* Runtime-internal scheduler safepoint used to refresh suspended-frame roots
+ * during concurrent marking. */
+void aura_gc_mark_task_frame_safepoint(AuraTaskFrame *frame);
 /* Drop typed references stored in frame data exactly once, after the
  * poll-specific destroy callback and before the frame data is released. */
 void aura_task_frame_set_data_drop(AuraTaskFrame *frame,

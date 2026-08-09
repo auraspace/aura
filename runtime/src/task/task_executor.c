@@ -196,27 +196,71 @@ static int aura_task_executor_has_workers(AuraTaskExecutor *executor)
 static void aura_task_scope_adopt(AuraTaskFrame *frame);
 int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms);
 
+static int aura_task_executor_pause_for_gc(void *context)
+{
+#if defined(AURA_TCP_POSIX)
+  AuraTaskExecutor *executor = (AuraTaskExecutor *)context;
+  if (executor == NULL || !executor->workers_started)
+  {
+    return 1;
+  }
+  pthread_mutex_lock(&executor->worker_lock);
+  executor->gc_requested = 1;
+  pthread_cond_broadcast(&executor->worker_cond);
+  int current_worker = aura_task_current_executor == executor;
+  while (executor->active_workers > (current_worker ? 1 : 0))
+  {
+    pthread_cond_wait(&executor->worker_cond, &executor->worker_lock);
+  }
+  pthread_mutex_unlock(&executor->worker_lock);
+  return 1;
+#else
+  (void)context;
+  return 1;
+#endif
+}
+
+static void aura_task_executor_resume_after_gc(void *context)
+{
+#if defined(AURA_TCP_POSIX)
+  AuraTaskExecutor *executor = (AuraTaskExecutor *)context;
+  if (executor == NULL || !executor->workers_started)
+  {
+    return;
+  }
+  pthread_mutex_lock(&executor->worker_lock);
+  executor->gc_requested = 0;
+  pthread_cond_broadcast(&executor->worker_cond);
+  pthread_mutex_unlock(&executor->worker_lock);
+#else
+  (void)context;
+#endif
+}
+
 void aura_gc_collect_executor(AuraTaskExecutor *executor)
 {
 #if defined(AURA_TCP_POSIX)
   if (executor != NULL && executor->workers_started)
   {
-    pthread_mutex_lock(&executor->worker_lock);
-    executor->gc_requested = 1;
-    pthread_cond_broadcast(&executor->worker_cond);
-    int current_worker = aura_task_current_executor == executor;
-    while (executor->active_workers > (current_worker ? 1 : 0))
+    if (aura_task_current_executor != executor)
     {
-      pthread_cond_wait(&executor->worker_cond, &executor->worker_lock);
+      (void)aura_task_executor_pause_for_gc(executor);
+      if (aura_gc_start_concurrent(executor, aura_task_executor_pause_for_gc,
+                                   aura_task_executor_resume_after_gc))
+      {
+        aura_task_executor_resume_after_gc(executor);
+        return;
+      }
+      aura_gc_collect();
+      aura_task_executor_resume_after_gc(executor);
+      return;
     }
-    pthread_mutex_unlock(&executor->worker_lock);
+
+    (void)aura_task_executor_pause_for_gc(executor);
 
     aura_gc_collect();
 
-    pthread_mutex_lock(&executor->worker_lock);
-    executor->gc_requested = 0;
-    pthread_cond_broadcast(&executor->worker_cond);
-    pthread_mutex_unlock(&executor->worker_lock);
+    aura_task_executor_resume_after_gc(executor);
     return;
   }
 #endif
@@ -1367,6 +1411,7 @@ static void *aura_task_executor_worker_main(void *context)
     if (frame->blocking_fn != NULL && !frame->blocking_started)
       aura_task_blocking_run_inline(frame);
     state = aura_task_frame_poll_once(frame);
+    aura_gc_mark_task_frame_safepoint(frame);
     aura_race_active_task_id = 0;
     aura_race_active_source_id = 0;
     aura_task_current_scope = previous_scope;
@@ -1550,6 +1595,7 @@ int aura_task_executor_run_one(AuraTaskExecutor *executor)
   if (frame->blocking_fn != NULL && !frame->blocking_started)
     aura_task_blocking_run_inline(frame);
   state = aura_task_frame_poll_once(frame);
+  aura_gc_mark_task_frame_safepoint(frame);
   aura_race_active_task_id = previous_task_id;
   aura_race_active_source_id = previous_source_id;
   aura_task_current_scope = previous_scope;

@@ -79,6 +79,21 @@ typedef enum
 
 static AuraGcPhase aura_gc_phase = AURA_GC_IDLE;
 static AuraGcNode **aura_gc_sweep_link = NULL;
+static AuraGcPauseFn aura_gc_pause_before_sweep = NULL;
+static AuraGcResumeFn aura_gc_resume_after_sweep = NULL;
+static void *aura_gc_safepoint_context = NULL;
+static int aura_gc_sweep_paused = 0;
+static int aura_gc_sweep_pause_requested = 0;
+
+#if AURA_TCP_POSIX
+static pthread_mutex_t aura_gc_worker_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t aura_gc_worker_cond = PTHREAD_COND_INITIALIZER;
+static pthread_t aura_gc_worker;
+static int aura_gc_worker_started = 0;
+static int aura_gc_worker_requested = 0;
+static int aura_gc_worker_running = 0;
+static int aura_gc_worker_stop = 0;
+#endif
 
 void aura_gc_add_root(void **slot)
 {
@@ -262,7 +277,10 @@ static void *aura_gc_alloc_internal(size_t size, void (*dtor)(void *),
   }
   n->ptr = p;
   n->size = size;
-  n->color = 0;
+  /* Objects allocated during concurrent marking start black. Their future
+   * managed stores are covered by the write barrier, so they cannot be swept
+   * before the current cycle ends. */
+  n->color = aura_gc_phase != AURA_GC_IDLE ? 2 : 0;
   n->dtor = dtor;
   n->mark_extras = mark_extras;
   n->precise_trace = precise_trace;
@@ -342,9 +360,8 @@ void aura_gc_mark_ptr(void *obj)
   aura_gc_lock_leave();
 }
 
-void aura_gc_write_barrier(void *owner, void *value)
+static void aura_gc_write_barrier_locked(void *owner, void *value)
 {
-  aura_gc_lock_enter();
   AuraGcNode *owner_node = aura_gc_find(owner);
   if (aura_gc_phase == AURA_GC_MARKING && owner_node != NULL &&
       owner_node->color == 2)
@@ -352,7 +369,25 @@ void aura_gc_write_barrier(void *owner, void *value)
     AuraGcNode *value_node = aura_gc_find(value);
     aura_gc_mark_push(value_node);
   }
+}
+
+void aura_gc_write_barrier(void *owner, void *value)
+{
+  aura_gc_lock_enter();
+  aura_gc_write_barrier_locked(owner, value);
   aura_gc_lock_leave();
+}
+
+void *aura_gc_store_ptr(void **slot, void *owner, void *value)
+{
+  aura_gc_lock_enter();
+  if (slot != NULL)
+  {
+    *slot = value;
+    aura_gc_write_barrier_locked(owner, value);
+  }
+  aura_gc_lock_leave();
+  return value;
 }
 
 /* Frames are malloc-owned, so their opaque data is not visible to the
@@ -417,10 +452,44 @@ static void aura_gc_process_one_locked(void)
   n->color = 2;
 }
 
+#if AURA_TCP_POSIX
+static void *aura_gc_worker_main(void *unused)
+{
+  (void)unused;
+  for (;;)
+  {
+    pthread_mutex_lock(&aura_gc_worker_lock);
+    while (!aura_gc_worker_requested && !aura_gc_worker_stop)
+    {
+      pthread_cond_wait(&aura_gc_worker_cond, &aura_gc_worker_lock);
+    }
+    if (aura_gc_worker_stop)
+    {
+      pthread_mutex_unlock(&aura_gc_worker_lock);
+      return NULL;
+    }
+    aura_gc_worker_requested = 0;
+    pthread_mutex_unlock(&aura_gc_worker_lock);
+
+    while (aura_gc_step(64) != 0) {}
+
+    pthread_mutex_lock(&aura_gc_worker_lock);
+    aura_gc_worker_running = 0;
+    pthread_cond_broadcast(&aura_gc_worker_cond);
+    pthread_mutex_unlock(&aura_gc_worker_lock);
+  }
+}
+#endif
+
 /* Advance marking and sweeping in bounded units so schedulers can keep pauses
  * below their configured budget. */
 int aura_gc_step(size_t budget)
 {
+  AuraGcPauseFn pause = NULL;
+  AuraGcResumeFn resume = NULL;
+  void *safepoint_context = NULL;
+  int request_pause = 0;
+  int release_pause = 0;
   aura_gc_lock_enter();
   if (aura_gc_phase == AURA_GC_IDLE)
   {
@@ -438,8 +507,27 @@ int aura_gc_step(size_t budget)
   }
   if (aura_gc_phase == AURA_GC_MARKING && aura_gc_mark_sp == 0)
   {
+    if (aura_gc_pause_before_sweep != NULL && !aura_gc_sweep_pause_requested)
+    {
+      aura_gc_sweep_pause_requested = 1;
+      pause = aura_gc_pause_before_sweep;
+      safepoint_context = aura_gc_safepoint_context;
+      request_pause = 1;
+    }
+    else if (!aura_gc_sweep_pause_requested)
+    {
+      aura_gc_phase = AURA_GC_SWEEPING;
+      aura_gc_sweep_link = &aura_gc_list;
+    }
+  }
+  if (request_pause)
+  {
+    aura_gc_lock_leave();
+    (void)pause(safepoint_context);
+    aura_gc_lock_enter();
     aura_gc_phase = AURA_GC_SWEEPING;
     aura_gc_sweep_link = &aura_gc_list;
+    aura_gc_sweep_paused = 1;
   }
   while (budget > 0 && aura_gc_phase == AURA_GC_SWEEPING &&
          aura_gc_sweep_link != NULL && *aura_gc_sweep_link != NULL)
@@ -463,9 +551,24 @@ int aura_gc_step(size_t budget)
   {
     aura_gc_phase = AURA_GC_IDLE;
     aura_gc_sweep_link = NULL;
+    if (aura_gc_sweep_paused && aura_gc_resume_after_sweep != NULL)
+    {
+      resume = aura_gc_resume_after_sweep;
+      safepoint_context = aura_gc_safepoint_context;
+      release_pause = 1;
+    }
+    aura_gc_sweep_paused = 0;
+    aura_gc_sweep_pause_requested = 0;
+    aura_gc_pause_before_sweep = NULL;
+    aura_gc_resume_after_sweep = NULL;
+    aura_gc_safepoint_context = NULL;
   }
   int active = aura_gc_phase != AURA_GC_IDLE;
   aura_gc_lock_leave();
+  if (release_pause)
+  {
+    resume(safepoint_context);
+  }
   return active;
 }
 
@@ -474,8 +577,98 @@ void aura_gc_collect(void)
   while (aura_gc_step(SIZE_MAX) != 0) {}
 }
 
+int aura_gc_start_concurrent(void *context, AuraGcPauseFn pause,
+                             AuraGcResumeFn resume)
+{
+#if AURA_TCP_POSIX
+  if (pause == NULL || resume == NULL)
+  {
+    return 0;
+  }
+  pthread_mutex_lock(&aura_gc_worker_lock);
+  if (aura_gc_worker_running || aura_gc_worker_requested)
+  {
+    pthread_mutex_unlock(&aura_gc_worker_lock);
+    return 1;
+  }
+  if (!aura_gc_worker_started)
+  {
+    aura_gc_worker_stop = 0;
+    if (pthread_create(&aura_gc_worker, NULL, aura_gc_worker_main, NULL) != 0)
+    {
+      pthread_mutex_unlock(&aura_gc_worker_lock);
+      return 0;
+    }
+    aura_gc_worker_started = 1;
+  }
+  pthread_mutex_unlock(&aura_gc_worker_lock);
+
+  aura_gc_lock_enter();
+  if (aura_gc_phase != AURA_GC_IDLE)
+  {
+    aura_gc_lock_leave();
+    return 1;
+  }
+  aura_gc_pause_before_sweep = pause;
+  aura_gc_resume_after_sweep = resume;
+  aura_gc_safepoint_context = context;
+  aura_gc_lock_leave();
+  if (aura_gc_step(0) == 0)
+  {
+    aura_gc_lock_enter();
+    aura_gc_pause_before_sweep = NULL;
+    aura_gc_resume_after_sweep = NULL;
+    aura_gc_safepoint_context = NULL;
+    aura_gc_lock_leave();
+    return 0;
+  }
+  pthread_mutex_lock(&aura_gc_worker_lock);
+  aura_gc_worker_running = 1;
+  aura_gc_worker_requested = 1;
+  pthread_cond_signal(&aura_gc_worker_cond);
+  pthread_mutex_unlock(&aura_gc_worker_lock);
+  return 1;
+#else
+  (void)context;
+  (void)pause;
+  (void)resume;
+  return 0;
+#endif
+}
+
+void aura_gc_wait_background(void)
+{
+#if AURA_TCP_POSIX
+  pthread_mutex_lock(&aura_gc_worker_lock);
+  while (aura_gc_worker_running || aura_gc_worker_requested)
+  {
+    pthread_cond_wait(&aura_gc_worker_cond, &aura_gc_worker_lock);
+  }
+  pthread_mutex_unlock(&aura_gc_worker_lock);
+#endif
+}
+
 void aura_gc_shutdown(void)
 {
+#if AURA_TCP_POSIX
+  aura_gc_wait_background();
+  pthread_mutex_lock(&aura_gc_worker_lock);
+  if (aura_gc_worker_started)
+  {
+    aura_gc_worker_stop = 1;
+    pthread_cond_signal(&aura_gc_worker_cond);
+    pthread_mutex_unlock(&aura_gc_worker_lock);
+    pthread_join(aura_gc_worker, NULL);
+    pthread_mutex_lock(&aura_gc_worker_lock);
+    aura_gc_worker_started = 0;
+    aura_gc_worker_stop = 0;
+    pthread_mutex_unlock(&aura_gc_worker_lock);
+  }
+  else
+  {
+    pthread_mutex_unlock(&aura_gc_worker_lock);
+  }
+#endif
   aura_gc_lock_enter();
   AuraGcNode *n = aura_gc_list;
   while (n != NULL)

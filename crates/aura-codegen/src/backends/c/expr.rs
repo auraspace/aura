@@ -2040,11 +2040,17 @@ pub(crate) fn emit_expr(expr: &Expr, ctx: &mut EmitCtx<'_>) -> String {
                     }
                 }
             }
-            let assignment = race_write(format!("({lhs} = {rhs})"), &lhs, a.span, ctx);
             if dst_is_gc_pointer {
-                format!("({{ {assignment}; aura_gc_write_barrier((void *)this, (void *){lhs}); }})")
+                let cty = crate::stmt::local_key_to_c(
+                    dst_field_key.as_deref().unwrap_or("Class"),
+                    ctx.checked,
+                );
+                let code = format!(
+                    "({{ {cty} __aura_gc_value = ({rhs}); aura_gc_store_ptr((void **)&({lhs}), (void *)this, (void *)__aura_gc_value); __aura_gc_value; }})"
+                );
+                race_write(code, &lhs, a.span, ctx)
             } else {
-                assignment
+                race_write(format!("({lhs} = {rhs})"), &lhs, a.span, ctx)
             }
         }
         Expr::Field(f) => {

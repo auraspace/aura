@@ -19,6 +19,7 @@ task_workers	0	runtime/tests/task_workers.c	cc -std=c11 -Wall -Wextra -Werror -f
 task_workers_reactor	0	runtime/tests/task_workers_reactor.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/task_workers_reactor.c
 reactor_abstraction	0	runtime/tests/reactor_abstraction.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/reactor_abstraction.c
 gc_concurrent	0	runtime/tests/gc_concurrent.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/gc_concurrent.c
+gc_concurrent_heap	0	runtime/tests/gc_concurrent_heap.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/gc_concurrent_heap.c
 gc_typed_trace	0	runtime/tests/gc_typed_trace.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/gc_typed_trace.c
 gc_incremental	0	runtime/tests/gc_incremental.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/gc_incremental.c
 task_scope_failure	0	runtime/tests/task_scope_failure.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/task_scope_failure.c

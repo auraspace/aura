@@ -263,15 +263,17 @@ AuraFfiStatus aura_task_frame_pin_foreign_handle(AuraTaskFrame *frame,
   return AURA_FFI_OK;
 }
 
-static void aura_gc_mark_task_frames(void)
+static void aura_gc_mark_task_frame_unlocked(AuraTaskFrame *frame)
 {
   /* Frame captures and pending payloads are allocator-owned storage rather
    * than tracing-heap nodes.  Scan their pointer-sized words conservatively
    * so a compiler frame remains a complete GC root even when it has no custom
    * mark callback.  Explicit callbacks still handle typed nested layouts and
    * remain the preferred precise path. */
-  for (AuraTaskFrame *frame = aura_gc_task_frames; frame != NULL;
-       frame = frame->gc_next)
+  if (frame == NULL)
+  {
+    return;
+  }
   {
     const AuraTaskFrameStorage *storage[] = {&frame->captures,
                                              &frame->pending};
@@ -330,6 +332,24 @@ static void aura_gc_mark_task_frames(void)
       frame->gc_mark(frame);
     }
   }
+}
+
+static void aura_gc_mark_task_frames(void)
+{
+  for (AuraTaskFrame *frame = aura_gc_task_frames; frame != NULL;
+       frame = frame->gc_next)
+  {
+    aura_gc_mark_task_frame_unlocked(frame);
+  }
+}
+
+/* Refresh a running frame at a scheduler boundary while concurrent marking
+ * is active. The poller has finished mutating the frame before this call. */
+void aura_gc_mark_task_frame_safepoint(AuraTaskFrame *frame)
+{
+  aura_gc_lock_enter();
+  aura_gc_mark_task_frame_unlocked(frame);
+  aura_gc_lock_leave();
 }
 
 static void aura_gc_unlink_task_frame(AuraTaskFrame *frame)
