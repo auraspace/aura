@@ -18,6 +18,7 @@
 #include "../../aura_runtime_abi.h"
 #include <sys/stat.h>
 #include <zlib.h>
+#include "../platform/platform.h"
 #if defined(__unix__) || defined(__APPLE__)
 #include <dirent.h>
 #endif
@@ -30,11 +31,7 @@
 #endif
 
 static volatile sig_atomic_t aura_shutdown_signal = 0;
-#if defined(__unix__) || defined(__APPLE__)
-static struct sigaction aura_previous_sigint;
-static struct sigaction aura_previous_sigterm;
 static int aura_signal_installed = 0;
-#endif
 
 static void aura_signal_handler(int signal_number)
 {
@@ -44,27 +41,11 @@ static void aura_signal_handler(int signal_number)
 
 int aura_signal_install_shutdown(void)
 {
-#if defined(__unix__) || defined(__APPLE__)
   if (aura_signal_installed)
     return 1;
-
-  struct sigaction action;
-  memset(&action, 0, sizeof(action));
-  sigemptyset(&action.sa_mask);
-  action.sa_handler = aura_signal_handler;
-  action.sa_flags = SA_RESTART;
-  if (sigaction(SIGINT, &action, &aura_previous_sigint) != 0)
-    return 0;
-  if (sigaction(SIGTERM, &action, &aura_previous_sigterm) != 0)
-  {
-    (void)sigaction(SIGINT, &aura_previous_sigint, NULL);
-    return 0;
-  }
+  if (!aura_platform_signal_install_shutdown(aura_signal_handler)) return 0;
   aura_signal_installed = 1;
   return 1;
-#else
-  return 0;
-#endif
 }
 
 _Bool aura_signal_shutdown_requested(void)
@@ -305,8 +286,7 @@ typedef enum AuraFileMode
 } AuraFileMode;
 #endif
 
-#if defined(__linux__) || defined(__APPLE__)
-#define AURA_TCP_POSIX 1
+#if AURA_PLATFORM_NETWORK && !defined(_WIN32)
 #include <fcntl.h>
 #include <netinet/in.h>
 #include <poll.h>
@@ -314,8 +294,6 @@ typedef enum AuraFileMode
 #include <sys/types.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#else
-#define AURA_TCP_POSIX 0
 #endif
 
 /* Forward decls for throw (defined below) */

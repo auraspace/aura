@@ -26,12 +26,12 @@ typedef enum
 
 struct AuraTcpListener
 {
-  int fd;
+  AuraPlatformSocket fd;
 };
 
 struct AuraTcpStream
 {
-  int fd;
+  AuraPlatformSocket fd;
 };
 
 static char aura_tcp_errbuf[256] = "no error";
@@ -41,7 +41,7 @@ const char *aura_tcp_last_error(void)
   return aura_tcp_errbuf;
 }
 
-#if AURA_TCP_POSIX
+#if AURA_PLATFORM_NETWORK
 
 static void aura_tcp_clear_error(void)
 {
@@ -66,12 +66,7 @@ static void aura_tcp_error_text(const char *text)
 
 static int aura_tcp_set_nonblocking(int fd)
 {
-  int flags = fcntl(fd, F_GETFL, 0);
-  if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0)
-  {
-    return -1;
-  }
-  return 0;
+  return aura_platform_socket_nonblocking((AuraPlatformSocket)fd);
 }
 
 static void aura_tcp_disable_sigpipe(int fd)
@@ -92,8 +87,9 @@ static AuraTcpStatus aura_tcp_wait(int fd, short events, int timeout_ms)
     aura_tcp_error_errno("timeout");
     return AURA_TCP_ERROR;
   }
-  struct pollfd descriptor = {fd, events, 0};
-  int result = poll(&descriptor, 1, timeout_ms);
+  short revents = 0;
+  int result = aura_platform_socket_wait((AuraPlatformSocket)fd, events, timeout_ms,
+                                         &revents);
   if (result < 0)
   {
     aura_tcp_error_errno("poll");
@@ -103,13 +99,13 @@ static AuraTcpStatus aura_tcp_wait(int fd, short events, int timeout_ms)
   {
     return AURA_TCP_TIMEOUT;
   }
-  if ((descriptor.revents & (POLLERR | POLLNVAL)) != 0)
+  if ((revents & (POLLERR | POLLNVAL)) != 0)
   {
-    errno = descriptor.revents & POLLNVAL ? EBADF : EIO;
+    errno = revents & POLLNVAL ? EBADF : EIO;
     aura_tcp_error_errno("poll");
     return AURA_TCP_ERROR;
   }
-  if ((descriptor.revents & events) == 0)
+  if ((revents & events) == 0)
   {
     errno = ECONNRESET;
     aura_tcp_error_errno("poll");
@@ -124,14 +120,14 @@ static AuraTcpStatus aura_tcp_wait_or_pending(int fd, short events, int timeout_
   return status == AURA_TCP_TIMEOUT && timeout_ms == 0 ? AURA_TCP_PENDING : status;
 }
 
-static AuraTcpStream *aura_tcp_stream_from_fd(int fd)
+static AuraTcpStream *aura_tcp_stream_from_fd(AuraPlatformSocket fd)
 {
   AuraTcpStream *stream = (AuraTcpStream *)malloc(sizeof(*stream));
   if (stream == NULL)
   {
     errno = ENOMEM;
     aura_tcp_error_errno("allocate stream");
-    close(fd);
+    aura_platform_socket_close(fd);
     return NULL;
   }
   stream->fd = fd;
@@ -251,13 +247,13 @@ AuraTcpStatus aura_tcp_listener_bind_endpoint(const char *endpoint,
     return AURA_TCP_ERROR;
   }
 
-  int fd = -1;
+  AuraPlatformSocket fd = AURA_PLATFORM_SOCKET_INVALID;
   for (struct addrinfo *candidate = addresses; candidate != NULL;
        candidate = candidate->ai_next)
   {
-    fd = socket(candidate->ai_family, candidate->ai_socktype,
-                candidate->ai_protocol);
-    if (fd < 0)
+    fd = aura_platform_socket_open(candidate->ai_family, candidate->ai_socktype,
+                                   candidate->ai_protocol);
+    if (AURA_PLATFORM_SOCKET_IS_INVALID(fd))
     {
       continue;
     }
@@ -266,14 +262,14 @@ AuraTcpStatus aura_tcp_listener_bind_endpoint(const char *endpoint,
         bind(fd, candidate->ai_addr, candidate->ai_addrlen) != 0 ||
         listen(fd, 16) != 0 || aura_tcp_set_nonblocking(fd) != 0)
     {
-      close(fd);
-      fd = -1;
+      aura_platform_socket_close(fd);
+      fd = AURA_PLATFORM_SOCKET_INVALID;
       continue;
     }
     break;
   }
   freeaddrinfo(addresses);
-  if (fd < 0)
+  if (AURA_PLATFORM_SOCKET_IS_INVALID(fd))
   {
     aura_tcp_error_errno("listen");
     return AURA_TCP_ERROR;
@@ -283,7 +279,7 @@ AuraTcpStatus aura_tcp_listener_bind_endpoint(const char *endpoint,
   if (getsockname(fd, (struct sockaddr *)&bound, &bound_size) != 0)
   {
     aura_tcp_error_errno("read bound port");
-    close(fd);
+    aura_platform_socket_close(fd);
     return AURA_TCP_ERROR;
   }
   AuraTcpListener *listener = (AuraTcpListener *)malloc(sizeof(*listener));
@@ -291,7 +287,7 @@ AuraTcpStatus aura_tcp_listener_bind_endpoint(const char *endpoint,
   {
     errno = ENOMEM;
     aura_tcp_error_errno("allocate listener");
-    close(fd);
+    aura_platform_socket_close(fd);
     return AURA_TCP_ERROR;
   }
   listener->fd = fd;
@@ -306,7 +302,7 @@ AuraTcpStatus aura_tcp_listener_bind_endpoint(const char *endpoint,
   else
   {
     aura_tcp_error_text("unsupported bound address");
-    close(listener->fd);
+    aura_platform_socket_close(listener->fd);
     free(listener);
     return AURA_TCP_ERROR;
   }
@@ -333,7 +329,7 @@ AuraTcpStatus aura_tcp_listener_accept(AuraTcpListener *listener, int timeout_ms
     return AURA_TCP_ERROR;
   }
   *out_stream = NULL;
-  if (listener == NULL || listener->fd < 0)
+  if (listener == NULL || AURA_PLATFORM_SOCKET_IS_INVALID(listener->fd))
   {
     aura_tcp_error_text("accept on closed listener");
     return AURA_TCP_CLOSED;
@@ -343,8 +339,8 @@ AuraTcpStatus aura_tcp_listener_accept(AuraTcpListener *listener, int timeout_ms
   {
     return waited;
   }
-  int fd = accept(listener->fd, NULL, NULL);
-  if (fd < 0)
+  AuraPlatformSocket fd = accept(listener->fd, NULL, NULL);
+  if (AURA_PLATFORM_SOCKET_IS_INVALID(fd))
   {
     if (errno == EAGAIN || errno == EWOULDBLOCK)
     {
@@ -356,7 +352,7 @@ AuraTcpStatus aura_tcp_listener_accept(AuraTcpListener *listener, int timeout_ms
   if (aura_tcp_set_nonblocking(fd) != 0)
   {
     aura_tcp_error_errno("nonblocking stream");
-    close(fd);
+    aura_platform_socket_close(fd);
     return AURA_TCP_ERROR;
   }
   aura_tcp_disable_sigpipe(fd);
@@ -383,7 +379,7 @@ AuraTcpStatus aura_tcp_stream_connect_endpoint(const char *endpoint,
                                sizeof(service)) ||
       !aura_tcp_endpoint_valid_service(service, 0))
   {
-    aura_tcp_endpoint_error("expected PORT, HOST:PORT, or [IPv6]:PORT");
+    aura_tcp_error_text("connect endpoint: expected PORT, HOST:PORT, or [IPv6]:PORT");
     return AURA_TCP_ERROR;
   }
   struct addrinfo hints;
@@ -394,7 +390,8 @@ AuraTcpStatus aura_tcp_stream_connect_endpoint(const char *endpoint,
   int resolved = getaddrinfo(host, service, &hints, &addresses);
   if (resolved != 0)
   {
-    aura_tcp_endpoint_error(gai_strerror(resolved));
+    snprintf(aura_tcp_errbuf, sizeof(aura_tcp_errbuf), "tcp connect resolve: %s",
+             gai_strerror(resolved));
     return AURA_TCP_ERROR;
   }
 
@@ -402,13 +399,14 @@ AuraTcpStatus aura_tcp_stream_connect_endpoint(const char *endpoint,
   for (struct addrinfo *candidate = addresses; candidate != NULL;
        candidate = candidate->ai_next)
   {
-    int fd = socket(candidate->ai_family, candidate->ai_socktype,
-                    candidate->ai_protocol);
-    if (fd < 0 || aura_tcp_set_nonblocking(fd) != 0)
+    AuraPlatformSocket fd = aura_platform_socket_open(candidate->ai_family,
+                                                       candidate->ai_socktype,
+                                                       candidate->ai_protocol);
+    if (AURA_PLATFORM_SOCKET_IS_INVALID(fd) || aura_tcp_set_nonblocking(fd) != 0)
     {
       if (fd >= 0)
       {
-        close(fd);
+        aura_platform_socket_close(fd);
       }
       continue;
     }
@@ -417,14 +415,14 @@ AuraTcpStatus aura_tcp_stream_connect_endpoint(const char *endpoint,
     {
       if (errno != EINPROGRESS && errno != EALREADY)
       {
-        close(fd);
+        aura_platform_socket_close(fd);
         continue;
       }
       AuraTcpStatus waited = aura_tcp_wait(fd, POLLOUT, timeout_ms);
       if (waited != AURA_TCP_OK)
       {
         result = waited;
-        close(fd);
+        aura_platform_socket_close(fd);
         continue;
       }
       int connect_error = 0;
@@ -437,7 +435,7 @@ AuraTcpStatus aura_tcp_stream_connect_endpoint(const char *endpoint,
         {
           errno = connect_error;
         }
-        close(fd);
+        aura_platform_socket_close(fd);
         continue;
       }
     }
@@ -472,7 +470,7 @@ AuraTcpStatus aura_tcp_stream_read(AuraTcpStream *stream, void *buffer, size_t c
     return AURA_TCP_ERROR;
   }
   *out_bytes = 0;
-  if (stream == NULL || stream->fd < 0)
+  if (stream == NULL || AURA_PLATFORM_SOCKET_IS_INVALID(stream->fd))
   {
     aura_tcp_error_text("read on closed stream");
     return AURA_TCP_CLOSED;
@@ -486,7 +484,7 @@ AuraTcpStatus aura_tcp_stream_read(AuraTcpStream *stream, void *buffer, size_t c
   {
     return waited;
   }
-  ssize_t count = recv(stream->fd, buffer, capacity, 0);
+  int64_t count = aura_platform_socket_recv(stream->fd, buffer, capacity);
   if (count > 0)
   {
     *out_bytes = (size_t)count;
@@ -515,7 +513,7 @@ AuraTcpStatus aura_tcp_stream_write(AuraTcpStream *stream, const void *buffer, s
     return AURA_TCP_ERROR;
   }
   *out_bytes = 0;
-  if (stream == NULL || stream->fd < 0)
+  if (stream == NULL || AURA_PLATFORM_SOCKET_IS_INVALID(stream->fd))
   {
     aura_tcp_error_text("write on closed stream");
     return AURA_TCP_CLOSED;
@@ -533,7 +531,7 @@ AuraTcpStatus aura_tcp_stream_write(AuraTcpStream *stream, const void *buffer, s
 #if defined(MSG_NOSIGNAL)
   flags |= MSG_NOSIGNAL;
 #endif
-  ssize_t count = send(stream->fd, buffer, capacity, flags);
+  int64_t count = aura_platform_socket_send(stream->fd, buffer, capacity, flags);
   if (count >= 0)
   {
     *out_bytes = (size_t)count;
@@ -606,13 +604,13 @@ AuraTcpStatus aura_tcp_stream_write_all(AuraTcpStream *stream, const void *buffe
 
 int aura_tcp_listener_close(AuraTcpListener *listener)
 {
-  if (listener == NULL || listener->fd < 0)
+  if (listener == NULL || AURA_PLATFORM_SOCKET_IS_INVALID(listener->fd))
   {
     return 0;
   }
   int fd = listener->fd;
-  listener->fd = -1;
-  if (close(fd) != 0)
+  listener->fd = AURA_PLATFORM_SOCKET_INVALID;
+  if (aura_platform_socket_close(fd) != 0)
   {
     aura_tcp_error_errno("close listener");
   }
@@ -631,13 +629,13 @@ void aura_tcp_listener_destroy(AuraTcpListener *listener)
 
 int aura_tcp_stream_close(AuraTcpStream *stream)
 {
-  if (stream == NULL || stream->fd < 0)
+  if (stream == NULL || AURA_PLATFORM_SOCKET_IS_INVALID(stream->fd))
   {
     return 0;
   }
   int fd = stream->fd;
-  stream->fd = -1;
-  if (close(fd) != 0)
+  stream->fd = AURA_PLATFORM_SOCKET_INVALID;
+  if (aura_platform_socket_close(fd) != 0)
   {
     aura_tcp_error_errno("close stream");
   }

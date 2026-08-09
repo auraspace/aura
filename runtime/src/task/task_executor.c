@@ -9,7 +9,7 @@
  * threads, blocking waits, or implicit polling are used.
  */
 
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
 struct AuraLazyCell
 {
   pthread_mutex_t lock;
@@ -157,7 +157,7 @@ struct AuraTaskExecutor
   void *failure_hook_context;
   int wake_pipe[2];
   AuraReactor *reactor;
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   pthread_mutex_t worker_lock;
   pthread_cond_t worker_cond;
   pthread_t *workers;
@@ -186,7 +186,7 @@ static _Thread_local AuraTaskExecutor *aura_task_current_executor = NULL;
 
 static int aura_task_executor_has_workers(AuraTaskExecutor *executor)
 {
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   return executor != NULL && executor->workers_started;
 #else
   (void)executor;
@@ -198,7 +198,7 @@ int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms);
 
 static int aura_task_executor_pause_for_gc(void *context)
 {
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   AuraTaskExecutor *executor = (AuraTaskExecutor *)context;
   if (executor == NULL || !executor->workers_started)
   {
@@ -222,7 +222,7 @@ static int aura_task_executor_pause_for_gc(void *context)
 
 static void aura_task_executor_resume_after_gc(void *context)
 {
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   AuraTaskExecutor *executor = (AuraTaskExecutor *)context;
   if (executor == NULL || !executor->workers_started)
   {
@@ -239,7 +239,7 @@ static void aura_task_executor_resume_after_gc(void *context)
 
 void aura_gc_collect_executor(AuraTaskExecutor *executor)
 {
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   if (executor != NULL && executor->workers_started)
   {
     if (aura_task_current_executor != executor)
@@ -269,7 +269,7 @@ void aura_gc_collect_executor(AuraTaskExecutor *executor)
 
 static void aura_task_executor_lock(AuraTaskExecutor *executor)
 {
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   if (executor != NULL && executor->workers_started)
     pthread_mutex_lock(&executor->worker_lock);
 #else
@@ -279,7 +279,7 @@ static void aura_task_executor_lock(AuraTaskExecutor *executor)
 
 static void aura_task_executor_unlock(AuraTaskExecutor *executor)
 {
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   if (executor != NULL && executor->workers_started)
     pthread_mutex_unlock(&executor->worker_lock);
 #else
@@ -295,7 +295,7 @@ static void aura_task_executor_unlock(AuraTaskExecutor *executor)
  * operation layout to the executor code. */
 static int aura_io_operation_ready(AuraTaskFrame *frame, short revents);
 
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
 #define AURA_TASK_MAX_WORKERS ((size_t)64)
 #endif
 static void aura_task_executor_finish_poll_unlocked(
@@ -424,7 +424,7 @@ AuraTaskExecutor *aura_task_executor_new(void)
       free(executor);
       return NULL;
     }
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
     if (pipe(executor->wake_pipe) == 0)
     {
       (void)fcntl(executor->wake_pipe[0], F_SETFL, O_NONBLOCK);
@@ -521,7 +521,7 @@ static void aura_task_executor_push_owned(AuraTaskExecutor *executor,
 int aura_task_executor_submit(AuraTaskExecutor *executor, AuraTaskFrame *frame)
 {
   int result;
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   if (executor != NULL && executor->workers_started)
   {
     pthread_mutex_lock(&executor->worker_lock);
@@ -530,7 +530,7 @@ int aura_task_executor_submit(AuraTaskExecutor *executor, AuraTaskFrame *frame)
   if (executor == NULL || frame == NULL || executor->shutdown || frame->executor != NULL ||
       executor->owned_count >= executor->max_live_tasks)
   {
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
     if (executor != NULL && executor->workers_started)
     {
       pthread_mutex_unlock(&executor->worker_lock);
@@ -551,7 +551,7 @@ int aura_task_executor_submit(AuraTaskExecutor *executor, AuraTaskFrame *frame)
                                    NULL);
   }
   frame->state = AURA_TASK_READY;
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   if (executor->workers_started)
   {
     result = aura_task_executor_wake_unlocked(executor, frame);
@@ -594,7 +594,7 @@ static int aura_task_executor_wake_unlocked(AuraTaskExecutor *executor,
 int aura_task_executor_wake(AuraTaskExecutor *executor, AuraTaskFrame *frame)
 {
   int result;
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   if (executor != NULL && executor->wake_pipe[1] >= 0)
   {
     const unsigned char signal_byte = 1;
@@ -844,7 +844,7 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
   {
     return 0;
   }
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   /* Consume stale submissions before blocking; a wake arriving after this
    * drain remains visible to poll and interrupts the wait. */
   if (executor->wake_pipe[0] >= 0)
@@ -853,7 +853,7 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
     while (read(executor->wake_pipe[0], buffer, sizeof(buffer)) > 0) {}
   }
 #endif
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   /* Hold the ownership snapshot lock while counting. The frame list may grow
    * before the fill pass, so that pass expands the arrays when needed. */
   if (executor->workers_started)
@@ -905,7 +905,7 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
       count++;
     }
   }
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   if (executor->workers_started)
   {
     pthread_mutex_unlock(&executor->worker_lock);
@@ -917,7 +917,7 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
   }
   descriptor_count = count;
   descriptor_capacity = descriptor_count;
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   if (executor->wake_pipe[0] >= 0)
   {
     descriptor_count++;
@@ -959,7 +959,7 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
     return 0;
   }
   index = 0;
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   if (executor->wake_pipe[0] >= 0)
   {
     descriptors[index] = (struct pollfd){executor->wake_pipe[0], POLLIN, 0};
@@ -1019,7 +1019,7 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
       if (result < 0 || descriptors[index].revents != 0)
       {
         AuraTaskFrame *ready_frame = frames[index];
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
         if (ready_frame == NULL)
         {
           unsigned char buffer[64];
@@ -1158,7 +1158,7 @@ int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
 {
   int result;
   if (executor == NULL) return 0;
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   if (executor->workers_started)
   {
     pthread_mutex_lock(&executor->worker_lock);
@@ -1170,7 +1170,7 @@ int aura_task_executor_poll_waiting(AuraTaskExecutor *executor, int timeout_ms)
                ? executor->reactor->poll(executor->reactor->data, executor,
                                          timeout_ms)
                : aura_posix_reactor_poll(NULL, executor, timeout_ms);
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   if (executor->workers_started)
   {
     pthread_mutex_lock(&executor->worker_lock);
@@ -1375,7 +1375,7 @@ AuraTaskPollState aura_task_executor_poll_inline(AuraTaskExecutor *executor,
   return state;
 }
 
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
 static void *aura_task_executor_worker_main(void *context)
 {
   AuraTaskExecutor *executor = (AuraTaskExecutor *)context;
@@ -1564,7 +1564,7 @@ int aura_task_executor_run_one(AuraTaskExecutor *executor)
   {
     return 0;
   }
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   if (executor->workers_started)
   {
     pthread_mutex_lock(&executor->worker_lock);
@@ -1573,7 +1573,7 @@ int aura_task_executor_run_one(AuraTaskExecutor *executor)
   }
 #endif
   frame = aura_task_executor_pop_ready_unlocked(executor);
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   if (executor->workers_started && frame != NULL) executor->active_workers++;
   if (executor->workers_started)
   {
@@ -1600,14 +1600,14 @@ int aura_task_executor_run_one(AuraTaskExecutor *executor)
   aura_race_active_source_id = previous_source_id;
   aura_task_current_scope = previous_scope;
   aura_task_current_executor = previous_executor;
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   if (executor->workers_started)
   {
     pthread_mutex_lock(&executor->worker_lock);
   }
 #endif
   aura_task_executor_finish_poll_unlocked(executor, frame, state);
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   if (executor->workers_started)
   {
     if (executor->active_workers != 0) executor->active_workers--;
@@ -1923,7 +1923,7 @@ int aura_task_executor_release(AuraTaskExecutor *executor, AuraTaskFrame **handl
     {
       return 0;
     }
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
     if (executor->workers_started)
     {
       pthread_mutex_lock(&executor->worker_lock);
@@ -1945,7 +1945,7 @@ int aura_task_executor_release(AuraTaskExecutor *executor, AuraTaskFrame **handl
     }
   }
   aura_task_executor_lock(executor);
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   while (executor->workers_started && executor->reactor_active != 0)
   {
     pthread_mutex_unlock(&executor->worker_lock);
@@ -2172,7 +2172,7 @@ void aura_task_executor_shutdown(AuraTaskExecutor *executor)
   {
     return;
   }
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   aura_task_executor_stop_workers(executor);
 #endif
   executor->shutdown = 1;
@@ -2195,7 +2195,7 @@ void aura_task_executor_shutdown(AuraTaskExecutor *executor)
     }
     frame = next;
   }
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   if (executor->wake_pipe[0] >= 0)
   {
     close(executor->wake_pipe[0]);

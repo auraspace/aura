@@ -40,3 +40,4 @@ ffi_net	0	runtime/tests/ffi_net.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=a
 signal_shutdown	0	runtime/tests/signal_shutdown.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/signal_shutdown.c
 stdlib_parser_fuzz	0	runtime/tests/stdlib_parser_fuzz.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/stdlib_parser_fuzz.c
 type_erased_payload	0	runtime/tests/type_erased_payload.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/type_erased_payload.c
+platform_primitives	0	runtime/tests/platform_primitives.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/platform_primitives.c

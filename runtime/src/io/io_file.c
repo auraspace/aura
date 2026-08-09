@@ -16,7 +16,7 @@ static char aura_io_errbuf[1024];
  * this boundary without changing ownership semantics. */
 struct AuraFile
 {
-  int fd;
+  AuraPlatformFile fd;
   bool closed;
 };
 
@@ -51,7 +51,6 @@ static AuraFileStatus aura_file_error(const char *op, int error)
   return aura_file_status_for_errno(error);
 }
 
-#if AURA_TCP_POSIX
 AuraFileStatus aura_file_open(const char *path, AuraFileMode mode, AuraFile **out)
 {
   if (out == NULL)
@@ -66,18 +65,14 @@ AuraFileStatus aura_file_open(const char *path, AuraFileMode mode, AuraFile **ou
   int flags = 0;
   switch (mode)
   {
-    case AURA_FILE_READ: flags = O_RDONLY; break;
-    case AURA_FILE_WRITE: flags = O_WRONLY | O_CREAT | O_TRUNC; break;
-    case AURA_FILE_READ_WRITE: flags = O_RDWR | O_CREAT; break;
-    case AURA_FILE_APPEND: flags = O_WRONLY | O_CREAT | O_APPEND; break;
+    case AURA_FILE_READ: flags = 0; break;
+    case AURA_FILE_WRITE: flags = 1; break;
+    case AURA_FILE_READ_WRITE: flags = 2; break;
+    case AURA_FILE_APPEND: flags = 3; break;
     default: return aura_file_error("open", EINVAL);
   }
-  int fd;
-  do
-  {
-    fd = open(path, flags, 0666);
-  } while (fd < 0 && errno == EINTR);
-  if (fd < 0)
+  AuraPlatformFile fd = aura_platform_file_open(path, flags);
+  if (fd == AURA_PLATFORM_FILE_INVALID)
   {
     return aura_file_error("open", errno);
   }
@@ -85,7 +80,7 @@ AuraFileStatus aura_file_open(const char *path, AuraFileMode mode, AuraFile **ou
   if (file == NULL)
   {
     int error = errno ? errno : ENOMEM;
-    close(fd);
+    aura_platform_file_close(fd);
     return aura_file_error("open", error);
   }
   file->fd = fd;
@@ -100,7 +95,7 @@ AuraFileStatus aura_file_read(AuraFile *file, void *buffer, uint64_t capacity,
   if (file == NULL || file->closed) return AURA_FILE_CLOSED;
   if (out_read == NULL || (capacity > 0 && buffer == NULL))
     return aura_file_error("read", EINVAL);
-  ssize_t result = read(file->fd, buffer, (size_t)capacity);
+  int64_t result = aura_platform_file_read(file->fd, buffer, (size_t)capacity);
   if (result > 0)
   {
     *out_read = (uint64_t)result;
@@ -117,7 +112,7 @@ AuraFileStatus aura_file_write(AuraFile *file, const void *buffer,
   if (file == NULL || file->closed) return AURA_FILE_CLOSED;
   if (out_written == NULL || (length > 0 && buffer == NULL))
     return aura_file_error("write", EINVAL);
-  ssize_t result = write(file->fd, buffer, (size_t)length);
+  int64_t result = aura_platform_file_write(file->fd, buffer, (size_t)length);
   if (result >= 0)
   {
     *out_written = (uint64_t)result;
@@ -129,14 +124,14 @@ AuraFileStatus aura_file_write(AuraFile *file, const void *buffer,
 AuraFileStatus aura_file_flush(AuraFile *file)
 {
   if (file == NULL || file->closed) return AURA_FILE_CLOSED;
-  return fsync(file->fd) == 0 ? AURA_FILE_OK : aura_file_error("flush", errno);
+  return aura_platform_file_flush(file->fd) == 0 ? AURA_FILE_OK : aura_file_error("flush", errno);
 }
 
 AuraFileStatus aura_file_close(AuraFile *file)
 {
   if (file == NULL || file->closed) return AURA_FILE_CLOSED;
   file->closed = true;
-  if (close(file->fd) != 0) return aura_file_error("close", errno);
+  if (aura_platform_file_close(file->fd) != 0) return aura_file_error("close", errno);
   return AURA_FILE_OK;
 }
 
@@ -148,15 +143,3 @@ AuraFileStatus aura_file_destroy(AuraFile **file)
   *file = NULL;
   return status == AURA_FILE_CLOSED ? AURA_FILE_OK : status;
 }
-#else
-AuraFileStatus aura_file_open(const char *path, AuraFileMode mode, AuraFile **out)
-{ (void)path; (void)mode; if (out) *out = NULL; return AURA_FILE_UNSUPPORTED; }
-AuraFileStatus aura_file_read(AuraFile *file, void *buffer, uint64_t capacity, uint64_t *out_read)
-{ (void)file; (void)buffer; (void)capacity; if (out_read) *out_read = 0; return AURA_FILE_UNSUPPORTED; }
-AuraFileStatus aura_file_write(AuraFile *file, const void *buffer, uint64_t length, uint64_t *out_written)
-{ (void)file; (void)buffer; (void)length; if (out_written) *out_written = 0; return AURA_FILE_UNSUPPORTED; }
-AuraFileStatus aura_file_flush(AuraFile *file) { (void)file; return AURA_FILE_UNSUPPORTED; }
-AuraFileStatus aura_file_close(AuraFile *file) { (void)file; return AURA_FILE_UNSUPPORTED; }
-AuraFileStatus aura_file_destroy(AuraFile **file) { if (file) *file = NULL; return AURA_FILE_UNSUPPORTED; }
-#endif
-

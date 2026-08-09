@@ -190,7 +190,7 @@ struct AuraTaskFrame
   int handle_owned;
   /* Scheduler-bound payloads hold independent references to the frame. */
   size_t payload_refs;
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   pthread_t blocking_thread;
   pthread_mutex_t blocking_lock;
   AuraTaskBlockingFn blocking_fn;
@@ -419,7 +419,7 @@ AuraTaskFrame *aura_task_frame_new(size_t data_size,
   return frame;
 }
 
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
 static AuraTaskPollState aura_task_blocking_poll(AuraTaskFrame *frame)
 {
   int done;
@@ -480,7 +480,7 @@ AuraTaskFrame *aura_task_frame_new_blocking(
   frame->blocking_fn = function;
   frame->blocking_env = environment;
   frame->blocking_env_destroy = environment_destroy;
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   if (!aura_task_executor_has_workers(executor))
     (void)aura_task_executor_start_workers(executor, 4);
 #endif
@@ -3703,7 +3703,7 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
   {
     return;
   }
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   if (frame->blocking_thread_created)
   {
     pthread_join(frame->blocking_thread, NULL);
@@ -3750,7 +3750,7 @@ void aura_task_frame_destroy(AuraTaskFrame *frame)
     aura_gc_release(frame->data);
     frame->data = NULL;
   }
-#if defined(AURA_TCP_POSIX)
+#if AURA_PLATFORM_NETWORK
   if (frame->blocking_fn != NULL)
   {
     pthread_mutex_destroy(&frame->blocking_lock);
