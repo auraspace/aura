@@ -4619,7 +4619,11 @@ pub(super) fn emit_async_op(
                 "  {frame} = call ptr @aura_task_frame_new(i64 {data_size}, ptr {poll}, ptr null)"
             )
             .unwrap();
-            if parameter_tys.iter().any(is_pointer_value_type) {
+            let has_gc_captures = parameter_tys.iter().enumerate().any(|(index, ty)| {
+                captures.get(index).is_some_and(|capture| capture.by_ref)
+                    || is_pointer_value_type(ty)
+            });
+            if has_gc_captures {
                 let drop = format!("@aura_llvm_drop_{}", symbol_name(package, &task_body.name));
                 let mark = format!("@aura_llvm_mark_{}", symbol_name(package, &task_body.name));
                 writeln!(
@@ -4630,6 +4634,29 @@ pub(super) fn emit_async_op(
                 writeln!(
                     out,
                     "  call void @aura_task_frame_set_gc_mark(ptr {frame}, ptr {mark})"
+                )
+                .unwrap();
+                let stack_map = format!(
+                    "@aura_llvm_stack_map_{}",
+                    symbol_name(package, &task_body.name)
+                );
+                let slot_count = parameter_tys
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, ty)| {
+                        captures.get(*index).is_some_and(|capture| capture.by_ref)
+                            || is_pointer_value_type(ty)
+                    })
+                    .count();
+                let map_ptr = next_temp(out);
+                writeln!(
+                    out,
+                    "  {map_ptr} = getelementptr inbounds [{slot_count} x i32], ptr {stack_map}, i64 0, i64 0"
+                )
+                .unwrap();
+                writeln!(
+                    out,
+                    "  call void @aura_task_frame_set_gc_stack_map(ptr {frame}, ptr {map_ptr}, i64 {slot_count})"
                 )
                 .unwrap();
             }

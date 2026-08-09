@@ -606,6 +606,30 @@ fn emit_spawn_pollers(
         if pointer_params {
             let drop_name = format!("aura_llvm_drop_{}", symbol_name(package, &function.name));
             let mark_name = format!("aura_llvm_mark_{}", symbol_name(package, &function.name));
+            let stack_map_name = format!(
+                "aura_llvm_stack_map_{}",
+                symbol_name(package, &function.name)
+            );
+            let stack_map_offsets = function
+                .params
+                .iter()
+                .enumerate()
+                .filter_map(|(index, parameter)| {
+                    let by_ref = function
+                        .closure_captures
+                        .get(index)
+                        .is_some_and(|capture| capture.by_ref);
+                    (by_ref || is_pointer_value_type(&parameter.ty)).then_some(index * 8)
+                })
+                .map(|offset| format!("i32 {offset}"))
+                .collect::<Vec<_>>();
+            writeln!(
+                out,
+                "@{stack_map_name} = private unnamed_addr constant [{} x i32] [{}], align 4\n",
+                stack_map_offsets.len(),
+                stack_map_offsets.join(", ")
+            )
+            .unwrap();
             writeln!(
                 out,
                 "define void @{drop_name}(ptr %frame, ptr %data, i64 %size) {{"

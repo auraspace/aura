@@ -355,11 +355,13 @@ fn runs_integer_spawn_capture_through_the_scheduler() {
 
 #[test]
 fn runs_string_spawn_capture_with_frame_gc_hooks() {
-    assert_llvm_source_runs(
-        "package demo\nfun main() { val value: String = \"captured\" val task: TaskHandle<Int> = spawn { println(value) return 1 } join(task) }\n",
-        "scheduler-string-capture",
-        "captured\n",
-    );
+    let source = "package demo\nfun main() { val value: String = \"captured\" val task: TaskHandle<Int> = spawn { println(value) return 1 } join(task) }\n";
+    let file = parse_file(source).unwrap();
+    let checked = check_file(&file).unwrap();
+    let module = LlvmBackend::emit_module(&LoweredProgram::from_checked(checked)).unwrap();
+    assert!(module.contains("aura_task_frame_set_gc_stack_map"));
+    assert!(module.contains("aura_llvm_stack_map_"));
+    assert_llvm_source_runs(source, "scheduler-string-capture", "captured\n");
 }
 
 #[test]
