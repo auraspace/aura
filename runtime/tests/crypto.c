@@ -20,7 +20,7 @@ int main(void)
   AuraSha256 accelerated;
   AuraSha256BlockFn backend = aura_sha256_get_block_fn();
 #if defined(__x86_64__) && (defined(__clang__) || defined(__GNUC__))
-  if (__builtin_cpu_supports("sha")) backend = aura_sha256_block_shani;
+  if (aura_sha256_x86_64_available()) backend = aura_sha256_block_shani;
 #endif
 
   digest_hex("", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");

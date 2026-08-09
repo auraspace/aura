@@ -8,6 +8,7 @@ int sysctlbyname(const char *, void *, size_t *, const void *, size_t);
 #endif
 #define AURA_SHA256_TARGET_CRYPTO __attribute__((target("+crypto")))
 #elif defined(__x86_64__) && (defined(__clang__) || defined(__GNUC__))
+#include <cpuid.h>
 #include <immintrin.h>
 #define AURA_SHA256_TARGET_CRYPTO __attribute__((target("sha,ssse3,sse4.1")))
 #endif
@@ -95,6 +96,16 @@ static _Bool aura_sha256_arm64_available(void)
 #endif
 
 #if defined(__x86_64__) && (defined(__clang__) || defined(__GNUC__))
+static _Bool aura_sha256_x86_64_available(void)
+{
+  unsigned int eax, ebx, ecx, edx;
+
+  if (__get_cpuid_max(0, NULL) < 7u) return 0;
+  if (!__get_cpuid_count(7u, 0u, &eax, &ebx, &ecx, &edx)) return 0;
+  // CPUID leaf 7, subleaf 0, EBX bit 29 advertises SHA extensions.
+  return (ebx & (1u << 29)) != 0;
+}
+
 static void AURA_SHA256_TARGET_CRYPTO aura_sha256_block_shani(AuraSha256 *ctx, const unsigned char *block)
 {
   static const uint32_t k[64] = {
@@ -147,7 +158,7 @@ static AuraSha256BlockFn aura_sha256_block_backend(void)
 #if defined(__aarch64__) && (defined(__clang__) || defined(__GNUC__))
   if (aura_sha256_arm64_available()) return aura_sha256_block_arm64;
 #elif defined(__x86_64__) && (defined(__clang__) || defined(__GNUC__))
-  if (__builtin_cpu_supports("sha")) return aura_sha256_block_shani;
+  if (aura_sha256_x86_64_available()) return aura_sha256_block_shani;
 #endif
   return aura_sha256_block_portable;
 }

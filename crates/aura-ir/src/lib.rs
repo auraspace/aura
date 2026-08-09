@@ -46,7 +46,6 @@ fn collect_spawn_state_machines(
 /// Backend-neutral state-machine form derived from validated MIR. Future
 /// backends consume suspension edges and frame layout without parsing target
 /// code or depending on the alpha C compatibility model.
-
 pub mod lowering {
     use std::collections::{BTreeSet, HashMap};
 
