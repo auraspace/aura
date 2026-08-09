@@ -701,7 +701,7 @@ pub(super) fn emit_rvalue(
                 return Ok(String::new());
             }
             if !args.is_empty()
-                && values.len() >= 1
+                && !values.is_empty()
                 && matches!(
                     body.locals[args[0].local].ty,
                     Ty::Class(_) | Ty::ClassApp { .. }
@@ -1565,7 +1565,8 @@ pub(super) fn emit_rvalue(
                         writeln!(out, "  {value} = icmp eq i32 {raw}, 0").unwrap();
                         return Ok(value);
                     }
-                    "responseBody" | _ => return Err(unsupported("HTTP accessor")),
+                    "responseBody" => return Err(unsupported("HTTP accessor")),
+                    _ => return Err(unsupported("HTTP accessor")),
                 };
                 if matches!(
                     target.name.as_str(),
@@ -1686,11 +1687,7 @@ pub(super) fn emit_rvalue(
             {
                 let class_name =
                     class_type_name(&body.locals[args[0].local].ty).unwrap_or_default();
-                if (std_intrinsic == Some(StdIntrinsic::Udp)
-                    || class_name == "std_udp_Socket"
-                    || class_name == "Socket")
-                    && (class_name == "std_udp_Socket" || class_name == "Socket")
-                {
+                if class_name == "std_udp_Socket" || class_name == "Socket" {
                     let socket_fields = class_fields(
                         context,
                         class_name,
@@ -2836,7 +2833,7 @@ pub(super) fn emit_rvalue(
                 }
                 let value_ty = llvm_type(element_ty)?;
                 let present = if matches!(element_ty.as_ref(), Ty::Int | Ty::Bool | Ty::Float) {
-                    build_optional_value(out, llvm_type(result_ty)?, &value_ty, &value)
+                    build_optional_value(out, llvm_type(result_ty)?, value_ty, &value)
                 } else {
                     value
                 };
@@ -4819,7 +4816,7 @@ pub(super) fn emit_async_op(
                                 .first()
                                 .is_some_and(|(_, ty)| !matches!(ty, Ty::Int | Ty::Unit))
                         {
-                            return Err(unsupported(&format!("unit join Ok payload")));
+                            return Err(unsupported("unit join Ok payload"));
                         }
                         let ok = next_temp(out);
                         let ok_drop = enum_destructor_symbol(Some("Ok"), &ok_fields, context);
@@ -5049,7 +5046,7 @@ pub(super) fn emit_async_op(
             }
             let value_ty = llvm_type(element_ty)?;
             let present = if matches!(element_ty.as_ref(), Ty::Int | Ty::Bool | Ty::Float) {
-                build_optional_value(out, llvm_type(result_ty)?, &value_ty, &value)
+                build_optional_value(out, llvm_type(result_ty)?, value_ty, &value)
             } else {
                 value
             };

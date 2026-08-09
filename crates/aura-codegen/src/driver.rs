@@ -553,21 +553,20 @@ impl CBackendCompatibility for CBackend {
                 .and_then(|s| s.to_str())
                 .unwrap_or("out")
         ));
-        for (source, object) in [(c_path.as_path(), c_object.as_path())] {
-            let status = compiler_process(&compiler)
-                .args(&compile_flags)
-                .arg("-c")
-                .arg(source)
-                .arg("-o")
-                .arg(object)
-                .status()
-                .map_err(|e| CodegenError::Compile(format!("failed to spawn {compiler}: {e}")))?;
-            if !status.success() {
-                return Err(CodegenError::Compile(format!(
-                    "{compiler} failed compiling source {} with status {status}",
-                    source.display()
-                )));
-            }
+        let (source, object) = (c_path.as_path(), c_object.as_path());
+        let status = compiler_process(&compiler)
+            .args(&compile_flags)
+            .arg("-c")
+            .arg(source)
+            .arg("-o")
+            .arg(object)
+            .status()
+            .map_err(|e| CodegenError::Compile(format!("failed to spawn {compiler}: {e}")))?;
+        if !status.success() {
+            return Err(CodegenError::Compile(format!(
+                "{compiler} failed compiling source {} with status {status}",
+                source.display()
+            )));
         }
 
         let runtime_link = if is_runtime_archive(runtime_c) {

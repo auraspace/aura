@@ -72,7 +72,7 @@ pub(super) fn emit_statement(
                         context
                             .classes
                             .get(*name)
-                            .is_some_and(class_has_pointer_fields)
+                            .is_some_and(|fields| class_has_pointer_fields(fields))
                     })
                     .map(class_release_symbol)
                     .unwrap_or_else(|| "aura_llvm_class_release".into());
@@ -143,7 +143,7 @@ pub(super) fn emit_statement(
                     return Err(unsupported("catch type dispatch"));
                 };
                 let global = exception_type_global(type_name);
-                let length = type_name.as_bytes().len() + 1;
+                let length = type_name.len() + 1;
                 let name = next_temp(out);
                 writeln!(
                     out,
@@ -369,16 +369,14 @@ pub(super) fn copy_place(
         .unwrap();
     }
     store_place(out, to, &value, body)?;
-    if !retain && from.local != to.local {
-        if !super::is_boxed_local(&body.locals[from.local]) {
-            writeln!(
-                out,
-                "  store {ty} {}, ptr %slot{}",
-                llvm_zero(&body.locals[from.local].ty)?,
-                from.local
-            )
-            .unwrap();
-        }
+    if !retain && from.local != to.local && !super::is_boxed_local(&body.locals[from.local]) {
+        writeln!(
+            out,
+            "  store {ty} {}, ptr %slot{}",
+            llvm_zero(&body.locals[from.local].ty)?,
+            from.local
+        )
+        .unwrap();
     }
     Ok(())
 }

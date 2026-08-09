@@ -1258,7 +1258,7 @@ pub mod lowering {
                     }) && value
                         .finally
                         .as_ref()
-                        .map_or(true, |finally| !block_contains_return(finally)) =>
+                        .is_none_or(|finally| !block_contains_return(finally)) =>
                 {
                     let try_block = blocks.len();
                     let handler = try_block + 1;
@@ -4981,10 +4981,10 @@ pub mod lowering {
                 collect_block_lambdas(&value.then_block, output);
                 collect_block_lambdas(&value.else_block, output);
             }
-            Expr::Async(value) => match value {
-                aura_ast::AsyncExpr::Spawn(spawn) => collect_block_lambdas(&spawn.body, output),
-                _ => {}
-            },
+            Expr::Async(aura_ast::AsyncExpr::Spawn(spawn)) => {
+                collect_block_lambdas(&spawn.body, output)
+            }
+            Expr::Async(_) => {}
             Expr::Ident(_)
             | Expr::This(_)
             | Expr::Int(_)
@@ -6278,17 +6278,16 @@ impl LoweredProgram {
             .ast
             .classes
             .iter()
-            .filter_map(|class| {
-                (!class.superclass_args.is_empty()).then(|| {
-                    (
-                        class.name.name.clone(),
-                        class
-                            .superclass_args
-                            .iter()
-                            .map(lower_superclass_arg)
-                            .collect(),
-                    )
-                })
+            .filter(|class| !class.superclass_args.is_empty())
+            .map(|class| {
+                (
+                    class.name.name.clone(),
+                    class
+                        .superclass_args
+                        .iter()
+                        .map(lower_superclass_arg)
+                        .collect(),
+                )
             })
             .collect::<HashMap<_, _>>();
         let (lambda_functions, lambda_lowering_diagnostics) =
@@ -6677,10 +6676,10 @@ impl LoweredProgram {
                     .methods
                     .iter()
                     .find(|method| method.name.name == method_name)?;
-                if !method
+                if method
                     .return_type
                     .as_ref()
-                    .is_some_and(|ty| ty.name.name == "Task")
+                    .is_none_or(|ty| ty.name.name != "Task")
                 {
                     return None;
                 }
@@ -7092,32 +7091,40 @@ impl LoweredProgram {
             mir_opt::optimize(body);
         }
         let mut state_machine_gaps = Vec::new();
-        let mut build_state_machine =
-            |body: &mir::MirBody| match state_machine::StateMachine::from_mir(body) {
-                Ok(machine) => Some(machine),
-                Err(error) => {
-                    lowering_errors.insert(body.name.clone(), format!("{error:?}"));
-                    state_machine_gaps.push(body.name.clone());
-                    None
-                }
-            };
-        let async_state_machines = async_mir
-            .iter()
-            .filter_map(&mut build_state_machine)
-            .collect();
-        let open_generic_async_state_machines = open_generic_async_mir
-            .iter()
-            .filter_map(&mut build_state_machine)
-            .collect();
-        let generic_async_state_machines = generic_async_mir
-            .iter()
-            .filter_map(&mut build_state_machine)
-            .collect();
-        let generic_async_method_state_machines = generic_async_method_mir
-            .iter()
-            .filter_map(&mut build_state_machine)
-            .collect();
-        drop(build_state_machine);
+        let (
+            async_state_machines,
+            open_generic_async_state_machines,
+            generic_async_state_machines,
+            generic_async_method_state_machines,
+        ) = {
+            let mut build_state_machine =
+                |body: &mir::MirBody| match state_machine::StateMachine::from_mir(body) {
+                    Ok(machine) => Some(machine),
+                    Err(error) => {
+                        lowering_errors.insert(body.name.clone(), format!("{error:?}"));
+                        state_machine_gaps.push(body.name.clone());
+                        None
+                    }
+                };
+            (
+                async_mir
+                    .iter()
+                    .filter_map(&mut build_state_machine)
+                    .collect(),
+                open_generic_async_mir
+                    .iter()
+                    .filter_map(&mut build_state_machine)
+                    .collect(),
+                generic_async_mir
+                    .iter()
+                    .filter_map(&mut build_state_machine)
+                    .collect(),
+                generic_async_method_mir
+                    .iter()
+                    .filter_map(&mut build_state_machine)
+                    .collect(),
+            )
+        };
         let mut spawn_state_machines = Vec::new();
         for body in functions
             .iter()

@@ -1592,7 +1592,7 @@ fn emit_terminator(
                             raw_type_name.split('_').next().unwrap_or(raw_type_name)
                         });
                     let global = exception_type_global(type_name);
-                    let length = type_name.as_bytes().len() + 1;
+                    let length = type_name.len() + 1;
                     let name = next_temp(out);
                     writeln!(
                         out,
@@ -1778,7 +1778,7 @@ fn class_depth(context: &EmitContext, class: &str) -> usize {
         .unwrap_or(0)
 }
 
-fn class_has_pointer_fields(fields: &Vec<(String, Ty)>) -> bool {
+fn class_has_pointer_fields(fields: &[(String, Ty)]) -> bool {
     fields.iter().any(|(_, ty)| is_pointer_value_type(ty))
 }
 
@@ -1867,7 +1867,8 @@ fn enum_destructor_symbol(
     let pointer_fields = fields
         .iter()
         .enumerate()
-        .filter_map(|(index, (_, ty))| is_pointer_value_type(ty).then(|| (index, ty.clone())))
+        .filter(|(_, (_, ty))| is_pointer_value_type(ty))
+        .map(|(index, (_, ty))| (index, ty.clone()))
         .collect::<Vec<_>>();
     if pointer_fields.is_empty() {
         return "null".into();

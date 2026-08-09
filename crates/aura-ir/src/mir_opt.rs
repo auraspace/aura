@@ -243,11 +243,10 @@ fn simplify_cfg(body: &mut MirBody) {
                     *target = remap[target];
                 }
             }
-            Terminator::Throw { target, .. } => {
-                if let Some(target) = target {
-                    *target = remap[target];
-                }
-            }
+            Terminator::Throw {
+                target: Some(target),
+                ..
+            } => *target = remap[target],
             _ => {}
         }
     }
@@ -294,10 +293,8 @@ fn referenced_places(body: &MirBody) -> HashSet<usize> {
             Terminator::Await { task, result, .. } => {
                 used.extend([task.local, result.local]);
             }
-            Terminator::Return { value } => {
-                if let Some(value) = value {
-                    used.insert(value.local);
-                }
+            Terminator::Return { value: Some(value) } => {
+                used.insert(value.local);
             }
             Terminator::Throw { value, .. } => {
                 used.insert(value.local);
