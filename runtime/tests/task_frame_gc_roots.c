@@ -22,6 +22,11 @@ static void drop_gc(void *data)
   drops++;
 }
 
+static void mark_parent(void *data)
+{
+  aura_gc_mark_ptr(*(void **)data);
+}
+
 static void drop_capture(void *data, size_t size)
 {
   assert(size == sizeof(void *));
@@ -69,6 +74,7 @@ static void mark_frame(AuraTaskFrame *frame)
 
 static void test_capture_storage_is_scanned_without_callback(void)
 {
+  static const AuraTaskFrameGcSlot slots[] = {{0}};
   void *sentinel = NULL;
   aura_gc_add_root(&sentinel);
   AuraTaskFrame *frame = aura_task_frame_new(0, poll_pending, NULL);
@@ -80,6 +86,8 @@ static void test_capture_storage_is_scanned_without_callback(void)
   assert(capture != NULL);
   *capture = child;
   aura_task_frame_set_captures(frame, capture, sizeof(*capture), drop_capture);
+  aura_task_frame_set_gc_storage_stack_map(frame, AURA_TASK_FRAME_GC_CAPTURES,
+                                           slots, 1);
   aura_gc_collect();
   assert(*(uint64_t *)child == UINT64_C(0xcafebabe));
   aura_task_frame_destroy(frame);
@@ -90,6 +98,7 @@ static void test_capture_storage_is_scanned_without_callback(void)
 
 static void test_outcome_storage_is_scanned_without_callback(void)
 {
+  static const AuraTaskFrameGcSlot slots[] = {{0}};
   void *sentinel = NULL;
   aura_gc_add_root(&sentinel);
   AuraTaskFrame *frame = aura_task_frame_new(0, poll_pending, NULL);
@@ -110,6 +119,10 @@ static void test_outcome_storage_is_scanned_without_callback(void)
   *error = error_child;
   aura_task_frame_set_result(frame, result, sizeof(*result), drop_outcome);
   aura_task_frame_set_error(frame, error, sizeof(*error), drop_outcome);
+  aura_task_frame_set_gc_storage_stack_map(frame, AURA_TASK_FRAME_GC_RESULT,
+                                           slots, 1);
+  aura_task_frame_set_gc_storage_stack_map(frame, AURA_TASK_FRAME_GC_ERROR,
+                                           slots, 1);
 
   aura_gc_collect();
   assert(*(uint64_t *)result_child == UINT64_C(0xabcddcba));
@@ -123,6 +136,7 @@ static void test_outcome_storage_is_scanned_without_callback(void)
 
 static void test_error_payload_storage_is_scanned_without_callback(void)
 {
+  static const AuraTaskFrameGcSlot slots[] = {{0}};
   void *sentinel = NULL;
   aura_gc_add_root(&sentinel);
   AuraTaskFrame *frame = aura_task_frame_new(0, poll_pending, NULL);
@@ -138,6 +152,8 @@ static void test_error_payload_storage_is_scanned_without_callback(void)
   *payload = payload_child;
   aura_task_frame_set_error_payload_with_clone(
       frame, payload, sizeof(*payload), NULL, drop_outcome);
+  aura_task_frame_set_gc_storage_stack_map(
+      frame, AURA_TASK_FRAME_GC_ERROR_PAYLOAD, slots, 1);
 
   aura_gc_collect();
   assert(*(uint64_t *)payload_child == UINT64_C(0x55aa33cc));
@@ -189,7 +205,7 @@ int main(void)
   FrameState *state = (FrameState *)aura_task_frame_data(frame);
 
   void *child = aura_gc_alloc_full(sizeof(uint64_t), drop_gc, NULL);
-  void *parent = aura_gc_alloc_full(sizeof(void *), drop_gc, NULL);
+  void *parent = aura_gc_alloc_full(sizeof(void *), drop_gc, mark_parent);
   assert(child != NULL && parent != NULL);
   *(void **)parent = child;
   *(uint64_t *)child = UINT64_C(0xfeedface);

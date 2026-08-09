@@ -181,6 +181,14 @@ struct AuraTaskFrame
   AuraTaskFrameGcMarkFn gc_mark;
   const AuraTaskFrameGcSlot *gc_stack_map;
   size_t gc_stack_map_len;
+  const AuraTaskFrameGcSlot *captures_gc_stack_map;
+  size_t captures_gc_stack_map_len;
+  const AuraTaskFrameGcSlot *result_gc_stack_map;
+  size_t result_gc_stack_map_len;
+  const AuraTaskFrameGcSlot *error_gc_stack_map;
+  size_t error_gc_stack_map_len;
+  const AuraTaskFrameGcSlot *error_payload_gc_stack_map;
+  size_t error_payload_gc_stack_map_len;
   AuraTaskFrameDataDropFn data_drop;
   AuraTaskFrame *gc_next;
   AuraTaskFfiPin *ffi_pins;
@@ -265,52 +273,51 @@ AuraFfiStatus aura_task_frame_pin_foreign_handle(AuraTaskFrame *frame,
 
 static void aura_gc_mark_task_frame_unlocked(AuraTaskFrame *frame)
 {
-  /* Frame captures and pending payloads are allocator-owned storage rather
-   * than tracing-heap nodes.  Scan their pointer-sized words conservatively
-   * so a compiler frame remains a complete GC root even when it has no custom
-   * mark callback.  Explicit callbacks still handle typed nested layouts and
-   * remain the preferred precise path. */
+  /* Every allocator-owned frame storage area needs an explicit map.  The
+   * compiler supplies callbacks for nested layouts; raw offsets cover simple
+   * pointer slots without treating arbitrary bytes as references. */
   if (frame == NULL)
   {
     return;
   }
   {
-    const AuraTaskFrameStorage *storage[] = {&frame->captures,
-                                             &frame->pending};
-    for (size_t s = 0; s < sizeof(storage) / sizeof(storage[0]); s++)
+    const AuraTaskFrameStorage *storage = &frame->captures;
+    const AuraTaskFrameGcSlot *slots = frame->captures_gc_stack_map;
+    size_t slot_count = frame->captures_gc_stack_map_len;
+    for (size_t i = 0; storage->data != NULL && i < slot_count; i++)
     {
-      const unsigned char *bytes = (const unsigned char *)storage[s]->data;
-      size_t words = storage[s]->size / sizeof(void *);
-      if (storage[s]->data != NULL)
-      {
-        aura_gc_mark_ptr(storage[s]->data);
-      }
-      for (size_t i = 0; bytes != NULL && i < words; i++)
+      size_t offset = slots[i].offset;
+      if (offset <= storage->size && sizeof(void *) <= storage->size - offset)
       {
         void *candidate = NULL;
-        memcpy(&candidate, bytes + i * sizeof(void *), sizeof(candidate));
+        memcpy(&candidate, (const unsigned char *)storage->data + offset,
+               sizeof(candidate));
         aura_gc_mark_ptr(candidate);
       }
     }
-    /* Terminal outcomes are allocator-owned payloads too.  Scan their
-     * pointer-sized words so a class/array payload remains live until the
-     * owning task frame is released. */
+  }
+  {
     const AuraTaskResult *outcomes[] = {&frame->result, &frame->error,
                                         &frame->error_payload};
+    const AuraTaskFrameGcSlot *maps[] = {frame->result_gc_stack_map,
+                                         frame->error_gc_stack_map,
+                                         frame->error_payload_gc_stack_map};
+    const size_t map_lens[] = {frame->result_gc_stack_map_len,
+                               frame->error_gc_stack_map_len,
+                               frame->error_payload_gc_stack_map_len};
     for (size_t o = 0; o < sizeof(outcomes) / sizeof(outcomes[0]); o++)
     {
-      const unsigned char *bytes =
-          (const unsigned char *)outcomes[o]->data;
-      size_t words = outcomes[o]->size / sizeof(void *);
-      if (outcomes[o]->data != NULL)
+      for (size_t i = 0; outcomes[o]->data != NULL && i < map_lens[o]; i++)
       {
-        aura_gc_mark_ptr(outcomes[o]->data);
-      }
-      for (size_t i = 0; bytes != NULL && i < words; i++)
-      {
-        void *candidate = NULL;
-        memcpy(&candidate, bytes + i * sizeof(candidate), sizeof(candidate));
-        aura_gc_mark_ptr(candidate);
+        size_t offset = maps[o][i].offset;
+        if (offset <= outcomes[o]->size &&
+            sizeof(void *) <= outcomes[o]->size - offset)
+        {
+          void *candidate = NULL;
+          memcpy(&candidate, (const unsigned char *)outcomes[o]->data + offset,
+                 sizeof(candidate));
+          aura_gc_mark_ptr(candidate);
+        }
       }
     }
     if (frame->data != NULL && frame->gc_stack_map != NULL)
@@ -2038,6 +2045,35 @@ void aura_task_frame_set_gc_stack_map(AuraTaskFrame *frame,
   {
     frame->gc_stack_map = slots;
     frame->gc_stack_map_len = slots == NULL ? 0 : slot_count;
+  }
+}
+
+void aura_task_frame_set_gc_storage_stack_map(
+    AuraTaskFrame *frame, AuraTaskFrameGcStorage storage,
+    const AuraTaskFrameGcSlot *slots, size_t slot_count)
+{
+  if (frame == NULL) return;
+  size_t length = slots == NULL ? 0 : slot_count;
+  switch (storage)
+  {
+    case AURA_TASK_FRAME_GC_CAPTURES:
+      frame->captures_gc_stack_map = slots;
+      frame->captures_gc_stack_map_len = length;
+      break;
+    case AURA_TASK_FRAME_GC_RESULT:
+      frame->result_gc_stack_map = slots;
+      frame->result_gc_stack_map_len = length;
+      break;
+    case AURA_TASK_FRAME_GC_ERROR:
+      frame->error_gc_stack_map = slots;
+      frame->error_gc_stack_map_len = length;
+      break;
+    case AURA_TASK_FRAME_GC_ERROR_PAYLOAD:
+      frame->error_payload_gc_stack_map = slots;
+      frame->error_payload_gc_stack_map_len = length;
+      break;
+    default:
+      break;
   }
 }
 

@@ -485,6 +485,12 @@ typedef void (*AuraTaskFrameGcMarkFn)(AuraTaskFrame *frame);
 typedef struct AuraTaskFrameGcSlot {
   uint32_t offset;
 } AuraTaskFrameGcSlot;
+typedef enum AuraTaskFrameGcStorage {
+  AURA_TASK_FRAME_GC_CAPTURES = 0,
+  AURA_TASK_FRAME_GC_RESULT = 1,
+  AURA_TASK_FRAME_GC_ERROR = 2,
+  AURA_TASK_FRAME_GC_ERROR_PAYLOAD = 3
+} AuraTaskFrameGcStorage;
 typedef void (*AuraTaskFrameDataDropFn)(AuraTaskFrame *frame, void *data,
                                         size_t size);
 typedef void (*AuraTaskBlockingFn)(AuraTaskFrame *frame, void *environment);
@@ -629,6 +635,9 @@ void aura_task_frame_set_gc_mark(AuraTaskFrame *frame,
 void aura_task_frame_set_gc_stack_map(AuraTaskFrame *frame,
                                       const AuraTaskFrameGcSlot *slots,
                                       size_t slot_count);
+void aura_task_frame_set_gc_storage_stack_map(
+    AuraTaskFrame *frame, AuraTaskFrameGcStorage storage,
+    const AuraTaskFrameGcSlot *slots, size_t slot_count);
 /* Runtime-internal scheduler safepoint used to refresh suspended-frame roots
  * during concurrent marking. */
 void aura_gc_mark_task_frame_safepoint(AuraTaskFrame *frame);
