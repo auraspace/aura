@@ -426,6 +426,103 @@ fn emits_llvm_builtins_and_intrinsics() {
 }
 
 #[test]
+fn emits_specialized_async_runtime_operations_from_mir() {
+    let cases: &[(&str, &[&str])] = &[
+        (
+            r#"package std.task
+fun spawnBlocking(body: () -> Int): TaskHandle<Int> { throw "intrinsic" }
+fun main() {
+  val task: TaskHandle<Int> = spawnBlocking(() => 42)
+}
+"#,
+            &["@aura_llvm_spawn_blocking_i64"],
+        ),
+        (
+            r#"package std.io
+async fun readFd(fd: Int, capacity: Int): String { throw "intrinsic" }
+async fun writeFd(fd: Int, content: String): Int { throw "intrinsic" }
+fun main() {
+  val read = readFd(0, 1)
+  val write = writeFd(1, "x")
+}
+"#,
+            &["@aura_llvm_io_read_fd_task", "@aura_llvm_io_write_fd_task"],
+        ),
+    ];
+    for (source, symbols) in cases {
+        let file = parse_file(source).unwrap();
+        let checked = check_file(&file).unwrap();
+        let program = LoweredProgram::from_checked(checked);
+        assert!(
+            program.mir_is_complete(),
+            "{:?}",
+            program.lowering_diagnostics()
+        );
+        let module = LlvmBackend::emit_module(&program).unwrap();
+        for &symbol in *symbols {
+            assert!(module.contains(symbol), "missing {symbol}");
+        }
+        assert_llvm_compiles(&module, "specialized-async");
+    }
+}
+
+#[test]
+fn emits_foreign_handle_lambda_capture_with_ownership_hooks() {
+    let file = parse_file(
+        r#"package demo
+fun makeHandle(): ForeignHandle<Int> { throw "intrinsic" }
+fun main() {
+  val handle: ForeignHandle<Int> = makeHandle()
+  val closure: () -> ForeignHandle<Int> = () => handle
+}
+"#,
+    )
+    .unwrap();
+    let checked = check_file(&file).unwrap();
+    let program = LoweredProgram::from_checked(checked);
+    assert!(
+        program.mir_is_complete(),
+        "{:?}",
+        program.lowering_diagnostics()
+    );
+    let module = LlvmBackend::emit_module(&program).unwrap();
+    assert!(module.contains("aura_llvm_class_retain"));
+    assert!(module.contains("aura_llvm_class_release"));
+    assert_llvm_compiles(&module, "foreign-handle-lambda");
+}
+
+#[test]
+fn emits_task_and_channel_lambda_capture_ownership_hooks() {
+    let source = r#"package demo
+fun main() {
+  val task: TaskHandle<Int> = spawn { return 1 }
+  val task_closure: () -> TaskHandle<Int> = () => task
+  val captured_task: TaskHandle<Int> = task_closure()
+  cancel(captured_task)
+  val channel: Channel<Int> = Channel<Int>(1)
+  val channel_closure: () -> Channel<Int> = () => channel
+  val captured_channel: Channel<Int> = channel_closure()
+  captured_channel.close()
+}
+"#;
+    let file = parse_file(source).unwrap();
+    let checked = check_file(&file).unwrap();
+    let program = LoweredProgram::from_checked(checked);
+    assert!(
+        program.mir_is_complete(),
+        "{:?}",
+        program.lowering_diagnostics()
+    );
+    let module = LlvmBackend::emit_module(&program).unwrap();
+    assert!(module.contains("aura_task_executor_retain_payload"));
+    assert!(module.contains("aura_task_channel_retain"));
+    assert!(module.contains("aura_task_executor_release_payload"));
+    assert!(module.contains("aura_task_channel_destroy"));
+    assert_llvm_compiles(&module, "task-channel-lambda");
+    assert_llvm_source_runs(source, "task-channel-lambda-run", "");
+}
+
+#[test]
 fn llvm_defaults_do_not_require_the_c_runtime_abi() {
     let options = crate::llvm_options();
     assert_eq!(options.backend, Backend::Llvm);
@@ -885,6 +982,15 @@ fn runs_mutable_heap_lambda_captures() {
         include_str!("../../../../../corpus/fun/lambda_capture_var_class.aura"),
         "lambda-capture-var-class",
         72,
+    );
+}
+
+#[test]
+fn runs_mutable_task_and_channel_lambda_captures() {
+    assert_llvm_source_runs(
+        "package demo\nfun main() { var task: TaskHandle<Int> = spawn { return 1 } val getTask = () => task task = spawn { return 2 } val capturedTask = getTask() cancel(capturedTask) var channel: Channel<Int> = Channel<Int>(1) val getChannel = () => channel channel = Channel<Int>(1) val capturedChannel = getChannel() capturedChannel.send(7) assert(capturedChannel.receive() == 7) capturedChannel.close() println(\"mutable-async-capture-ok\") }\n",
+        "mutable-async-captures",
+        "mutable-async-capture-ok\n",
     );
 }
 

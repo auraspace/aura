@@ -1244,6 +1244,9 @@ impl Server {
     ) -> Option<(String, Symbol)> {
         let source = self.document_text(uri)?;
         let (_, file) = editor::parse_editor_file(source, source.len())?;
+        if let Some(symbol) = self.resolved_call_declaration(uri, name, word_span) {
+            return Some(symbol);
+        }
         if let Some(qualifier) = qualifier_before(source, word_span) {
             if !matches!(qualifier, "this" | "super")
                 && imported_package_for_alias(&file, qualifier).is_none()
@@ -1259,6 +1262,45 @@ impl Server {
             }
         }
         self.find_symbol_at(uri, name, word_span)
+    }
+
+    /// Resolve a call-site to the declaration selected by semantic checking.
+    /// The span is stable across overloads with identical arity and avoids
+    /// reconstructing type-driven overload selection in the LSP layer.
+    fn resolved_call_declaration(
+        &self,
+        uri: &str,
+        name: &str,
+        word_span: Span,
+    ) -> Option<(String, Symbol)> {
+        let analysis = self.host.snapshot().analyze(&DocumentId::from(uri)).ok()?;
+        let declaration_span = analysis
+            .checked
+            .call_instantiations
+            .iter()
+            .filter(|(start, call)| {
+                **start <= word_span.start
+                    && call.name == name
+                    && word_span.start.saturating_sub(**start) <= 4096
+            })
+            .max_by_key(|(start, _)| **start)
+            .and_then(|(_, call)| call.declaration_span)?;
+
+        for (document_uri, document) in &self.documents {
+            let Some(text) = document.get("text").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some((_, file)) = editor::parse_editor_file(text, text.len()) else {
+                continue;
+            };
+            if let Some(symbol) = flatten_symbols(&declaration_symbols(text, &file))
+                .into_iter()
+                .find(|symbol| symbol.range == declaration_span)
+            {
+                return Some((document_uri.clone(), symbol.clone()));
+            }
+        }
+        None
     }
 
     fn expression_type_at(&self, uri: &str, span: Span) -> Option<aura_sema::Ty> {
@@ -3894,6 +3936,64 @@ fun main() {\n\
         );
         assert!(one_arg_contents.contains("using a fallback"));
         assert!(!one_arg_contents.contains("without an argument"));
+    }
+
+    #[test]
+    fn hover_uses_semantic_overload_selection_when_arity_matches() {
+        let mut server = Server::new();
+        let source = "package demo\n\
+class Request() {\n\
+    /// Integer overload.\n\
+    pub fun method(value: Int): String { return value.toString() }\n\
+    /// String overload.\n\
+    pub fun method(value: String): String { return value }\n\
+}\n\
+fun main() {\n\
+    val request = Request()\n\
+    request.method(1)\n\
+    request.method(\"POST\")\n\
+}\n";
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"main.aura","version":1,"text":source}}}));
+
+        let int_line = source
+            .lines()
+            .position(|line| line.contains("request.method(1)"))
+            .unwrap();
+        let int_character = source
+            .lines()
+            .nth(int_line)
+            .unwrap()
+            .find("method")
+            .unwrap();
+        let int_hover = server
+            .handle(json!({"jsonrpc":"2.0","id":30,"method":"textDocument/hover","params":{"textDocument":{"uri":"main.aura"},"position":{"line":int_line,"character":int_character}}}))
+            .unwrap();
+        let int_contents = hover_contents_text(&int_hover);
+        assert!(int_contents.contains("Integer overload"), "{int_contents}");
+        assert!(!int_contents.contains("String overload"), "{int_contents}");
+
+        let string_line = source
+            .lines()
+            .position(|line| line.contains("request.method(\"POST\")"))
+            .unwrap();
+        let string_character = source
+            .lines()
+            .nth(string_line)
+            .unwrap()
+            .find("method")
+            .unwrap();
+        let string_hover = server
+            .handle(json!({"jsonrpc":"2.0","id":31,"method":"textDocument/hover","params":{"textDocument":{"uri":"main.aura"},"position":{"line":string_line,"character":string_character}}}))
+            .unwrap();
+        let string_contents = hover_contents_text(&string_hover);
+        assert!(
+            string_contents.contains("String overload"),
+            "{string_contents}"
+        );
+        assert!(
+            !string_contents.contains("Integer overload"),
+            "{string_contents}"
+        );
     }
 
     #[test]

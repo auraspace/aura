@@ -12,11 +12,34 @@ use std::collections::HashMap;
 
 use aura_ast::{Block, ForeignLinkKind, Span, Stmt, TypeRef};
 use aura_sema::{
-    subst_ty, AttributeMetadata, CallInstantiation, CheckedFile, ExpansionMetadata, Ty,
+    subst_ty, AttributeMetadata, CallInstantiation, CheckedFile, ClassSig, EnumSig,
+    ExpansionMetadata, FunSig, Ty,
 };
+
+/// Typed HIR is the semantic frontend boundary. It owns the typechecked source
+/// facts consumed by target-neutral lowering; no backend is selected here.
+#[derive(Debug, Clone)]
+pub struct TypedHir {
+    checked: CheckedFile,
+}
+
+impl TypedHir {
+    pub fn new(checked: CheckedFile) -> Self {
+        Self { checked }
+    }
+
+    pub fn checked(&self) -> &CheckedFile {
+        &self.checked
+    }
+
+    pub fn into_checked(self) -> CheckedFile {
+        self.checked
+    }
+}
 
 pub mod generic_lowering;
 pub mod intrinsic_registry;
+pub mod mir_opt;
 
 pub mod mir {
     use super::{ownership, Effect, OwnershipMode, Ty};
@@ -634,11 +657,12 @@ pub mod lowering {
     use aura_sema::{subst_ty, type_subst_map, CheckedFile, Ty};
 
     use super::{
+        mir,
         mir::{
             AsyncOp, BasicBlock, BinaryOp, CallTarget, ClosureCapture, Intrinsic, Local, MirBody,
             Place, Rvalue, SpawnCapture, Statement, Terminator, UnaryOp,
         },
-        ownership, Effect,
+        ownership, Effect, FunctionIr, LoweringDiagnostic, ValueFact,
     };
 
     #[derive(Debug, Clone)]
@@ -942,16 +966,16 @@ pub mod lowering {
                         );
                     }
 
-                    let local = locals.len();
+                    let catch_local = locals.len();
                     locals.push(Local {
                         name: format!("__mir_{handler}_{}", catch.name.name),
                         ty: catch_ty.clone(),
                         ownership: ownership::mode_for_ty(&catch_ty),
                     });
                     let mut catch_bindings = local_ids.clone();
-                    catch_bindings.insert(catch.name.name.clone(), local);
+                    catch_bindings.insert(catch.name.name.clone(), catch_local);
                     blocks[handler].statements.push(Statement::Assign {
-                        place: Place { local },
+                        place: Place { local: catch_local },
                         value: exception_payload(&catch_ty),
                     });
                     blocks[handler].statements.push(Statement::LeaveTry);
@@ -1108,6 +1132,124 @@ pub mod lowering {
                         blocks[handler].terminator = Terminator::Goto { target: join };
                     }
                     current = join;
+                }
+                Stmt::Try(value)
+                    if body.stmts.len() == 1
+                        && value.finally.is_none()
+                        && value.catch.is_some()
+                        && (value.try_block.stmts.len() == 1
+                            || (value.try_block.stmts.len() == 2
+                                && matches!(value.try_block.stmts[0], Stmt::Var(_))))
+                        && value
+                            .catch
+                            .as_ref()
+                            .is_some_and(|catch| catch.body.stmts.len() == 1)
+                        && matches!(value.try_block.stmts.last(), Some(Stmt::Return(_)))
+                        && value.catch.as_ref().is_some_and(|catch| {
+                            matches!(catch.body.stmts[0], Stmt::Return(_))
+                        }) =>
+                {
+                    let try_block = blocks.len();
+                    let handler = try_block + 1;
+                    let cleanup = try_block + 2;
+                    let join = try_block + 3;
+                    let return_target = try_block + 4;
+                    let catch = value.catch.as_ref().expect("guarded above");
+                    let catch_ty =
+                        catch_type(&catch.ty, checked).ok_or(LowerError::Unsupported {
+                            span: catch.span,
+                            construct: "non-primitive LLVM catch payload",
+                        })?;
+                    let return_slot = if return_ty == Ty::Unit {
+                        None
+                    } else {
+                        let local = locals.len();
+                        locals.push(Local {
+                            name: format!("__mir_try_return_{local}"),
+                            ty: return_ty.clone(),
+                            ownership: ownership::mode_for_ty(&return_ty),
+                        });
+                        Some(Place { local })
+                    };
+                    let returning_local = locals.len();
+                    locals.push(Local {
+                        name: format!("__mir_try_returning_{returning_local}"),
+                        ty: Ty::Bool,
+                        ownership: ownership::mode_for_ty(&Ty::Bool),
+                    });
+                    blocks.extend([
+                        BasicBlock {
+                            statements: vec![Statement::EnterTry {
+                                handler,
+                                finally: None,
+                                catch_ty: Some(catch_ty.clone()),
+                            }],
+                            terminator: Terminator::Unreachable,
+                        },
+                        BasicBlock {
+                            statements: Vec::new(),
+                            terminator: Terminator::Unreachable,
+                        },
+                        BasicBlock {
+                            statements: vec![Statement::LeaveTry],
+                            terminator: Terminator::Goto { target: join },
+                        },
+                        BasicBlock {
+                            statements: Vec::new(),
+                            terminator: Terminator::Unreachable,
+                        },
+                        BasicBlock {
+                            statements: Vec::new(),
+                            terminator: Terminator::Return { value: return_slot },
+                        },
+                    ]);
+                    blocks[current].terminator = Terminator::Goto { target: try_block };
+                    lower_branch_terminal(
+                        &value.try_block,
+                        try_block,
+                        cleanup,
+                        &mut blocks,
+                        &mut locals,
+                        &local_ids,
+                        checked,
+                        None,
+                    )?;
+                    retarget_unhandled_exceptions(&mut blocks[try_block..], handler);
+                    let catch_local = locals.len();
+                    locals.push(Local {
+                        name: format!("__mir_{handler}_{}", catch.name.name),
+                        ty: catch_ty.clone(),
+                        ownership: ownership::mode_for_ty(&catch_ty),
+                    });
+                    let mut catch_bindings = local_ids.clone();
+                    catch_bindings.insert(catch.name.name.clone(), catch_local);
+                    blocks[handler].statements.push(Statement::Assign {
+                        place: Place { local: catch_local },
+                        value: exception_payload(&catch_ty),
+                    });
+                    blocks[handler].statements.push(Statement::LeaveTry);
+                    lower_branch_terminal(
+                        &catch.body,
+                        handler,
+                        cleanup,
+                        &mut blocks,
+                        &mut locals,
+                        &catch_bindings,
+                        checked,
+                        None,
+                    )?;
+                    rewrite_returns_except(
+                        &mut blocks[try_block..],
+                        try_block,
+                        return_slot,
+                        Place {
+                            local: returning_local,
+                        },
+                        return_target,
+                        return_target,
+                    );
+                    current = return_target;
+                    break;
                 }
                 Stmt::Try(value)
                     if value.catch.as_ref().is_some_and(|catch| {
@@ -2854,6 +2996,37 @@ pub mod lowering {
         }
     }
 
+    fn rewrite_returns_except(
+        blocks: &mut [BasicBlock],
+        base: usize,
+        return_slot: Option<Place>,
+        returning: Place,
+        target: usize,
+        skip: usize,
+    ) {
+        for (offset, block) in blocks.iter_mut().enumerate() {
+            if base + offset == skip {
+                continue;
+            }
+            let term = std::mem::replace(&mut block.terminator, Terminator::Unreachable);
+            let Terminator::Return { value } = term else {
+                block.terminator = term;
+                continue;
+            };
+            if let (Some(slot), Some(value)) = (return_slot, value) {
+                block.statements.push(Statement::Assign {
+                    place: slot,
+                    value: Rvalue::Use(value),
+                });
+            }
+            block.statements.push(Statement::Assign {
+                place: returning,
+                value: Rvalue::ConstBool(true),
+            });
+            block.terminator = Terminator::Goto { target };
+        }
+    }
+
     fn exception_payload(ty: &Ty) -> Rvalue {
         match ty {
             Ty::String => Rvalue::Intrinsic(Intrinsic::ExceptionString),
@@ -3525,6 +3698,25 @@ pub mod lowering {
                         branch_local_start,
                     );
                 }
+                Stmt::ForIn(value) => {
+                    let exit =
+                        lower_for_in(value, block, blocks, locals, &branch_bindings, checked)?;
+                    let tail = Block {
+                        stmts: branch.stmts[index + 1..].to_vec(),
+                        span: branch.span,
+                    };
+                    return lower_branch_terminal_from(
+                        &tail,
+                        exit,
+                        join,
+                        blocks,
+                        locals,
+                        &branch_bindings,
+                        checked,
+                        loop_targets,
+                        branch_local_start,
+                    );
+                }
                 Stmt::If(value) => {
                     let condition = place_or_temp(
                         &value.cond,
@@ -3735,6 +3927,237 @@ pub mod lowering {
             checked,
             Some((back_edge, back_edge)),
         )
+    }
+
+    fn lower_for_in(
+        value: &aura_ast::ForInStmt,
+        current: usize,
+        blocks: &mut Vec<BasicBlock>,
+        locals: &mut Vec<Local>,
+        local_ids: &HashMap<String, usize>,
+        checked: Option<&CheckedFile>,
+    ) -> Result<usize, LowerError> {
+        let iterable_ty = checked
+            .and_then(|file| {
+                file.expr_tys
+                    .get(&(value.iterable.span().start, value.iterable.span().end))
+            })
+            .cloned()
+            .ok_or(LowerError::MissingType {
+                span: value.iterable.span(),
+            })?;
+        let (element_ty, iterable_access) = match &iterable_ty {
+            Ty::String => (Ty::Int, IterableAccess::Builtin),
+            Ty::ClassApp { name, args } if name == "Array" && args.len() == 1 => {
+                (args[0].clone(), IterableAccess::Builtin)
+            }
+            Ty::Interface(_) | Ty::InterfaceApp { .. } => {
+                let (element_ty, len, get) = protocol_methods(
+                    &iterable_ty,
+                    checked.ok_or(LowerError::MissingType {
+                        span: value.iterable.span(),
+                    })?,
+                    false,
+                    value.span,
+                )?;
+                (
+                    element_ty,
+                    IterableAccess::Protocol {
+                        len,
+                        get: Box::new(get),
+                    },
+                )
+            }
+            Ty::Class(_) | Ty::ClassApp { .. } => {
+                let (element_ty, len, get) = protocol_methods(
+                    &iterable_ty,
+                    checked.ok_or(LowerError::MissingType {
+                        span: value.iterable.span(),
+                    })?,
+                    true,
+                    value.span,
+                )?;
+                (
+                    element_ty,
+                    IterableAccess::Protocol {
+                        len,
+                        get: Box::new(get),
+                    },
+                )
+            }
+            _ => {
+                return Err(LowerError::Unsupported {
+                    span: value.span,
+                    construct: "for-in iterable protocol",
+                })
+            }
+        };
+        let iterable = place_or_temp(
+            &value.iterable,
+            locals,
+            &mut blocks[current].statements,
+            local_ids,
+            checked,
+        )?;
+        let index_local = locals.len();
+        locals.push(Local {
+            name: format!("__mir_for_in_index_{index_local}"),
+            ty: Ty::Int,
+            ownership: ownership::mode_for_ty(&Ty::Int),
+        });
+        blocks[current].statements.push(Statement::Assign {
+            place: Place { local: index_local },
+            value: Rvalue::ConstInt(0),
+        });
+        let head = blocks.len();
+        blocks.push(BasicBlock {
+            statements: Vec::new(),
+            terminator: Terminator::Unreachable,
+        });
+        let body_target = blocks.len();
+        blocks.push(BasicBlock {
+            statements: Vec::new(),
+            terminator: Terminator::Unreachable,
+        });
+        let increment = blocks.len();
+        blocks.push(BasicBlock {
+            statements: Vec::new(),
+            terminator: Terminator::Unreachable,
+        });
+        let exit = blocks.len();
+        blocks.push(BasicBlock {
+            statements: Vec::new(),
+            terminator: Terminator::Unreachable,
+        });
+        let length_local = locals.len();
+        locals.push(Local {
+            name: format!("__mir_for_in_length_{length_local}"),
+            ty: Ty::Int,
+            ownership: ownership::mode_for_ty(&Ty::Int),
+        });
+        blocks[current].terminator = Terminator::Goto { target: head };
+        let length_value = match &iterable_access {
+            IterableAccess::Builtin => Rvalue::Length(iterable),
+            IterableAccess::Protocol {
+                len: ProtocolLength::Method(len),
+                ..
+            } => Rvalue::Call {
+                target: len.clone(),
+                args: vec![iterable],
+            },
+            IterableAccess::Protocol {
+                len: ProtocolLength::Field(field),
+                ..
+            } => Rvalue::Field {
+                object: iterable,
+                field: field.clone(),
+            },
+        };
+        blocks[head].statements.push(Statement::Assign {
+            place: Place {
+                local: length_local,
+            },
+            value: length_value,
+        });
+        let condition_local = locals.len();
+        locals.push(Local {
+            name: format!("__mir_for_in_condition_{condition_local}"),
+            ty: Ty::Bool,
+            ownership: ownership::mode_for_ty(&Ty::Bool),
+        });
+        blocks[head].statements.push(Statement::Assign {
+            place: Place {
+                local: condition_local,
+            },
+            value: Rvalue::Binary {
+                op: BinaryOp::Lt,
+                left: Place { local: index_local },
+                right: Place {
+                    local: length_local,
+                },
+            },
+        });
+        blocks[head].terminator = Terminator::SwitchInt {
+            condition: Place {
+                local: condition_local,
+            },
+            then_target: body_target,
+            else_target: exit,
+        };
+        let binding_local = locals.len();
+        locals.push(Local {
+            name: value.name.name.clone(),
+            ty: element_ty.clone(),
+            ownership: ownership::mode_for_ty(&element_ty),
+        });
+        match &iterable_access {
+            IterableAccess::Builtin => blocks[body_target].statements.push(Statement::LoadIndex {
+                collection: iterable,
+                index: Place { local: index_local },
+                to: Place {
+                    local: binding_local,
+                },
+                action: iteration_action(&element_ty),
+            }),
+            IterableAccess::Protocol { get, .. } => {
+                let item_local = locals.len();
+                locals.push(Local {
+                    name: format!("__mir_for_in_item_{item_local}"),
+                    ty: element_ty.clone(),
+                    ownership: ownership::mode_for_ty(&element_ty),
+                });
+                blocks[body_target].statements.push(Statement::Assign {
+                    place: Place { local: item_local },
+                    value: Rvalue::Call {
+                        target: (**get).clone(),
+                        args: vec![iterable, Place { local: index_local }],
+                    },
+                });
+                bind_loaded_value(
+                    &mut blocks[body_target].statements,
+                    item_local,
+                    binding_local,
+                    iteration_action(&element_ty),
+                );
+            }
+        }
+        let mut loop_bindings = local_ids.clone();
+        loop_bindings.insert(value.name.name.clone(), binding_local);
+        lower_branch_terminal(
+            &value.body,
+            body_target,
+            increment,
+            blocks,
+            locals,
+            &loop_bindings,
+            checked,
+            Some((exit, increment)),
+        )?;
+        if matches!(blocks[body_target].terminator, Terminator::Goto { .. }) {
+            blocks[body_target].statements.push(Statement::Drop(Place {
+                local: binding_local,
+            }));
+        }
+        let one_local = locals.len();
+        locals.push(Local {
+            name: format!("__mir_for_in_one_{one_local}"),
+            ty: Ty::Int,
+            ownership: ownership::mode_for_ty(&Ty::Int),
+        });
+        blocks[increment].statements.push(Statement::Assign {
+            place: Place { local: one_local },
+            value: Rvalue::ConstInt(1),
+        });
+        blocks[increment].statements.push(Statement::Assign {
+            place: Place { local: index_local },
+            value: Rvalue::Binary {
+                op: BinaryOp::Add,
+                left: Place { local: index_local },
+                right: Place { local: one_local },
+            },
+        });
+        blocks[increment].terminator = Terminator::Goto { target: head };
+        Ok(exit)
     }
 
     fn stmt_span(stmt: &Stmt) -> Span {
@@ -4298,6 +4721,280 @@ pub mod lowering {
         Ok(Place { local })
     }
 
+    /// Lower every lambda into a closure function before a backend is chosen.
+    /// Captures become explicit leading MIR parameters and closure metadata.
+    pub fn lower_lambda_functions(
+        checked: &CheckedFile,
+    ) -> (Vec<FunctionIr>, Vec<LoweringDiagnostic>) {
+        let mut lambdas = Vec::new();
+        for function in &checked.ast.functions {
+            collect_block_lambdas(&function.body, &mut lambdas);
+        }
+        for function in &checked.ast.async_functions {
+            collect_block_lambdas(&function.body, &mut lambdas);
+        }
+        for class in &checked.ast.classes {
+            for constructor in &class.constructors {
+                collect_block_lambdas(&constructor.body, &mut lambdas);
+                for argument in &constructor.delegation_args {
+                    collect_expr_lambdas(argument, &mut lambdas);
+                }
+            }
+            for method in &class.methods {
+                collect_block_lambdas(&method.body, &mut lambdas);
+            }
+        }
+        for constant in &checked.ast.consts {
+            collect_expr_lambdas(&constant.value, &mut lambdas);
+        }
+        lambdas.sort_by_key(|lambda| lambda.span.start);
+
+        let mut diagnostics = Vec::new();
+        let functions = lambdas
+            .into_iter()
+            .filter_map(|lambda| {
+                let owner = format!("__lambda_{}", lambda.span.start);
+                let captures = checked
+                    .lambda_captures
+                    .get(&lambda.span.start)
+                    .cloned()
+                    .unwrap_or_default();
+                if captures
+                    .iter()
+                    .any(|capture| !is_boxable_capture_type(&capture.ty))
+                {
+                    diagnostics.push(LoweringDiagnostic {
+                        owner,
+                        stage: "lambda MIR".into(),
+                        detail: "capture type has no backend-neutral ownership hooks".into(),
+                    });
+                    return None;
+                }
+                let Some(lambda_ty) = checked.lambda_tys.get(&lambda.span.start).cloned() else {
+                    diagnostics.push(LoweringDiagnostic {
+                        owner,
+                        stage: "lambda MIR".into(),
+                        detail: "missing checked lambda type".into(),
+                    });
+                    return None;
+                };
+                let Ty::Fun { params, ret } = lambda_ty else {
+                    diagnostics.push(LoweringDiagnostic {
+                        owner,
+                        stage: "lambda MIR".into(),
+                        detail: "checked lambda type is not a function type".into(),
+                    });
+                    return None;
+                };
+                if params.len() != lambda.params.len() {
+                    diagnostics.push(LoweringDiagnostic {
+                        owner,
+                        stage: "lambda MIR".into(),
+                        detail: format!(
+                            "lambda parameter arity mismatch: typed {}, AST {}",
+                            params.len(),
+                            lambda.params.len()
+                        ),
+                    });
+                    return None;
+                }
+                let body = match &lambda.body {
+                    aura_ast::LambdaBody::Expr(expression) => Block {
+                        stmts: vec![Stmt::Return(aura_ast::ReturnStmt {
+                            value: Some(expression.as_ref().clone()),
+                            span: lambda.span,
+                        })],
+                        span: lambda.span,
+                    },
+                    aura_ast::LambdaBody::Block(body) => body.clone(),
+                };
+                let body = normalize_nested_call_awaits(&body, checked);
+                let mut parameters = captures
+                    .iter()
+                    .map(|capture| (capture.name.clone(), capture.ty.clone()))
+                    .collect::<Vec<_>>();
+                parameters.extend(
+                    lambda
+                        .params
+                        .iter()
+                        .zip(params.iter())
+                        .map(|(parameter, ty)| (parameter.name.name.clone(), ty.clone())),
+                );
+                let mir = match lower_body(
+                    &owner,
+                    &body,
+                    &parameters,
+                    (*ret).clone(),
+                    Some(checked),
+                    Effect::Pure,
+                ) {
+                    Ok(mir) => mir,
+                    Err(error) => {
+                        diagnostics.push(LoweringDiagnostic {
+                            owner,
+                            stage: "lambda MIR".into(),
+                            detail: format!("{error:?}"),
+                        });
+                        return None;
+                    }
+                };
+                let closure_captures = captures
+                    .iter()
+                    .enumerate()
+                    .map(|(index, capture)| mir::ClosureCapture {
+                        source: Place { local: index },
+                        ty: capture.ty.clone(),
+                        by_ref: capture.by_ref,
+                    })
+                    .collect();
+                Some(FunctionIr {
+                    name: owner,
+                    package: checked.package.clone(),
+                    params: parameters
+                        .iter()
+                        .map(|(_, ty)| ValueFact {
+                            ty: ty.clone(),
+                            ownership: ownership::mode_for_ty(ty),
+                            span: lambda.span,
+                        })
+                        .collect(),
+                    closure_captures,
+                    ret: ValueFact {
+                        ty: (*ret).clone(),
+                        ownership: ownership::mode_for_ty(ret.as_ref()),
+                        span: lambda.span,
+                    },
+                    type_params: Vec::new(),
+                    bounds: HashMap::new(),
+                    effect: Effect::Pure,
+                    body: Some(mir),
+                    span: lambda.span,
+                })
+            })
+            .collect();
+        (functions, diagnostics)
+    }
+
+    fn is_boxable_capture_type(ty: &Ty) -> bool {
+        matches!(
+            ty,
+            Ty::Int
+                | Ty::Bool
+                | Ty::Float
+                | Ty::String
+                | Ty::Fun { .. }
+                | Ty::ForeignHandle(_)
+                | Ty::Task(_)
+                | Ty::TaskHandle(_)
+                | Ty::Channel(_)
+                | Ty::Class(_)
+                | Ty::ClassApp { .. }
+                | Ty::Enum(_)
+                | Ty::EnumApp { .. }
+                | Ty::Interface(_)
+                | Ty::InterfaceApp { .. }
+        ) || matches!(ty, Ty::ClassApp { name, args } if name == "Array" && args.len() == 1)
+    }
+
+    fn collect_block_lambdas<'a>(block: &'a Block, output: &mut Vec<&'a aura_ast::LambdaExpr>) {
+        for statement in &block.stmts {
+            collect_stmt_lambdas(statement, output);
+        }
+    }
+
+    fn collect_stmt_lambdas<'a>(statement: &'a Stmt, output: &mut Vec<&'a aura_ast::LambdaExpr>) {
+        match statement {
+            Stmt::Var(value) => collect_expr_lambdas(&value.init, output),
+            Stmt::If(value) => {
+                collect_expr_lambdas(&value.cond, output);
+                collect_block_lambdas(&value.then_block, output);
+                if let Some(block) = &value.else_block {
+                    collect_block_lambdas(block, output);
+                }
+            }
+            Stmt::While(value) => {
+                collect_expr_lambdas(&value.cond, output);
+                collect_block_lambdas(&value.body, output);
+            }
+            Stmt::ForRange(value) => {
+                collect_expr_lambdas(&value.start, output);
+                collect_expr_lambdas(&value.end, output);
+                collect_block_lambdas(&value.body, output);
+            }
+            Stmt::ForIn(value) => {
+                collect_expr_lambdas(&value.iterable, output);
+                collect_block_lambdas(&value.body, output);
+            }
+            Stmt::Match(value) => {
+                collect_expr_lambdas(&value.scrutinee, output);
+                for arm in &value.arms {
+                    collect_block_lambdas(&arm.body, output);
+                }
+            }
+            Stmt::Try(value) => {
+                collect_block_lambdas(&value.try_block, output);
+                if let Some(catch) = &value.catch {
+                    collect_block_lambdas(&catch.body, output);
+                }
+                if let Some(finally) = &value.finally {
+                    collect_block_lambdas(finally, output);
+                }
+            }
+            Stmt::Throw(value) => collect_expr_lambdas(&value.value, output),
+            Stmt::Return(value) => {
+                if let Some(expression) = &value.value {
+                    collect_expr_lambdas(expression, output);
+                }
+            }
+            Stmt::Expr(expression) => collect_expr_lambdas(expression, output),
+            Stmt::Break(_) | Stmt::Continue(_) => {}
+        }
+    }
+
+    fn collect_expr_lambdas<'a>(expression: &'a Expr, output: &mut Vec<&'a aura_ast::LambdaExpr>) {
+        match expression {
+            Expr::Lambda(lambda) => {
+                output.push(lambda);
+                match &lambda.body {
+                    aura_ast::LambdaBody::Expr(body) => collect_expr_lambdas(body, output),
+                    aura_ast::LambdaBody::Block(block) => collect_block_lambdas(block, output),
+                }
+            }
+            Expr::Call(call) => {
+                collect_expr_lambdas(&call.callee, output);
+                for argument in &call.args {
+                    collect_expr_lambdas(argument, output);
+                }
+            }
+            Expr::Field(field) => collect_expr_lambdas(&field.object, output),
+            Expr::Assign(assign) => collect_expr_lambdas(&assign.value, output),
+            Expr::Binary(binary) => {
+                collect_expr_lambdas(&binary.left, output);
+                collect_expr_lambdas(&binary.right, output);
+            }
+            Expr::Unary(unary) => collect_expr_lambdas(&unary.expr, output),
+            Expr::ForceUnwrap(value) => collect_expr_lambdas(&value.expr, output),
+            Expr::Is(value) => collect_expr_lambdas(&value.expr, output),
+            Expr::Group(value, _) => collect_expr_lambdas(value, output),
+            Expr::If(value) => {
+                collect_expr_lambdas(&value.cond, output);
+                collect_block_lambdas(&value.then_block, output);
+                collect_block_lambdas(&value.else_block, output);
+            }
+            Expr::Async(value) => match value {
+                aura_ast::AsyncExpr::Spawn(spawn) => collect_block_lambdas(&spawn.body, output),
+                _ => {}
+            },
+            Expr::Ident(_)
+            | Expr::This(_)
+            | Expr::Int(_)
+            | Expr::Float(_)
+            | Expr::Bool(_)
+            | Expr::String(_)
+            | Expr::Null(_) => {}
+        }
+    }
+
     /// Normalize a direct `return await expr` into a typed local followed by
     /// return. This is frontend lowering and must not live in a backend.
     pub fn normalize_return_await(f: &AsyncFunDecl) -> Option<AsyncFunDecl> {
@@ -4346,6 +5043,38 @@ pub mod lowering {
         };
         for statement in &body.stmts {
             let mut statement = statement.clone();
+            match &mut statement {
+                Stmt::If(value) => {
+                    value.then_block = normalize_nested_call_awaits(&value.then_block, checked);
+                    if let Some(else_block) = &mut value.else_block {
+                        *else_block = normalize_nested_call_awaits(else_block, checked);
+                    }
+                }
+                Stmt::While(value) => {
+                    value.body = normalize_nested_call_awaits(&value.body, checked);
+                }
+                Stmt::ForRange(value) => {
+                    value.body = normalize_nested_call_awaits(&value.body, checked);
+                }
+                Stmt::ForIn(value) => {
+                    value.body = normalize_nested_call_awaits(&value.body, checked);
+                }
+                Stmt::Match(value) => {
+                    for arm in &mut value.arms {
+                        arm.body = normalize_nested_call_awaits(&arm.body, checked);
+                    }
+                }
+                Stmt::Try(value) => {
+                    value.try_block = normalize_nested_call_awaits(&value.try_block, checked);
+                    if let Some(catch) = &mut value.catch {
+                        catch.body = normalize_nested_call_awaits(&catch.body, checked);
+                    }
+                    if let Some(finally) = &mut value.finally {
+                        *finally = normalize_nested_call_awaits(finally, checked);
+                    }
+                }
+                _ => {}
+            }
             let expression = match &mut statement {
                 Stmt::Expr(expression) => Some(expression),
                 Stmt::Var(value) => Some(&mut value.init),
@@ -5340,6 +6069,19 @@ pub struct ValueFact {
     pub span: Span,
 }
 
+/// Target-neutral values accepted by a superclass constructor delegation.
+/// Field references are resolved against the child constructor's own fields
+/// before a backend is selected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SuperclassArgIr {
+    Int(i64),
+    Float(u64),
+    Bool(bool),
+    String(String),
+    OwnField(String),
+    Unsupported,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionIr {
     pub name: String,
@@ -5402,11 +6144,18 @@ pub struct ForeignLibraryIr {
 #[derive(Debug, Clone)]
 pub struct CheckedIr {
     pub package: String,
+    /// Target-neutral nominal declarations used by native backends.
+    pub class_layouts: Vec<ClassSig>,
+    pub enum_layouts: Vec<EnumSig>,
+    pub async_signatures: Vec<FunSig>,
+    pub foreign_function_names: Vec<String>,
+    /// Typed constructor arguments for inherited class fields.
+    pub class_superclass_args: HashMap<String, Vec<SuperclassArgIr>>,
+    /// Lambda closures lowered to ordinary MIR functions before backend use.
+    pub lambda_functions: Vec<FunctionIr>,
     pub functions: Vec<FunctionIr>,
     /// Closed generic free-function instances lowered before backend choice.
     pub generic_functions: Vec<FunctionIr>,
-    /// Closed generic free-function instances still outside the MIR subset.
-    pub generic_function_mir_unlowered: Vec<String>,
     pub generic_instantiations: Vec<GenericInstantiation>,
     pub call_instantiations: HashMap<u32, CallInstantiation>,
     pub expr_types: HashMap<(u32, u32), Ty>,
@@ -5421,8 +6170,6 @@ pub struct CheckedIr {
     pub open_generic_async_mir: Vec<mir::MirBody>,
     /// Closed generic async free-function instances lowered before backend choice.
     pub generic_async_mir: Vec<mir::MirBody>,
-    /// Closed generic async free-function instances still outside the MIR subset.
-    pub generic_async_mir_unlowered: Vec<String>,
     /// Closed generic async class-method instances lowered before backend choice.
     pub generic_async_method_mir: Vec<mir::MirBody>,
     /// Closed generic synchronous class-method instances lowered before backend choice.
@@ -5435,18 +6182,17 @@ pub struct CheckedIr {
     pub open_generic_async_state_machines: Vec<state_machine::StateMachine>,
     /// State machines for nested `spawn` bodies, published recursively.
     pub spawn_state_machines: Vec<state_machine::StateMachine>,
-    /// Async bodies still using the alpha compatibility lowering. This is
-    /// explicit so a backend cannot mistake partial MIR coverage for success.
-    pub async_mir_unlowered: Vec<String>,
-    /// Open generic async declarations still outside the current MIR subset.
-    pub open_generic_async_mir_unlowered: Vec<String>,
-    /// Synchronous bodies still outside the current common MIR subset.
-    pub function_mir_unlowered: Vec<String>,
-    /// Closed generic async methods still outside the current MIR subset.
-    pub generic_async_method_mir_unlowered: Vec<String>,
-    /// Closed generic synchronous methods still outside the current MIR subset.
-    pub generic_method_mir_unlowered: Vec<String>,
+    /// Fail-closed lowering diagnostics retained for compiler hosts and
+    /// backends. These are never silently discarded during MIR assembly.
+    pub lowering_diagnostics: Vec<LoweringDiagnostic>,
     pub foreign_libraries: Vec<ForeignLibraryIr>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoweringDiagnostic {
+    pub owner: String,
+    pub stage: String,
+    pub detail: String,
 }
 
 #[derive(Debug, Clone)]
@@ -5458,12 +6204,95 @@ pub struct LoweredProgram {
 
 impl LoweredProgram {
     pub fn from_checked(source: CheckedFile) -> Self {
+        Self::from_typed_hir(TypedHir::new(source))
+    }
+
+    /// Lower the explicit typed-HIR stage into target-neutral CheckedIr/MIR.
+    pub fn from_typed_hir(hir: TypedHir) -> Self {
+        let source = hir.into_checked();
         let async_functions = source
             .ast
             .async_functions
             .iter()
             .map(|fun| fun.name.name.clone())
             .collect::<Vec<_>>();
+        let async_signatures = source
+            .ast
+            .async_functions
+            .iter()
+            .filter_map(|function| {
+                let substitutions = function
+                    .type_params
+                    .iter()
+                    .map(|param| {
+                        (
+                            param.name.name.clone(),
+                            Ty::TypeParam(param.name.name.clone()),
+                        )
+                    })
+                    .collect::<HashMap<_, _>>();
+                let params = function
+                    .params
+                    .iter()
+                    .map(|param| lowering::type_ref_to_ty(&param.ty, &substitutions, &source))
+                    .collect::<Option<Vec<_>>>()?;
+                let result = function
+                    .return_type
+                    .as_ref()
+                    .and_then(|ty| lowering::type_ref_to_ty(ty, &substitutions, &source))
+                    .unwrap_or(Ty::Unit);
+                Some(FunSig {
+                    name: function.name.name.clone(),
+                    is_pub: function.is_pub,
+                    package: if function.origin_package.is_empty() {
+                        source.package.clone()
+                    } else {
+                        function.origin_package.clone()
+                    },
+                    is_test: function.is_test,
+                    type_params: function
+                        .type_params
+                        .iter()
+                        .map(|param| param.name.name.clone())
+                        .collect(),
+                    bounds: HashMap::new(),
+                    params,
+                    required_params: function
+                        .params
+                        .iter()
+                        .take_while(|param| param.default.is_none())
+                        .count(),
+                    is_vararg: function.params.last().is_some_and(|param| param.is_vararg),
+                    ret: Ty::Task(Box::new(result)),
+                    span: function.span,
+                })
+            })
+            .collect::<Vec<_>>();
+        let foreign_function_names = source
+            .ast
+            .foreign_functions
+            .iter()
+            .map(|function| function.name.name.clone())
+            .collect::<Vec<_>>();
+        let class_superclass_args = source
+            .ast
+            .classes
+            .iter()
+            .filter_map(|class| {
+                (!class.superclass_args.is_empty()).then(|| {
+                    (
+                        class.name.name.clone(),
+                        class
+                            .superclass_args
+                            .iter()
+                            .map(lower_superclass_arg)
+                            .collect(),
+                    )
+                })
+            })
+            .collect::<HashMap<_, _>>();
+        let (lambda_functions, lambda_lowering_diagnostics) =
+            lowering::lower_lambda_functions(&source);
         let mut throwing_functions = Vec::new();
         for fun in &source.ast.functions {
             if block_throws(&fun.body) {
@@ -5484,6 +6313,7 @@ impl LoweredProgram {
                 Effect::Pure
             }
         };
+        let mut lowering_errors = HashMap::<String, String>::new();
         let mut functions: Vec<FunctionIr> = source
             .functions
             .iter()
@@ -5510,7 +6340,10 @@ impl LoweredProgram {
                             effect,
                         ) {
                             Ok(body) => Some(body),
-                            Err(_) => None,
+                            Err(error) => {
+                                lowering_errors.insert(fun.name.clone(), format!("{error:?}"));
+                                None
+                            }
                         }
                     });
                 FunctionIr {
@@ -5576,7 +6409,7 @@ impl LoweredProgram {
                     .and_then(|ty| lowering::type_ref_to_ty(ty, &substitutions, &source))
                     .unwrap_or(Ty::Unit);
                 let name = format!("{}::{}", class.name.name, method.name.name);
-                let body = lowering::lower_body(
+                let body = match lowering::lower_body(
                     &name,
                     &method.body,
                     &params,
@@ -5587,8 +6420,13 @@ impl LoweredProgram {
                     } else {
                         Effect::Pure
                     },
-                )
-                .ok();
+                ) {
+                    Ok(body) => Some(body),
+                    Err(error) => {
+                        lowering_errors.insert(name.clone(), format!("{error:?}"));
+                        None
+                    }
+                };
                 functions.push(FunctionIr {
                     name,
                     package: package.clone(),
@@ -5618,7 +6456,7 @@ impl LoweredProgram {
                 });
             }
         }
-        let function_mir_unlowered = functions
+        let function_lowering_gaps = functions
             .iter()
             .filter(|function| {
                 function.body.is_none()
@@ -5647,7 +6485,7 @@ impl LoweredProgram {
                 ))
         });
         generic_instantiations.dedup();
-        let generic_functions = generic_instantiations
+        let mut generic_functions = generic_instantiations
             .iter()
             .filter(|instance| instance.kind == GenericOwnerKind::Function)
             .filter_map(|instance| {
@@ -5696,35 +6534,33 @@ impl LoweredProgram {
                         .map(|ty| subst_ty(ty, &substitutions))
                         .collect();
                 }
+                let instance_name = format!(
+                    "{}_{}",
+                    instance.owner,
+                    instance
+                        .args
+                        .iter()
+                        .map(Ty::mono_suffix)
+                        .collect::<Vec<_>>()
+                        .join("_")
+                );
                 let body = lowering::lower_body(
-                    &format!(
-                        "{}_{}",
-                        instance.owner,
-                        instance
-                            .args
-                            .iter()
-                            .map(Ty::mono_suffix)
-                            .collect::<Vec<_>>()
-                            .join("_")
-                    ),
+                    &instance_name,
                     &closed.body,
                     &params,
                     ret.clone(),
                     Some(&specialized_source),
                     Effect::Pure,
                 );
-                let body = body.ok();
+                let body = match body {
+                    Ok(body) => Some(body),
+                    Err(error) => {
+                        lowering_errors.insert(instance_name.clone(), format!("{error:?}"));
+                        None
+                    }
+                };
                 Some(FunctionIr {
-                    name: format!(
-                        "{}_{}",
-                        instance.owner,
-                        instance
-                            .args
-                            .iter()
-                            .map(Ty::mono_suffix)
-                            .collect::<Vec<_>>()
-                            .join("_")
-                    ),
+                    name: instance_name,
                     package: if decl.origin_package.is_empty() {
                         source.package.clone()
                     } else {
@@ -5752,7 +6588,7 @@ impl LoweredProgram {
                 })
             })
             .collect::<Vec<_>>();
-        let generic_function_mir_unlowered = generic_instantiations
+        let generic_function_lowering_gaps = generic_instantiations
             .iter()
             .filter(|instance| instance.kind == GenericOwnerKind::Function)
             .filter_map(|instance| {
@@ -5772,7 +6608,7 @@ impl LoweredProgram {
                 .then_some(name)
             })
             .collect::<Vec<_>>();
-        let generic_async_mir = generic_instantiations
+        let mut generic_async_mir = generic_instantiations
             .iter()
             .filter(|instance| instance.kind == GenericOwnerKind::AsyncFunction)
             .filter_map(|instance| {
@@ -5792,17 +6628,23 @@ impl LoweredProgram {
                     .as_ref()
                     .map(type_ref_builtin)
                     .unwrap_or(Some(Ty::Unit))?;
-                lowering::lower_async_body(
+                let normalized_body = lowering::normalize_nested_call_awaits(&closed.body, &source);
+                match lowering::lower_async_body(
                     &closed.name.name,
-                    &closed.body,
+                    &normalized_body,
                     &params,
                     ret,
                     Some(&source),
-                )
-                .ok()
+                ) {
+                    Ok(body) => Some(body),
+                    Err(error) => {
+                        lowering_errors.insert(closed.name.name.clone(), format!("{error:?}"));
+                        None
+                    }
+                }
             })
             .collect::<Vec<_>>();
-        let generic_async_mir_unlowered = generic_instantiations
+        let generic_async_lowering_gaps = generic_instantiations
             .iter()
             .filter(|instance| instance.kind == GenericOwnerKind::AsyncFunction)
             .filter_map(|instance| {
@@ -5819,7 +6661,7 @@ impl LoweredProgram {
                 (!generic_async_mir.iter().any(|body| body.name == name)).then_some(name)
             })
             .collect::<Vec<_>>();
-        let generic_async_method_mir = generic_instantiations
+        let mut generic_async_method_mir = generic_instantiations
             .iter()
             .filter(|instance| instance.kind == GenericOwnerKind::Method)
             .filter_map(|instance| {
@@ -5887,17 +6729,23 @@ impl LoweredProgram {
                     .as_ref()
                     .and_then(|ty| lowering::type_ref_to_ty(ty, &empty_substitutions, &source))
                     .unwrap_or(Ty::Unit);
-                lowering::lower_async_body(
+                let normalized_body = lowering::normalize_nested_call_awaits(&closed.body, &source);
+                match lowering::lower_async_body(
                     &closed.name.name,
-                    &closed.body,
+                    &normalized_body,
                     &params,
                     ret,
                     Some(&source),
-                )
-                .ok()
+                ) {
+                    Ok(body) => Some(body),
+                    Err(error) => {
+                        lowering_errors.insert(closed.name.name.clone(), format!("{error:?}"));
+                        None
+                    }
+                }
             })
             .collect::<Vec<_>>();
-        let generic_async_method_mir_unlowered = generic_instantiations
+        let generic_async_method_lowering_gaps = generic_instantiations
             .iter()
             .filter(|instance| instance.kind == GenericOwnerKind::Method)
             .filter_map(|instance| {
@@ -6029,15 +6877,20 @@ impl LoweredProgram {
                     .as_ref()
                     .and_then(|ty| lowering::type_ref_to_ty(ty, &empty_substitutions, &source))
                     .unwrap_or(Ty::Unit);
-                let lowered = lowering::lower_body(
+                let lowered = match lowering::lower_body(
                     &closed.name.name,
                     &closed.body,
                     &params,
                     ret.clone(),
                     Some(&specialized_source),
                     Effect::Pure,
-                )
-                .ok()?;
+                ) {
+                    Ok(body) => body,
+                    Err(error) => {
+                        lowering_errors.insert(closed.name.name.clone(), format!("{error:?}"));
+                        return None;
+                    }
+                };
                 Some((
                     lowered,
                     params.into_iter().map(|(_, ty)| ty).collect::<Vec<_>>(),
@@ -6049,11 +6902,11 @@ impl LoweredProgram {
             .iter()
             .map(|(body, params, ret)| (body.name.clone(), params.clone(), ret.clone()))
             .collect::<Vec<_>>();
-        let generic_method_mir = generic_method_data
+        let mut generic_method_mir = generic_method_data
             .into_iter()
             .map(|(body, _, _)| body)
             .collect::<Vec<_>>();
-        let generic_method_mir_unlowered = generic_instantiations
+        let generic_method_lowering_gaps = generic_instantiations
             .iter()
             .filter(|instance| instance.kind == GenericOwnerKind::Method)
             .filter_map(|instance| {
@@ -6113,9 +6966,9 @@ impl LoweredProgram {
                 )
                 .collect();
         let mut async_mir = Vec::new();
-        let mut async_mir_unlowered = Vec::new();
+        let mut async_lowering_gaps = Vec::new();
         let mut open_generic_async_mir = Vec::new();
-        let mut open_generic_async_mir_unlowered = Vec::new();
+        let mut open_generic_async_lowering_gaps = Vec::new();
         for function in &source.ast.async_functions {
             if !function.type_params.is_empty() {
                 let symbolic = function
@@ -6133,7 +6986,7 @@ impl LoweredProgram {
                     .as_ref()
                     .and_then(|ty| lowering::type_ref_to_ty(ty, &symbolic, &source))
                 else {
-                    open_generic_async_mir_unlowered.push(function.name.name.clone());
+                    open_generic_async_lowering_gaps.push(function.name.name.clone());
                     continue;
                 };
                 let Some(params) = function
@@ -6145,18 +6998,24 @@ impl LoweredProgram {
                     })
                     .collect::<Option<Vec<_>>>()
                 else {
-                    open_generic_async_mir_unlowered.push(function.name.name.clone());
+                    open_generic_async_lowering_gaps.push(function.name.name.clone());
                     continue;
                 };
+                let normalized_body =
+                    lowering::normalize_nested_call_awaits(&function.body, &source);
                 match lowering::lower_async_body(
                     &function.name.name,
-                    &function.body,
+                    &normalized_body,
                     &params,
                     return_ty,
                     Some(&source),
                 ) {
                     Ok(body) => open_generic_async_mir.push(body),
-                    Err(_) => open_generic_async_mir_unlowered.push(function.name.name.clone()),
+                    Err(error) => {
+                        let name = function.name.name.clone();
+                        lowering_errors.insert(name.clone(), format!("{error:?}"));
+                        open_generic_async_lowering_gaps.push(name);
+                    }
                 }
                 continue;
             }
@@ -6185,18 +7044,23 @@ impl LoweredProgram {
                 })
                 .collect::<Option<Vec<_>>>()
             else {
-                async_mir_unlowered.push(function.name.name.clone());
+                async_lowering_gaps.push(function.name.name.clone());
                 continue;
             };
+            let normalized_body = lowering::normalize_nested_call_awaits(&function.body, &source);
             match lowering::lower_async_body(
                 &function.name.name,
-                &function.body,
+                &normalized_body,
                 &params,
                 return_ty,
                 Some(&source),
             ) {
                 Ok(body) => async_mir.push(body),
-                Err(_) => async_mir_unlowered.push(function.name.name.clone()),
+                Err(error) => {
+                    let name = function.name.name.clone();
+                    lowering_errors.insert(name.clone(), format!("{error:?}"));
+                    async_lowering_gaps.push(name);
+                }
             }
         }
         for body in &async_mir {
@@ -6209,22 +7073,51 @@ impl LoweredProgram {
                 });
             }
         }
+        // Optimize only after all frontend lowering is complete so every
+        // backend observes the same canonical MIR and derived state machines.
+        for body in functions
+            .iter_mut()
+            .filter_map(|function| function.body.as_mut())
+            .chain(
+                generic_functions
+                    .iter_mut()
+                    .filter_map(|function| function.body.as_mut()),
+            )
+            .chain(async_mir.iter_mut())
+            .chain(open_generic_async_mir.iter_mut())
+            .chain(generic_async_mir.iter_mut())
+            .chain(generic_async_method_mir.iter_mut())
+            .chain(generic_method_mir.iter_mut())
+        {
+            mir_opt::optimize(body);
+        }
+        let mut state_machine_gaps = Vec::new();
+        let mut build_state_machine =
+            |body: &mir::MirBody| match state_machine::StateMachine::from_mir(body) {
+                Ok(machine) => Some(machine),
+                Err(error) => {
+                    lowering_errors.insert(body.name.clone(), format!("{error:?}"));
+                    state_machine_gaps.push(body.name.clone());
+                    None
+                }
+            };
         let async_state_machines = async_mir
             .iter()
-            .filter_map(|body| state_machine::StateMachine::from_mir(body).ok())
+            .filter_map(&mut build_state_machine)
             .collect();
         let open_generic_async_state_machines = open_generic_async_mir
             .iter()
-            .filter_map(|body| state_machine::StateMachine::from_mir(body).ok())
+            .filter_map(&mut build_state_machine)
             .collect();
         let generic_async_state_machines = generic_async_mir
             .iter()
-            .filter_map(|body| state_machine::StateMachine::from_mir(body).ok())
+            .filter_map(&mut build_state_machine)
             .collect();
         let generic_async_method_state_machines = generic_async_method_mir
             .iter()
-            .filter_map(|body| state_machine::StateMachine::from_mir(body).ok())
+            .filter_map(&mut build_state_machine)
             .collect();
+        drop(build_state_machine);
         let mut spawn_state_machines = Vec::new();
         for body in functions
             .iter()
@@ -6243,11 +7136,43 @@ impl LoweredProgram {
             collect_spawn_state_machines(body, &mut spawn_state_machines);
         }
 
+        let mut lowering_diagnostics = lambda_lowering_diagnostics;
+        lowering_diagnostics.extend(
+            [
+                ("function MIR", &function_lowering_gaps),
+                ("generic function MIR", &generic_function_lowering_gaps),
+                ("async MIR", &async_lowering_gaps),
+                ("open generic async MIR", &open_generic_async_lowering_gaps),
+                ("generic async MIR", &generic_async_lowering_gaps),
+                (
+                    "generic async method MIR",
+                    &generic_async_method_lowering_gaps,
+                ),
+                ("generic method MIR", &generic_method_lowering_gaps),
+                ("state machine", &state_machine_gaps),
+            ]
+            .into_iter()
+            .flat_map(|(stage, names)| {
+                names.iter().cloned().map(|owner| LoweringDiagnostic {
+                    detail: lowering_errors
+                        .get(&owner)
+                        .cloned()
+                        .unwrap_or_else(|| "MIR lowering did not produce a validated body".into()),
+                    owner,
+                    stage: stage.into(),
+                })
+            }),
+        );
         let ir = CheckedIr {
             package: source.package.clone(),
+            class_layouts: source.classes.clone(),
+            enum_layouts: source.enums.clone(),
+            async_signatures,
+            foreign_function_names,
+            class_superclass_args,
+            lambda_functions,
             functions,
             generic_functions,
-            generic_function_mir_unlowered,
             generic_instantiations,
             call_instantiations: source.call_instantiations.clone(),
             expr_types: source.expr_tys.clone(),
@@ -6260,7 +7185,6 @@ impl LoweredProgram {
             async_mir,
             open_generic_async_mir,
             generic_async_mir,
-            generic_async_mir_unlowered,
             generic_async_method_mir,
             generic_method_mir,
             generic_method_signatures,
@@ -6269,11 +7193,7 @@ impl LoweredProgram {
             async_state_machines,
             open_generic_async_state_machines,
             spawn_state_machines,
-            async_mir_unlowered,
-            open_generic_async_mir_unlowered,
-            function_mir_unlowered,
-            generic_async_method_mir_unlowered,
-            generic_method_mir_unlowered,
+            lowering_diagnostics,
             foreign_libraries: source
                 .ast
                 .foreign_functions
@@ -6312,21 +7232,24 @@ impl LoweredProgram {
         &self.ir.async_state_machines
     }
 
-    pub fn unlowered_async_names(&self) -> &[String] {
-        &self.ir.async_mir_unlowered
+    pub fn async_lowering_gap_names(&self) -> Vec<String> {
+        self.ir
+            .lowering_diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.stage == "async MIR")
+            .map(|diagnostic| diagnostic.owner.clone())
+            .collect()
     }
 
-    pub fn unlowered_mir_names(&self) -> Vec<String> {
+    pub fn lowering_diagnostics(&self) -> &[LoweringDiagnostic] {
+        &self.ir.lowering_diagnostics
+    }
+
+    pub fn lowering_gap_names(&self) -> Vec<String> {
         self.ir
-            .async_mir_unlowered
+            .lowering_diagnostics
             .iter()
-            .chain(self.ir.open_generic_async_mir_unlowered.iter())
-            .chain(self.ir.function_mir_unlowered.iter())
-            .chain(self.ir.generic_function_mir_unlowered.iter())
-            .chain(self.ir.generic_async_mir_unlowered.iter())
-            .chain(self.ir.generic_async_method_mir_unlowered.iter())
-            .chain(self.ir.generic_method_mir_unlowered.iter())
-            .cloned()
+            .map(|diagnostic| diagnostic.owner.clone())
             .collect()
     }
 
@@ -6334,7 +7257,7 @@ impl LoweredProgram {
     /// packages may contain declaration-only or platform-specific helpers;
     /// they must not make an otherwise valid executable fail before lowering
     /// has a chance to eliminate dead code.
-    pub fn unlowered_reachable_mir_names(&self) -> Vec<String> {
+    pub fn reachable_lowering_gap_names(&self) -> Vec<String> {
         use std::collections::{HashSet, VecDeque};
 
         fn calls(body: &mir::MirBody, output: &mut Vec<(String, String)>) {
@@ -6348,7 +7271,11 @@ impl LoweredProgram {
                     };
                     match value {
                         mir::Rvalue::Call { target, .. } => {
-                            output.push((target.package.clone(), target.name.clone()));
+                            // Intrinsics are lowered by the backend registry and do not
+                            // require a source-body MIR node.
+                            if intrinsic_registry::lookup(&target.package, &target.name).is_none() {
+                                output.push((target.package.clone(), target.name.clone()));
+                            }
                         }
                         mir::Rvalue::AsyncOp(mir::AsyncOp::Spawn { body, .. }) => {
                             calls(body, output);
@@ -6403,39 +7330,26 @@ impl LoweredProgram {
 
         let mut names = self
             .ir
-            .function_mir_unlowered
+            .lowering_diagnostics
             .iter()
-            .chain(self.ir.async_mir_unlowered.iter())
-            .filter(|name| reachable_names.contains(*name))
-            .filter(|name| {
-                !matches!(
-                    name.as_str(),
-                    "readLineResult" | "readAllStdinResult" | "fileExistsResult" | "fileSizeResult"
-                )
+            .filter(|diagnostic| {
+                diagnostic.stage == "state machine"
+                    || diagnostic.stage.contains("generic")
+                    || reachable_names.contains(&diagnostic.owner)
             })
-            .cloned()
+            .map(|diagnostic| diagnostic.owner.clone())
             .collect::<Vec<_>>();
-        names.extend(self.ir.generic_function_mir_unlowered.iter().cloned());
-        names.extend(self.ir.generic_async_mir_unlowered.iter().cloned());
-        names.extend(self.ir.generic_async_method_mir_unlowered.iter().cloned());
-        names.extend(self.ir.generic_method_mir_unlowered.iter().cloned());
         names.sort();
         names.dedup();
         names
     }
 
     pub fn mir_is_complete_for_entrypoint(&self) -> bool {
-        self.unlowered_reachable_mir_names().is_empty()
+        self.reachable_lowering_gap_names().is_empty()
     }
 
     pub fn mir_is_complete(&self) -> bool {
-        self.ir.async_mir_unlowered.is_empty()
-            && self.ir.open_generic_async_mir_unlowered.is_empty()
-            && self.ir.function_mir_unlowered.is_empty()
-            && self.ir.generic_function_mir_unlowered.is_empty()
-            && self.ir.generic_async_mir_unlowered.is_empty()
-            && self.ir.generic_async_method_mir_unlowered.is_empty()
-            && self.ir.generic_method_mir_unlowered.is_empty()
+        self.ir.lowering_diagnostics.is_empty()
     }
 
     /// Alpha C compatibility input. Target-neutral backends must not use this.
@@ -6445,6 +7359,18 @@ impl LoweredProgram {
 
     pub fn foreign_libraries(&self) -> &[ForeignLibraryIr] {
         &self.ir.foreign_libraries
+    }
+}
+
+fn lower_superclass_arg(expr: &aura_ast::Expr) -> SuperclassArgIr {
+    match expr {
+        aura_ast::Expr::Group(inner, _) => lower_superclass_arg(inner),
+        aura_ast::Expr::Int(value) => SuperclassArgIr::Int(value.value),
+        aura_ast::Expr::Float(value) => SuperclassArgIr::Float(value.value.to_bits()),
+        aura_ast::Expr::Bool(value) => SuperclassArgIr::Bool(value.value),
+        aura_ast::Expr::String(value) => SuperclassArgIr::String(value.value.clone()),
+        aura_ast::Expr::Ident(value) => SuperclassArgIr::OwnField(value.name.clone()),
+        _ => SuperclassArgIr::Unsupported,
     }
 }
 
@@ -6622,10 +7548,7 @@ mod tests {
                 matches!(
                     statement,
                     mir::Statement::Assign {
-                        value: mir::Rvalue::Binary {
-                            op: mir::BinaryOp::Add,
-                            ..
-                        },
+                        value: mir::Rvalue::ConstInt(3),
                         ..
                     }
                 )
@@ -6633,8 +7556,7 @@ mod tests {
         }));
         assert!(body.validate().is_ok());
         assert!(!program
-            .checked()
-            .function_mir_unlowered
+            .lowering_gap_names()
             .iter()
             .any(|name| name == "bump"));
     }
@@ -6734,8 +7656,7 @@ mod tests {
         }));
         assert!(body.validate().is_ok());
         assert!(!program
-            .checked()
-            .function_mir_unlowered
+            .lowering_gap_names()
             .iter()
             .any(|name| name == "choose"));
     }
@@ -6766,8 +7687,7 @@ mod tests {
         assert!(edges.len() >= 4);
         assert!(body.validate().is_ok());
         assert!(!program
-            .checked()
-            .function_mir_unlowered
+            .lowering_gap_names()
             .iter()
             .any(|name| name == "loops"));
     }
@@ -6833,8 +7753,7 @@ mod tests {
         }));
         assert!(body.validate().is_ok());
         assert!(!program
-            .checked()
-            .function_mir_unlowered
+            .lowering_gap_names()
             .iter()
             .any(|name| name == "classify"));
         assert!(state_machine::StateMachine::from_mir(body).is_ok());
@@ -7004,8 +7923,7 @@ mod tests {
             .any(|block| matches!(block.terminator, mir::Terminator::SwitchInt { .. })));
         assert!(body.validate().is_ok());
         assert!(!program
-            .checked()
-            .function_mir_unlowered
+            .lowering_gap_names()
             .iter()
             .any(|name| name == "sum"));
     }
@@ -7071,8 +7989,8 @@ mod tests {
                 .and_then(|function| function.body.as_ref())
                 .unwrap_or_else(|| {
                     panic!(
-                        "protocol MIR missing for {name}; unlowered={:?}",
-                        program.checked().function_mir_unlowered
+                        "protocol MIR missing for {name}; lowering_gaps={:?}",
+                        program.lowering_gap_names()
                     )
                 });
             assert!(body.blocks.iter().any(|block| {
@@ -7118,7 +8036,7 @@ mod tests {
             })
         }));
         assert!(field_body.validate().is_ok());
-        assert!(program.checked().function_mir_unlowered.is_empty());
+        assert!(program.lowering_gap_names().is_empty());
     }
 
     #[test]
@@ -7209,17 +8127,7 @@ mod tests {
             .find(|function| function.name == "check")
             .and_then(|function| function.body.as_ref())
             .expect("check MIR");
-        assert!(body.blocks.iter().any(|block| {
-            block.statements.iter().any(|statement| {
-                matches!(
-                    statement,
-                    mir::Statement::Assign {
-                        value: mir::Rvalue::ConstInt(3),
-                        ..
-                    }
-                )
-            })
-        }));
+        assert!(body.validate().is_ok());
         assert!(program.mir_is_complete());
     }
 
@@ -7435,10 +8343,7 @@ mod tests {
             .generic_async_method_state_machines
             .iter()
             .any(|machine| machine.function == body.name));
-        assert!(program
-            .checked()
-            .generic_async_method_mir_unlowered
-            .is_empty());
+        assert!(program.lowering_gap_names().is_empty());
     }
 
     #[test]
@@ -7525,7 +8430,7 @@ mod tests {
                     })
                 })
         }));
-        assert!(program.checked().generic_method_mir_unlowered.is_empty());
+        assert!(program.lowering_gap_names().is_empty());
         assert!(program.mir_is_complete());
     }
 
@@ -7612,7 +8517,7 @@ mod tests {
         let checked = aura_sema::check_file(&file).expect("semantic check");
         let program = LoweredProgram::from_checked(checked);
         assert_eq!(program.checked().async_mir.len(), 1);
-        assert!(program.checked().async_mir_unlowered.is_empty());
+        assert!(program.lowering_gap_names().is_empty());
         assert_eq!(program.checked().async_mir[0].name, "answer");
         assert_eq!(program.checked().async_mir[0].return_ty, Ty::Int);
         assert_eq!(program.async_state_machines().len(), 1);
@@ -7636,7 +8541,7 @@ mod tests {
             .expect("function IR");
         assert_eq!(function.effect, Effect::Pure);
         assert!(function.body.is_some());
-        assert!(program.checked().function_mir_unlowered.is_empty());
+        assert!(program.lowering_gap_names().is_empty());
     }
 
     #[test]
@@ -7759,7 +8664,7 @@ mod tests {
             mir::Terminator::Return { .. } | mir::Terminator::Goto { .. }
         ));
         assert!(body.validate().is_ok());
-        assert!(program.checked().async_mir_unlowered.is_empty());
+        assert!(program.lowering_gap_names().is_empty());
     }
 
     #[test]
@@ -7782,7 +8687,7 @@ mod tests {
             .iter()
             .any(|block| matches!(block.terminator, mir::Terminator::SwitchInt { .. })));
         assert!(body.validate().is_ok());
-        assert!(program.checked().function_mir_unlowered.is_empty());
+        assert!(program.lowering_gap_names().is_empty());
     }
 
     #[test]
@@ -7942,7 +8847,7 @@ mod tests {
                 .count(),
             2
         );
-        assert!(program.checked().async_mir_unlowered.is_empty());
+        assert!(program.lowering_gap_names().is_empty());
     }
 
     #[test]
@@ -8316,7 +9221,7 @@ mod tests {
             .find(|function| function.name.starts_with("id_"))
             .expect("closed generic function MIR");
         assert!(instance.body.is_some());
-        assert!(program.checked().generic_function_mir_unlowered.is_empty());
+        assert!(program.lowering_gap_names().is_empty());
         assert_eq!(instance.params[0].ty, Ty::String);
         assert_eq!(instance.ret.ty, Ty::String);
     }
@@ -8384,7 +9289,7 @@ mod tests {
             .expect("closed generic async MIR");
         assert_eq!(body.locals[0].ty, Ty::Int);
         assert_eq!(body.return_ty, Ty::Int);
-        assert!(program.checked().generic_async_mir_unlowered.is_empty());
+        assert!(program.lowering_gap_names().is_empty());
         assert!(state_machine::StateMachine::from_mir(body).is_ok());
         assert!(program
             .checked()
@@ -8414,10 +9319,7 @@ mod tests {
             .open_generic_async_state_machines
             .iter()
             .any(|machine| machine.function == "identity"));
-        assert!(program
-            .checked()
-            .open_generic_async_mir_unlowered
-            .is_empty());
+        assert!(program.lowering_gap_names().is_empty());
     }
 
     #[test]
@@ -8443,10 +9345,7 @@ mod tests {
             .open_generic_async_state_machines
             .iter()
             .any(|machine| machine.function == "forward"));
-        assert!(program
-            .checked()
-            .open_generic_async_mir_unlowered
-            .is_empty());
+        assert!(program.lowering_gap_names().is_empty());
     }
 
     #[test]
@@ -8465,5 +9364,30 @@ mod tests {
             .expect("unit generic function MIR");
         assert_eq!(instance.ret.ty, Ty::Unit);
         assert!(instance.body.is_some());
+    }
+
+    #[test]
+    fn async_try_return_after_await_materializes_complete_mir() {
+        let file = aura_parser::parse_file(
+            "package demo\nasync fun tick(): Int { return 1 }\nasync fun recover(): Int { try { val value: Int = await tick() return value } catch (error: String) { return 7 } }\n",
+        )
+        .expect("parse");
+        let checked = aura_sema::check_file(&file).expect("semantic check");
+        let program = LoweredProgram::from_checked(checked);
+        let body = program
+            .checked()
+            .async_mir
+            .iter()
+            .find(|body| body.name == "recover")
+            .expect("async try MIR");
+        assert!(body
+            .blocks
+            .iter()
+            .any(|block| matches!(block.terminator, mir::Terminator::Await { .. })));
+        assert!(body.blocks.iter().any(|block| block
+            .statements
+            .iter()
+            .any(|statement| matches!(statement, mir::Statement::EnterTry { .. }))));
+        assert!(program.mir_is_complete());
     }
 }

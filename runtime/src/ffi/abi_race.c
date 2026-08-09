@@ -12,9 +12,6 @@
  * the executor that drives these callbacks.
  */
 
-#define AURA_RT_ABI_VERSION 1u
-#define AURA_RT_ABI_ID "aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1;type=1"
-
 uint32_t aura_runtime_abi_version(void)
 {
   return AURA_RT_ABI_VERSION;
@@ -436,4 +433,3 @@ int aura_race_happens_before(const AuraRaceEvent *before, const AuraRaceEvent *a
 {
   return before != NULL && after != NULL && before->sequence < after->sequence;
 }
-

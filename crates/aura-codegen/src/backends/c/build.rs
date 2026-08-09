@@ -7,12 +7,12 @@ use aura_ir::LoweredProgram;
 use aura_sema::CheckedFile;
 
 use crate::ctx::EmitOptions;
-use crate::driver::{Artifact, CBackend, Driver};
+use crate::driver::{Artifact, CBackendDriver};
 use crate::error::CodegenError;
 use crate::options::{CompileOptions, NativeSource};
 
 pub fn emit_c_from_ast(file: &File) -> Result<String, CodegenError> {
-    Driver::new(CBackend).emit(file, EmitOptions::default())
+    CBackendDriver::emit(file, EmitOptions::default())
 }
 
 pub fn emit_c_from_checked(checked: &CheckedFile) -> String {
@@ -21,7 +21,7 @@ pub fn emit_c_from_checked(checked: &CheckedFile) -> String {
 }
 
 pub fn emit_c_tests_from_ast(file: &File) -> Result<String, CodegenError> {
-    Driver::new(CBackend).emit(
+    CBackendDriver::emit(
         file,
         EmitOptions {
             test: true,
@@ -165,9 +165,7 @@ pub(crate) fn build_from_file_with(
     compile_options: CompileOptions,
     opts: EmitOptions,
 ) -> Result<PathBuf, CodegenError> {
-    Driver::new(CBackend)
-        .build(file, out_bin, runtime_c, compile_options, opts)
-        .map(Artifact::into_path)
+    CBackendDriver::build(file, out_bin, runtime_c, compile_options, opts).map(Artifact::into_path)
 }
 
 #[cfg(test)]

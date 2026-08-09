@@ -93,12 +93,23 @@ jobs:
           (cd "$TMP" && ./aura run hello)
 
   sanitizer:
-    name: Sanitizer smoke (C runtime/codegen)
-    runs-on: ubuntu-latest
+    name: Sanitizer smoke (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux-amd64
+          - os: ubuntu-24.04-arm
+            name: linux-arm64
+          - os: macos-14
+            name: darwin-arm64
     steps:
       - uses: actions/checkout@v4
 
       - name: Install C toolchain
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y build-essential
 
       - uses: dtolnay/rust-toolchain@stable

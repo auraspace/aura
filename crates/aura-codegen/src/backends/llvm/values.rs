@@ -251,7 +251,16 @@ pub(super) fn emit_rvalue(
                     capture.by_ref
                         || capture.ty == Ty::String
                         || is_array_type(&capture.ty)
-                        || matches!(capture.ty, Ty::Class(_) | Ty::ClassApp { .. })
+                        || matches!(
+                            capture.ty,
+                            Ty::Class(_)
+                                | Ty::ClassApp { .. }
+                                | Ty::Enum(_)
+                                | Ty::EnumApp { .. }
+                                | Ty::Task(_)
+                                | Ty::TaskHandle(_)
+                                | Ty::Channel(_)
+                        )
                 }) {
                     format!("@{}", closure_drop_name(name))
                 } else {
@@ -301,7 +310,12 @@ pub(super) fn emit_rvalue(
                             | Ty::Class(_)
                             | Ty::ClassApp { .. }
                             | Ty::Interface(_)
-                            | Ty::InterfaceApp { .. } => "aura_box_ptr_retain",
+                            | Ty::InterfaceApp { .. }
+                            | Ty::Enum(_)
+                            | Ty::EnumApp { .. }
+                            | Ty::Task(_)
+                            | Ty::TaskHandle(_)
+                            | Ty::Channel(_) => "aura_box_ptr_retain",
                             _ => return Err(unsupported("mutable capture type")),
                         };
                         writeln!(out, "  call void @{helper}(ptr {value})").unwrap();
@@ -323,6 +337,14 @@ pub(super) fn emit_rvalue(
                         )
                     {
                         writeln!(out, "  call void @aura_llvm_class_retain(ptr {value})").unwrap();
+                    } else if matches!(capture.ty, Ty::Enum(_) | Ty::EnumApp { .. }) {
+                        writeln!(out, "  call void @aura_llvm_enum_retain(ptr {value})").unwrap();
+                    } else if matches!(capture.ty, Ty::Task(_) | Ty::TaskHandle(_)) {
+                        let executor = next_temp(out);
+                        writeln!(out, "  {executor} = call ptr @aura_llvm_executor()").unwrap();
+                        writeln!(out, "  call i32 @aura_task_executor_retain_payload(ptr {executor}, ptr {value})").unwrap();
+                    } else if matches!(capture.ty, Ty::Channel(_)) {
+                        writeln!(out, "  call i32 @aura_task_channel_retain(ptr {value})").unwrap();
                     }
                     let address = next_temp(out);
                     writeln!(
@@ -2504,10 +2526,18 @@ pub(super) fn emit_rvalue(
                 .unwrap();
                 if let Some(super_args) = context.class_superclass_args.get(&target.name).cloned() {
                     let Some(parent) = context.class_superclasses.get(&target.name) else {
-                        return Err(unsupported("superclass constructor"));
+                        return Err(unsupported(&format!(
+                            "superclass constructor for {}",
+                            target.name
+                        )));
                     };
                     let parent_fields = class_fields(context, parent, &target.type_args)
-                        .ok_or_else(|| unsupported("superclass constructor fields"))?;
+                        .ok_or_else(|| {
+                            unsupported(&format!(
+                                "superclass constructor fields for {} (parent {})",
+                                target.name, parent
+                            ))
+                        })?;
                     if super_args.len() != parent_fields.len() {
                         return Err(unsupported("superclass constructor arity"));
                     }
@@ -2781,8 +2811,13 @@ pub(super) fn emit_rvalue(
                 };
                 let result_ty =
                     result_ty.ok_or_else(|| unsupported("channel receive result type"))?;
-                if *result_ty != **element_ty {
-                    return Err(unsupported("channel receive result type"));
+                let nullable = matches!(result_ty, Ty::Nullable(inner) if inner.as_ref() == element_ty.as_ref());
+                if *result_ty != **element_ty && !nullable {
+                    return Err(unsupported(&format!(
+                        "channel receive result type (channel={}, result={})",
+                        body.locals[args[0].local].ty.display(),
+                        result_ty.display()
+                    )));
                 }
                 let raw_slot = next_temp(out);
                 writeln!(out, "  {raw_slot} = alloca i64").unwrap();
@@ -2795,7 +2830,26 @@ pub(super) fn emit_rvalue(
                 .unwrap();
                 let raw = next_temp(out);
                 writeln!(out, "  {raw} = load i64, ptr {raw_slot}").unwrap();
-                return array_value_from_raw(out, raw, element_ty);
+                let value = array_value_from_raw(out, raw, element_ty)?;
+                if !nullable {
+                    return Ok(value);
+                }
+                let value_ty = llvm_type(element_ty)?;
+                let present = if matches!(element_ty.as_ref(), Ty::Int | Ty::Bool | Ty::Float) {
+                    build_optional_value(out, llvm_type(result_ty)?, &value_ty, &value)
+                } else {
+                    value
+                };
+                let zero = nullable_zero_value(Some(result_ty)).unwrap_or("null");
+                let selected = next_temp(out);
+                writeln!(
+                    out,
+                    "  {selected} = select i1 {received}, {} {present}, {} {zero}",
+                    llvm_type(result_ty)?,
+                    llvm_type(result_ty)?
+                )
+                .unwrap();
+                return Ok(selected);
             }
             if target.name == "get"
                 && args.len() == 2
@@ -2895,6 +2949,11 @@ pub(super) fn emit_rvalue(
                 monomorphized_symbol_for(&context.signatures, target, package, &argument_tys);
             let name = if context.foreign_names.contains(&target.name) {
                 target.name.clone()
+            } else if !target.is_static && !args.is_empty() {
+                method_name
+                    .clone()
+                    .or(generic_name.clone())
+                    .unwrap_or_else(|| symbol_name(&target.package, &target.name))
             } else {
                 generic_name
                     .clone()
@@ -3042,11 +3101,11 @@ pub(super) fn emit_rvalue(
                 writeln!(out, "  {call} = call i32 @puts(ptr {data})").unwrap();
                 return Ok(String::new());
             }
-            let (return_ty, declared_parameter_tys) = generic_name
+            let (return_ty, declared_parameter_tys) = method_name
                 .as_deref()
                 .and_then(|symbol| signature_for_symbol(&context.signatures, symbol))
                 .or_else(|| {
-                    method_name
+                    generic_name
                         .as_deref()
                         .and_then(|symbol| signature_for_symbol(&context.signatures, symbol))
                 })
@@ -4382,7 +4441,7 @@ fn emit_pointer_enum_variant(
 
 fn emit_superclass_arg(
     out: &mut String,
-    expr: &aura_ast::Expr,
+    expr: &SuperclassArgIr,
     own_fields: &[(String, Ty)],
     values: &[String],
     body: &MirBody,
@@ -4390,18 +4449,17 @@ fn emit_superclass_arg(
     context: &mut EmitContext,
 ) -> Result<(String, Ty), CodegenError> {
     match expr {
-        aura_ast::Expr::Group(inner, _) => {
-            emit_superclass_arg(out, inner, own_fields, values, body, package, context)
+        SuperclassArgIr::Int(value) => Ok((value.to_string(), Ty::Int)),
+        SuperclassArgIr::Bool(value) => {
+            Ok((if *value { "true" } else { "false" }.into(), Ty::Bool))
         }
-        aura_ast::Expr::Int(value) => Ok((value.value.to_string(), Ty::Int)),
-        aura_ast::Expr::Bool(value) => {
-            Ok((if value.value { "true" } else { "false" }.into(), Ty::Bool))
+        SuperclassArgIr::Float(value) => {
+            Ok((format_float_constant(f64::from_bits(*value)), Ty::Float))
         }
-        aura_ast::Expr::Float(value) => Ok((format_float_constant(value.value), Ty::Float)),
-        aura_ast::Expr::String(value) => {
+        SuperclassArgIr::String(value) => {
             let rendered = emit_rvalue(
                 out,
-                &Rvalue::ConstString(value.value.clone()),
+                &Rvalue::ConstString(value.clone()),
                 body,
                 Some(&Ty::String),
                 package,
@@ -4409,16 +4467,13 @@ fn emit_superclass_arg(
             )?;
             Ok((rendered, Ty::String))
         }
-        aura_ast::Expr::Ident(identifier) => {
-            let Some(index) = own_fields
-                .iter()
-                .position(|(name, _)| name == &identifier.name)
-            else {
+        SuperclassArgIr::OwnField(name) => {
+            let Some(index) = own_fields.iter().position(|(field, _)| field == name) else {
                 return Err(unsupported("superclass constructor field reference"));
             };
             Ok((values[index].clone(), own_fields[index].1.clone()))
         }
-        _ => Err(unsupported("superclass constructor argument")),
+        SuperclassArgIr::Unsupported => Err(unsupported("superclass constructor argument")),
     }
 }
 
@@ -4605,7 +4660,10 @@ pub(super) fn emit_async_op(
                             | Ty::ClassApp { .. }
                             | Ty::Interface(_)
                             | Ty::InterfaceApp { .. }
-                            | Ty::Fun { .. } => "aura_box_ptr_retain",
+                            | Ty::Fun { .. }
+                            | Ty::Task(_)
+                            | Ty::TaskHandle(_)
+                            | Ty::Channel(_) => "aura_box_ptr_retain",
                             _ => return Err(unsupported("mutable spawn capture type")),
                         };
                         writeln!(out, "  call void @{helper}(ptr {})", value).unwrap();
@@ -4962,8 +5020,14 @@ pub(super) fn emit_async_op(
                 return Err(unsupported("receiving from a non-channel value"));
             };
             let result_ty = result_ty.ok_or_else(|| unsupported("channel receive result type"))?;
-            if *result_ty != **element_ty {
-                return Err(unsupported("channel receive result type"));
+            let nullable =
+                matches!(result_ty, Ty::Nullable(inner) if inner.as_ref() == element_ty.as_ref());
+            if *result_ty != **element_ty && !nullable {
+                return Err(unsupported(&format!(
+                    "channel receive result type (channel={}, result={})",
+                    channel_ty.display(),
+                    result_ty.display()
+                )));
             }
             if **element_ty == Ty::Unit {
                 return Err(unsupported("Unit channel values"));
@@ -4979,7 +5043,26 @@ pub(super) fn emit_async_op(
             .unwrap();
             let raw = next_temp(out);
             writeln!(out, "  {raw} = load i64, ptr {raw_slot}").unwrap();
-            array_value_from_raw(out, raw, element_ty)
+            let value = array_value_from_raw(out, raw, element_ty)?;
+            if !nullable {
+                return Ok(value);
+            }
+            let value_ty = llvm_type(element_ty)?;
+            let present = if matches!(element_ty.as_ref(), Ty::Int | Ty::Bool | Ty::Float) {
+                build_optional_value(out, llvm_type(result_ty)?, &value_ty, &value)
+            } else {
+                value
+            };
+            let zero = nullable_zero_value(Some(result_ty)).unwrap_or("null");
+            let result = next_temp(out);
+            writeln!(
+                out,
+                "  {result} = select i1 {received}, {} {present}, {} {zero}",
+                llvm_type(result_ty)?,
+                llvm_type(result_ty)?
+            )
+            .unwrap();
+            Ok(result)
         }
         AsyncOp::ChannelClose(channel) => {
             let channel_value = load_place(out, *channel, body)?;
@@ -5121,11 +5204,26 @@ pub(super) fn store_place(
             } else {
                 let drop = if is_array_type(&body.locals[place.local].ty) {
                     "@aura_llvm_array_release"
+                } else if matches!(body.locals[place.local].ty, Ty::Task(_) | Ty::TaskHandle(_)) {
+                    "@aura_llvm_task_box_drop"
+                } else if matches!(body.locals[place.local].ty, Ty::Channel(_)) {
+                    "@aura_task_channel_destroy"
                 } else {
                     "@aura_llvm_class_release"
                 };
                 (value.to_string(), drop)
             };
+            if matches!(body.locals[place.local].ty, Ty::Task(_) | Ty::TaskHandle(_)) {
+                let executor = next_temp(out);
+                writeln!(out, "  {executor} = call ptr @aura_llvm_executor()").unwrap();
+                writeln!(
+                    out,
+                    "  call i32 @aura_task_executor_retain_payload(ptr {executor}, ptr {value})"
+                )
+                .unwrap();
+            } else if matches!(body.locals[place.local].ty, Ty::Channel(_)) {
+                writeln!(out, "  call i32 @aura_task_channel_retain(ptr {value})").unwrap();
+            }
             writeln!(
                 out,
                 "  call ptr @aura_box_ptr_set(ptr {box_value}, ptr {stored}, ptr {drop})"
@@ -5173,6 +5271,11 @@ fn is_pointer_box_type(ty: &Ty) -> bool {
             | Ty::ClassApp { .. }
             | Ty::Interface(_)
             | Ty::InterfaceApp { .. }
+            | Ty::Enum(_)
+            | Ty::EnumApp { .. }
+            | Ty::Task(_)
+            | Ty::TaskHandle(_)
+            | Ty::Channel(_)
     )
 }
 
@@ -5316,6 +5419,9 @@ pub(super) fn is_pointer_value_type(ty: &Ty) -> bool {
             | Ty::Enum(_)
             | Ty::EnumApp { .. }
             | Ty::ForeignHandle(_)
+            | Ty::Task(_)
+            | Ty::TaskHandle(_)
+            | Ty::Channel(_)
             | Ty::TypeParam(_)
     )
 }
@@ -5353,6 +5459,20 @@ pub(super) fn retain_pointer_value(
         | Ty::InterfaceApp { .. }
         | Ty::ForeignHandle(_) => "aura_llvm_class_retain",
         Ty::Enum(_) | Ty::EnumApp { .. } => "aura_llvm_enum_retain",
+        Ty::Task(_) | Ty::TaskHandle(_) => {
+            let executor = next_temp(out);
+            writeln!(out, "  {executor} = call ptr @aura_llvm_executor()").unwrap();
+            writeln!(
+                out,
+                "  call i32 @aura_task_executor_retain_payload(ptr {executor}, ptr {value})"
+            )
+            .unwrap();
+            return Ok(());
+        }
+        Ty::Channel(_) => {
+            writeln!(out, "  call i32 @aura_task_channel_retain(ptr {value})").unwrap();
+            return Ok(());
+        }
         _ => return Err(unsupported("non-pointer value")),
     };
     writeln!(out, "  call void @{helper}(ptr {value})").unwrap();
@@ -5377,7 +5497,30 @@ pub(super) fn release_raw_value(out: &mut String, raw: &str, ty: &Ty) -> Result<
         | Ty::InterfaceApp { .. }
         | Ty::ForeignHandle(_) => "aura_llvm_class_release",
         Ty::Enum(_) | Ty::EnumApp { .. } => "aura_llvm_enum_release",
-        _ => return Err(unsupported("non-pointer value")),
+        _ => {
+            if matches!(ty, Ty::Task(_) | Ty::TaskHandle(_)) {
+                let pointer = next_temp(out);
+                writeln!(out, "  {pointer} = inttoptr i64 {raw} to ptr").unwrap();
+                let holder = next_temp(out);
+                writeln!(out, "  {holder} = alloca ptr").unwrap();
+                writeln!(out, "  store ptr {pointer}, ptr {holder}").unwrap();
+                let executor = next_temp(out);
+                writeln!(out, "  {executor} = call ptr @aura_llvm_executor()").unwrap();
+                writeln!(
+                    out,
+                    "  call i32 @aura_task_executor_release_payload(ptr {executor}, ptr {holder})"
+                )
+                .unwrap();
+                return Ok(());
+            }
+            if matches!(ty, Ty::Channel(_)) {
+                let pointer = next_temp(out);
+                writeln!(out, "  {pointer} = inttoptr i64 {raw} to ptr").unwrap();
+                writeln!(out, "  call void @aura_task_channel_destroy(ptr {pointer})").unwrap();
+                return Ok(());
+            }
+            return Err(unsupported("non-pointer value"));
+        }
     };
     let pointer = next_temp(out);
     writeln!(out, "  {pointer} = inttoptr i64 {raw} to ptr").unwrap();

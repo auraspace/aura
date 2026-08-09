@@ -5,9 +5,11 @@ provides the compiler/runtime ABI for memory management, exceptions, tasks,
 channels, native I/O, HTTP, FFI handles, and selected standard-library
 primitives.
 
-The runtime currently builds as one translation unit. `runtime.c` includes the
-subsystem sources in dependency order, so a generated program only needs to
-compile its generated C file together with `runtime/runtime.c`.
+The runtime is shipped both as the compatibility translation unit and as
+linkable static artifacts. `runtime.c` remains the source fallback for embedded
+CLI installs; `make` produces `libaurart.a` for C and `make llvm` produces
+`libaurart-llvm.a` for LLVM. The archives can be linked directly without
+recompiling the runtime for every Aura program.
 
 ## Build Contract
 
@@ -15,6 +17,14 @@ The current native build is conceptually:
 
 ```text
 generated Aura C + runtime/runtime.c + foreign libraries -> native executable
+
+or:
+
+generated Aura C + runtime/libaurart.a + foreign libraries -> native executable
+
+or:
+
+generated Aura LLVM + runtime/libaurart-llvm.a + foreign libraries -> native executable
 ```
 
 Keeping one runtime translation unit has a few deliberate properties:
@@ -24,6 +34,12 @@ Keeping one runtime translation unit has a few deliberate properties:
   runtime.
 - Installed CLI builds can embed and restore the exact runtime source set.
 - LTO can optimize across generated code and runtime code when enabled.
+
+## Linkable Artifact
+
+Build the C archive with `make` and the LLVM archive with `make llvm`. Set
+`AURA_RUNTIME_LIB` for C or `AURA_LLVM_RUNTIME_LIB` for LLVM; without those
+variables, the source compatibility path remains available.
 
 The include order in `runtime.c` is therefore part of the build contract. A
 module may use declarations from earlier modules, but should not depend on a
@@ -35,6 +51,7 @@ header introduced by a future refactor.
 ```text
 runtime/
 |-- runtime.c          # Translation-unit entrypoint and include order
+|-- aura_runtime_abi.h # Versioned compiler/runtime ABI identity
 |-- aura_ffi.h         # Public ABI for native/foreign callers
 |-- src/
 |   |-- core/           # Preamble, primitives, exceptions, process
@@ -103,7 +120,8 @@ There are two related but distinct contracts:
 
 1. **Compiler/runtime ABI**: symbols, layouts, and callbacks emitted by
    `aura-codegen` and implemented by the runtime. Its identity and version live
-   in `../crates/aura-codegen/src/runtime_abi.rs`.
+   in `../crates/aura-ir/src/intrinsic_registry.rs` and are exported through
+   `aura_runtime_abi.h`.
 2. **Foreign C ABI**: supported handles, views, callbacks, and operations
    declared in `aura_ffi.h` for native integrations.
 

@@ -4,7 +4,6 @@ use std::process::Command;
 
 use aura_ir::LoweredProgram;
 
-use crate::ctx::EmitOptions;
 use crate::driver::{Artifact, Backend, BackendBuildOptions, BackendCapabilities};
 use crate::error::CodegenError;
 
@@ -41,36 +40,47 @@ impl LlvmBackend {
         }
         command.arg(&ir_path);
         let runtime = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime/runtime.c");
+        let runtime_archive = std::env::var_os("AURA_LLVM_RUNTIME_LIB").map(PathBuf::from);
         let exceptions_header =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime/llvm_exceptions.h");
-        if !runtime.is_file() {
-            return Err(CodegenError::Configuration(
-                "LLVM runtime source is missing".into(),
-            ));
+        if let Some(runtime_archive) = runtime_archive {
+            if !runtime_archive.is_file() {
+                return Err(CodegenError::Configuration(format!(
+                    "LLVM runtime archive is missing: {}",
+                    runtime_archive.display()
+                )));
+            }
+            command.arg("-x").arg("none");
+            command.arg(runtime_archive);
+        } else {
+            if !runtime.is_file() {
+                return Err(CodegenError::Configuration(
+                    "LLVM runtime source is missing".into(),
+                ));
+            }
+            if !exceptions_header.is_file() {
+                return Err(CodegenError::Configuration(
+                    "LLVM exception runtime header is missing".into(),
+                ));
+            }
+            command
+                .arg("-x")
+                .arg("c")
+                .args(["-include", "stdio.h"])
+                .args(["-include", "stdlib.h"])
+                .args(["-include", "string.h"])
+                .args(["-include", "setjmp.h"])
+                .args(["-include", "stdint.h"])
+                .args(["-include", "stdbool.h"])
+                .args(["-include", "errno.h"])
+                .arg("-Wno-implicit-function-declaration")
+                .arg("-DAURA_LLVM_RUNTIME")
+                .arg("-DAURA_RUNTIME_NO_MAIN")
+                .arg("-include")
+                .arg(exceptions_header)
+                .arg(runtime);
         }
-        if !exceptions_header.is_file() {
-            return Err(CodegenError::Configuration(
-                "LLVM exception runtime header is missing".into(),
-            ));
-        }
-        command
-            .arg("-x")
-            .arg("c")
-            .args(["-include", "stdio.h"])
-            .args(["-include", "stdlib.h"])
-            .args(["-include", "string.h"])
-            .args(["-include", "setjmp.h"])
-            .args(["-include", "stdint.h"])
-            .args(["-include", "stdbool.h"])
-            .args(["-include", "errno.h"])
-            .arg("-Wno-implicit-function-declaration")
-            .arg("-DAURA_LLVM_RUNTIME")
-            .arg("-DAURA_RUNTIME_NO_MAIN")
-            .arg("-include")
-            .arg(exceptions_header)
-            .arg(runtime)
-            .arg("-o")
-            .arg(out_bin);
+        command.arg("-o").arg(out_bin);
         for foreign in program.foreign_libraries() {
             command.arg(format!("-l{}", foreign.library));
         }
@@ -92,13 +102,11 @@ impl Backend for LlvmBackend {
     fn capabilities(&self) -> BackendCapabilities {
         BackendCapabilities {
             requires_complete_mir: true,
-            accepts_alpha_source: false,
-            requires_legacy_c_inputs: false,
             supports_native_compile: true,
         }
     }
 
-    fn emit(&self, program: &LoweredProgram, _opts: EmitOptions) -> String {
+    fn emit_ir(&self, program: &LoweredProgram, _opts: crate::driver::BackendOptions) -> String {
         Self::emit_module(program).unwrap_or_else(|error| format!("; LLVM emission error: {error}"))
     }
 

@@ -254,6 +254,22 @@ pub fn resolve_runtime_c() -> Result<PathBuf, String> {
     materialize_embedded()
 }
 
+/// Resolve a prebuilt runtime archive when requested, otherwise use the
+/// embedded source compatibility path.
+pub fn resolve_runtime_input() -> Result<PathBuf, String> {
+    if let Ok(path) = env::var("AURA_RUNTIME_LIB") {
+        let path = PathBuf::from(path);
+        if path.is_file() {
+            return Ok(path.canonicalize().unwrap_or(path));
+        }
+        return Err(format!(
+            "error: AURA_RUNTIME_LIB is set but is not a file: {}",
+            path.display()
+        ));
+    }
+    resolve_runtime_c()
+}
+
 fn disk_candidates() -> Vec<PathBuf> {
     let mut out = vec![
         // In-tree when developing from the monorepo.

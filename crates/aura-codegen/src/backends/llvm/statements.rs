@@ -45,7 +45,12 @@ pub(super) fn emit_statement(
                     | Ty::Class(_)
                     | Ty::ClassApp { .. }
                     | Ty::Interface(_)
-                    | Ty::InterfaceApp { .. } => "aura_box_ptr_release",
+                    | Ty::InterfaceApp { .. }
+                    | Ty::Enum(_)
+                    | Ty::EnumApp { .. }
+                    | Ty::Task(_)
+                    | Ty::TaskHandle(_)
+                    | Ty::Channel(_) => "aura_box_ptr_release",
                     _ => return Err(unsupported("mutable capture type")),
                 };
                 let box_value = next_temp(out);
@@ -96,6 +101,10 @@ pub(super) fn emit_statement(
                     "  call i32 @aura_llvm_task_release(ptr {executor}, ptr {value})"
                 )
                 .unwrap();
+                writeln!(out, "  store ptr null, ptr %slot{}", place.local).unwrap();
+            } else if matches!(&body.locals[place.local].ty, Ty::Channel(_)) {
+                let value = load_place(out, *place, body)?;
+                writeln!(out, "  call void @aura_task_channel_destroy(ptr {value})").unwrap();
                 writeln!(out, "  store ptr null, ptr %slot{}", place.local).unwrap();
             } else if matches!(&body.locals[place.local].ty, Ty::Fun { .. }) {
                 let value = load_place(out, *place, body)?;

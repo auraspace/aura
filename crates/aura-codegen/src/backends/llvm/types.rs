@@ -119,14 +119,21 @@ pub(crate) fn signatures(program: &LoweredProgram) -> Signatures {
         .collect::<Signatures>();
     for (name, params, ret) in &program.checked().generic_method_signatures {
         let owner_package = program
-            .source()
-            .ast
-            .classes
+            .checked()
+            .class_layouts
             .iter()
-            .find(|class| name.starts_with(&format!("{}_", class.name.name)))
-            .map(|class| class.origin_package.clone())
+            .find(|class| name.starts_with(&format!("{}_", class.name)))
+            .map(|class| class.package.clone())
             .unwrap_or_else(|| program.checked().package.clone());
         signatures.insert((owner_package, name.clone()), (ret.clone(), params.clone()));
+    }
+    // Async declarations are callable through their task-returning public
+    // wrapper, while their MIR body is emitted under a private symbol.
+    for function in &program.checked().async_signatures {
+        signatures.insert(
+            (function.package.clone(), function.name.clone()),
+            (function.ret.clone(), function.params.clone()),
+        );
     }
     signatures
 }
@@ -532,8 +539,8 @@ pub(crate) fn array_kind(ty: &Ty) -> Result<i64, CodegenError> {
 
 pub(crate) fn enum_variants(program: &LoweredProgram) -> HashMap<String, EnumVariantInfo> {
     program
-        .source()
-        .enums
+        .checked()
+        .enum_layouts
         .iter()
         .flat_map(|enum_decl| {
             enum_decl.variants.iter().map(|variant| {

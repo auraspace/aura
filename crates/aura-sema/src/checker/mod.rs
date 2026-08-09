@@ -1658,7 +1658,14 @@ impl Checker {
     /// Rejects struct, enum, interface (later).
     pub(crate) fn is_lambda_capturable_ty(&self, ty: &Ty) -> bool {
         match ty {
-            Ty::Int | Ty::Float | Ty::Bool | Ty::String => true,
+            Ty::Int
+            | Ty::Float
+            | Ty::Bool
+            | Ty::String
+            | Ty::ForeignHandle(_)
+            | Ty::Task(_)
+            | Ty::TaskHandle(_)
+            | Ty::Channel(_) => true,
             Ty::Nullable(inner) if **inner == Ty::Float => true,
             // C13e: nested Fun capture (shallow {env,fn} + env refcount).
             Ty::Fun { .. } => true,
@@ -1670,6 +1677,7 @@ impl Checker {
                 }
                 !self.is_struct_ty(ty)
             }
+            Ty::Enum(_) | Ty::EnumApp { .. } | Ty::Interface(_) | Ty::InterfaceApp { .. } => true,
             _ => false,
         }
     }
@@ -1679,7 +1687,15 @@ impl Checker {
     /// owned cell so mutation/identity remains valid after closure escape.
     pub(crate) fn is_lambda_var_capturable_ty(&self, ty: &Ty) -> bool {
         match ty {
-            Ty::Int | Ty::Float | Ty::Bool | Ty::String | Ty::Fun { .. } => true,
+            Ty::Int
+            | Ty::Float
+            | Ty::Bool
+            | Ty::String
+            | Ty::ForeignHandle(_)
+            | Ty::Task(_)
+            | Ty::TaskHandle(_)
+            | Ty::Channel(_)
+            | Ty::Fun { .. } => true,
             Ty::Nullable(inner) if **inner == Ty::Float => true,
             Ty::Class(n) | Ty::ClassApp { name: n, .. } => {
                 let simple = crate::ty::split_nominal(n).0;
@@ -1691,7 +1707,7 @@ impl Checker {
 
     /// C13h/C13e/C13f/C20a: human-readable list of currently supported lambda captures.
     pub(crate) fn lambda_capture_supported_list() -> &'static str {
-        "`val` Int/Float/Bool/String/class/Array(snapshot)/Fun, `var` Int/Float/Bool/String/class/Array/Fun (owned shared cell)"
+        "`val` Int/Float/Bool/String/ForeignHandle/Task/Channel/class/Enum/Interface/Array(snapshot)/Fun, `var` Int/Float/Bool/String/ForeignHandle/Task/Channel/class/Array/Fun (owned shared cell)"
     }
 
     /// C10h/C12m/C13h: if `name` resolves to an outer local of the active lambda, record a capture.

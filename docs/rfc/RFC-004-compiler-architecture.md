@@ -153,7 +153,7 @@ view is not part of the IR contract and must not be used by LLVM or Cranelift.
 
 | Backend     | Role                                                         |
 | ----------- | ------------------------------------------------------------ |
-| **LLVM**    | Planned native backend; consumes complete MIR/state machines |
+| **LLVM**    | Shipped native backend; consumes complete MIR/state machines |
 | Cranelift   | Optional native backend; consumes the same boundary          |
 | MIR dump    | Shipped backend probe; consumes IR only                      |
 | C           | Alpha compatibility backend; source fallback is isolated     |

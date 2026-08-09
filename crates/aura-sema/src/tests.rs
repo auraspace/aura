@@ -2814,6 +2814,24 @@ fun main() {
 }
 
 #[test]
+fn lambda_allows_foreign_handle_capture() {
+    let src = r#"
+package t
+fun make_handle(): ForeignHandle<Int> { throw "intrinsic" }
+fun main() {
+  val handle: ForeignHandle<Int> = make_handle()
+  val f: () -> ForeignHandle<Int> = () => handle
+}
+"#;
+    let file = parse_file(src).expect("parse");
+    let checked = check_file(&file).expect("ForeignHandle capture should be allowed");
+    assert!(checked.lambda_captures.values().any(|caps| {
+        caps.iter()
+            .any(|c| c.name == "handle" && matches!(c.ty, Ty::ForeignHandle(_)))
+    }));
+}
+
+#[test]
 fn lambda_allows_var_array_capture_by_ref() {
     // C20a: mutable Array captures use one shared owned cell, not a view.
     let src = r#"

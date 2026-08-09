@@ -928,7 +928,7 @@ fn cmd_emit_llvm(args: &[String]) -> ExitCode {
         if !program.mir_is_complete_for_entrypoint() {
             return Err(format!(
                 "LLVM backend requires complete MIR; unsupported functions: {}",
-                program.unlowered_reachable_mir_names().join(", ")
+                program.reachable_lowering_gap_names().join(", ")
             ));
         }
         aura_codegen::LlvmBackend::emit_module(&program).map_err(|e| e.to_string())
@@ -1074,7 +1074,7 @@ fn cmd_build(args: &[String]) -> ExitCode {
 
 fn runtime_c_path() -> Result<PathBuf, String> {
     // Dev monorepo path, AURA_RUNTIME, binary-adjacent, or embedded cache (install).
-    runtime_path::resolve_runtime_c()
+    runtime_path::resolve_runtime_input()
 }
 
 fn native_sources_for(pkg: &LoadedPackage) -> Result<Vec<NativeSource>, String> {

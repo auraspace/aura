@@ -8,18 +8,6 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 ## Open
 
-### LLVM-003 specialized async operations (2026-08-09)
-
-- Area: `spawnBlocking`, UDP, and remaining async MIR shapes.
-- Symptom: capture-free scheduler tasks, descriptor `readFd`/`writeFd` frames,
-  binary stream exact-read/write and TLS frames, and the LLVM blocking-worker
-  path work, but cancellation/worker stress coverage and several specialized
-  async MIR shapes remain incomplete.
-- Why deferred: worker execution, cancellation, and frame ownership need one
-  backend-neutral operation contract rather than another C compatibility path.
-- Next step: materialize the remaining operation descriptors in MIR, emit LLVM
-  poll/drop hooks, and verify cancellation plus runtime sanitizer fixtures.
-
 ### GC-001 concurrent tracing collector contract (2026-08-04)
 
 - Area: `runtime/src/memory/gc.c`, generated heap ownership, task roots
@@ -32,19 +20,6 @@ commits, RFCs, or release notes instead of appending progress for every change.
   a safe substitute for that contract.
 - Next step: define the gray-work queue and write-barrier ABI, emit stack maps
   for live task roots, then add concurrent collector and race/sanitizer coverage.
-
-### LSP-001 language-server MVP limits (2026-07-29)
-
-- Area: `crates/aura-lsp`, `auralsp`
-- Symptom: lifecycle, diagnostics, formatting, navigation, completion, and
-  code actions work. References and rename use durable server-lifetime
-  binding IDs across span-shifting edits, stdio requests run through a
-  cooperative cancellation worker, and diagnostics expose precise structured
-  suggestions. Semantic overload candidate resolution remains incomplete.
-- Why deferred: the analysis API still exposes name-oriented navigation and
-  completion facts rather than resolved overload sets.
-- Next step: expose resolved overload candidates through the shared analysis
-  boundary and render each candidate without label-based loss.
 
 ### ASYNC-001 remaining aggregate/runtime ownership cases (2026-08-03)
 
@@ -70,33 +45,26 @@ commits, RFCs, or release notes instead of appending progress for every change.
 - Next step: define one async I/O adapter contract, then migrate file and
   network operations with pending/failure/cancellation tests.
 
-### LAMBDA-001 richer captures and scheduler policy (MVP)
+### LAMBDA-001 remaining opaque aggregate captures (2026-08-09)
 
 - Area: lambdas and spawned closures
-- Symptom: primitive, String, class, Array, interface, and common nested
-  aggregate captures have explicit ownership, but opaque aggregate elements and
-  scheduler policy remain bounded/rejected.
-- Next step: specify clone/mark/drop hooks for the remaining aggregate types and
-  document the scheduler guarantees without changing the shared-cell contract.
+- Symptom: primitive, String, ForeignHandle, Task/Channel, class, Array,
+  interface, and common nested aggregate captures have explicit ownership, but
+  opaque aggregate elements remain bounded or rejected.
+- Why deferred: the remaining layouts need backend-neutral clone/drop/mark
+  descriptors rather than another type-specific ownership branch.
+- Next step: add typed ownership descriptors for opaque aggregate elements and
+  sanitizer coverage for their closure escape paths.
 
 ### SAN-001 host-dependent sanitizer coverage (2026-07-28)
 
 - Area: native/sanitizer fixtures and TCP integration
 - Symptom: some TCP fixtures require ephemeral bind/network capabilities that are
-  unavailable in the current sandbox; cross-host sanitizer evidence is absent.
-- Next step: run the full matrix on supported clean hosts and retain the host,
-  target, and sanitizer configuration with the release evidence.
-
-### CODEGEN-001 remaining stdlib intrinsic migration (2026-08-09)
-
-- Area: C backend stdlib lowering and runtime ABI adapters
-- Symptom: the shared intrinsic/ABI registry now covers the migrated LLVM and
-  selected C paths, but older C emitter branches still compare `std.*`
-  package strings directly.
-- Why deferred: those branches mix source adaptation, ownership/layout logic,
-  and native ABI calls; moving them safely needs per-family output tests.
-- Next step: migrate one stdlib family at a time to the registry and remove
-  direct package checks after its C and LLVM coverage is in place.
+  unavailable in the current local sandbox.
+- Mitigation: `.github/workflows/ci.yml` now runs the complete sanitizer smoke
+  matrix on Linux amd64, Linux arm64, and macOS arm64; CI artifacts retain the
+  host/target matrix as release evidence.
+- Next step: remove this entry after the first successful three-host CI run.
 
 ## Resolved History
 
@@ -118,6 +86,16 @@ The detailed progress log was intentionally removed from this file on
   immutable Git tag push, direct Git origins pin version/source/revision/checksum,
   warm-cache verification is fail-closed, and the versioned proxy read boundary
   is prepared without serving a proxy.
+- 2026-08-09: LLVM specialized async operations are covered by target-neutral
+  MIR emission and executable corpus checks for blocking workers, UDP, FD I/O,
+  exact binary streams, TLS adapters, and cancellation/worker sanitizer paths.
+- 2026-08-09: LSP navigation now consumes sema-selected `declaration_span`
+  call facts for type-directed overloads, including same-arity overloads;
+  hover/definition/reference/rename coverage is tested through the shared
+  analysis boundary.
+- 2026-08-09: LLVM mutable task/channel captures use shared pointer boxes,
+  versioned task/channel ownership callbacks, and executable regression
+  coverage; the residual lambda debt is now limited to opaque aggregate elements.
 
 For exact evidence, use the relevant commit history, RFC, or test fixture rather
 than restoring a per-change progress dump here.

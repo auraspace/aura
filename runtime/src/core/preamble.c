@@ -15,6 +15,7 @@
 #include <limits.h>
 #include <time.h>
 #include <signal.h>
+#include "../../aura_runtime_abi.h"
 #include <sys/stat.h>
 #include <zlib.h>
 #if defined(__unix__) || defined(__APPLE__)

@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 
-use aura_ast::{Block, Expr, File, LambdaBody, LambdaExpr, ReturnStmt, Span, Stmt};
+use aura_ast::Span;
+use aura_ir::intrinsic_registry::{RUNTIME_ABI_ID, RUNTIME_ABI_VERSION};
 use aura_ir::mir::{BinaryOp, Intrinsic, MirBody, Place, Rvalue, Statement, Terminator, UnaryOp};
-use aura_ir::{FunctionIr, LoweredProgram};
+use aura_ir::{FunctionIr, LoweredProgram, SuperclassArgIr};
 use aura_sema::Ty;
 
 use crate::error::CodegenError;
@@ -29,7 +30,7 @@ struct EmitContext {
     enum_variants: HashMap<String, EnumVariantInfo>,
     classes: HashMap<String, Vec<(String, Ty)>>,
     class_superclasses: HashMap<String, String>,
-    class_superclass_args: HashMap<String, Vec<aura_ast::Expr>>,
+    class_superclass_args: HashMap<String, Vec<SuperclassArgIr>>,
     class_interfaces: HashMap<String, Vec<String>>,
     class_type_ids: HashMap<String, i64>,
     class_type_params: HashMap<String, Vec<String>>,
@@ -53,66 +54,49 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
         enum_variants: enum_variants(program),
         classes: classes(program),
         class_superclasses: program
-            .source()
-            .ast
-            .classes
+            .checked()
+            .class_layouts
             .iter()
             .filter_map(|class| {
-                class
-                    .superclass
-                    .as_ref()
-                    .map(|parent| (class.name.name.clone(), parent.name.name.clone()))
+                class.superclass.as_ref().map(|parent| {
+                    let name = match parent {
+                        Ty::Class(name) | Ty::ClassApp { name, .. } => {
+                            name.split('@').next().unwrap_or(name).to_owned()
+                        }
+                        _ => parent.display(),
+                    };
+                    (class.name.clone(), name)
+                })
             })
             .collect(),
-        class_superclass_args: program
-            .source()
-            .ast
-            .classes
-            .iter()
-            .filter_map(|class| {
-                (!class.superclass_args.is_empty())
-                    .then(|| (class.name.name.clone(), class.superclass_args.clone()))
-            })
-            .collect(),
+        class_superclass_args: program.checked().class_superclass_args.clone(),
         class_interfaces: program
-            .source()
-            .ast
-            .classes
+            .checked()
+            .class_layouts
             .iter()
             .map(|class| {
                 (
-                    class.name.name.clone(),
+                    class.name.clone(),
                     class
                         .implements
                         .iter()
-                        .map(|interface| interface.name.name.clone())
+                        .map(|interface| interface.display())
                         .collect(),
                 )
             })
             .collect(),
         class_type_ids: class_type_ids(program),
         class_type_params: program
-            .source()
-            .ast
-            .classes
+            .checked()
+            .class_layouts
             .iter()
-            .map(|class| {
-                (
-                    class.name.name.clone(),
-                    class
-                        .type_params
-                        .iter()
-                        .map(|param| param.name.name.clone())
-                        .collect(),
-                )
-            })
+            .map(|class| (class.name.clone(), class.type_params.clone()))
             .collect(),
         foreign_names: program
-            .source()
-            .ast
-            .foreign_functions
+            .checked()
+            .foreign_function_names
             .iter()
-            .map(|foreign| foreign.name.name.clone())
+            .cloned()
             .collect(),
         string_literals: Vec::new(),
         enum_destructors: HashMap::new(),
@@ -238,9 +222,15 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
                 || capture.ty == Ty::String
                 || matches!(capture.ty, Ty::Fun { .. })
                 || is_array_type(&capture.ty)
+                || matches!(capture.ty, Ty::Task(_) | Ty::TaskHandle(_) | Ty::Channel(_))
                 || matches!(
                     capture.ty,
-                    Ty::Class(_) | Ty::ClassApp { .. } | Ty::Interface(_) | Ty::InterfaceApp { .. }
+                    Ty::Class(_)
+                        | Ty::ClassApp { .. }
+                        | Ty::Interface(_)
+                        | Ty::InterfaceApp { .. }
+                        | Ty::Enum(_)
+                        | Ty::EnumApp { .. }
                 )
         }) {
             continue;
@@ -277,6 +267,12 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
                 Ty::Class(_) | Ty::ClassApp { .. } | Ty::Interface(_) | Ty::InterfaceApp { .. }
             ) {
                 "aura_llvm_class_release"
+            } else if matches!(capture.ty, Ty::Enum(_) | Ty::EnumApp { .. }) {
+                "aura_llvm_enum_release"
+            } else if matches!(capture.ty, Ty::Task(_) | Ty::TaskHandle(_)) {
+                "aura_task_executor_release_payload"
+            } else if matches!(capture.ty, Ty::Channel(_)) {
+                "aura_task_channel_destroy"
             } else {
                 continue;
             };
@@ -289,7 +285,21 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
                 index + 2
             )
             .unwrap();
-            if matches!(capture.ty, Ty::Fun { .. }) {
+            if matches!(capture.ty, Ty::Task(_) | Ty::TaskHandle(_)) {
+                writeln!(
+                    module,
+                    "  %drop_executor_{index} = call ptr @aura_llvm_executor()"
+                )
+                .unwrap();
+                writeln!(module, "  call i32 @aura_task_executor_release_payload(ptr %drop_executor_{index}, ptr {address})").unwrap();
+            } else if matches!(capture.ty, Ty::Channel(_)) {
+                writeln!(module, "  %drop_channel_{index} = load ptr, ptr {address}").unwrap();
+                writeln!(
+                    module,
+                    "  call void @aura_task_channel_destroy(ptr %drop_channel_{index})"
+                )
+                .unwrap();
+            } else if matches!(capture.ty, Ty::Fun { .. }) {
                 writeln!(module, "  {value} = load %AuraLlvmFun, ptr {address}").unwrap();
                 writeln!(
                     module,
@@ -312,8 +322,8 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
         .collect::<Vec<_>>();
     exception_names.extend(
         program
-            .source()
-            .enums
+            .checked()
+            .enum_layouts
             .iter()
             .map(|enum_decl| enum_decl.name.clone()),
     );
@@ -356,6 +366,26 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
         }
     }
     emit_enum_destructors(&mut module, &context.enum_destructors, &context.classes);
+    // Unary box-drop adapter for task payloads, whose runtime release also
+    // needs the process executor.
+    module.push_str(concat!(
+        "define void @aura_llvm_task_box_drop(ptr %value) {\n",
+        "entry:\n",
+        "  %executor = call ptr @aura_llvm_executor()\n",
+        "  %payload = alloca ptr\n",
+        "  store ptr %value, ptr %payload\n",
+        "  call i32 @aura_task_executor_release_payload(ptr %executor, ptr %payload)\n",
+        "  ret void\n",
+        "}\n\n",
+    ));
+    let abi_id = escape_llvm_bytes(RUNTIME_ABI_ID.as_bytes());
+    writeln!(
+        module,
+        "@.aura_runtime_abi_id = private unnamed_addr constant [{} x i8] c\"{}\", align 1",
+        RUNTIME_ABI_ID.len() + 1,
+        abi_id
+    )
+    .unwrap();
     if let Some(function) = program
         .checked()
         .functions
@@ -364,12 +394,22 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
     {
         let symbol = symbol_name(&function.package, &function.name);
         match &function.ret.ty {
-            Ty::Unit => module.push_str(&format!(
-                "define i32 @main() {{\nentry:\n  call void @{symbol}()\n  ret i32 0\n}}\n"
-            )),
-            Ty::Int => module.push_str(&format!(
-                "define i32 @main() {{\nentry:\n  %result = call i64 @{symbol}()\n  %status = trunc i64 %result to i32\n  ret i32 %status\n}}\n"
-            )),
+            Ty::Unit => {
+                writeln!(
+                    module,
+                    "define i32 @main() {{\nentry:\n  %abi = call i32 @aura_runtime_check_abi(i32 {}, ptr @.aura_runtime_abi_id)\n  %abi_ok = icmp ne i32 %abi, 0\n  br i1 %abi_ok, label %aura_main, label %aura_abi_mismatch\naura_main:\n  call void @{symbol}()\n  ret i32 0\naura_abi_mismatch:\n  ret i32 78\n}}",
+                    RUNTIME_ABI_VERSION
+                )
+                .unwrap();
+            }
+            Ty::Int => {
+                writeln!(
+                    module,
+                    "define i32 @main() {{\nentry:\n  %abi = call i32 @aura_runtime_check_abi(i32 {}, ptr @.aura_runtime_abi_id)\n  %abi_ok = icmp ne i32 %abi, 0\n  br i1 %abi_ok, label %aura_main, label %aura_abi_mismatch\naura_main:\n  %result = call i64 @{symbol}()\n  %status = trunc i64 %result to i32\n  ret i32 %status\naura_abi_mismatch:\n  ret i32 78\n}}",
+                    RUNTIME_ABI_VERSION
+                )
+                .unwrap();
+            }
             _ => return Err(unsupported("main return type")),
         }
     }
@@ -387,7 +427,6 @@ pub fn emit_module(program: &LoweredProgram) -> Result<String, CodegenError> {
 }
 
 fn async_functions(program: &LoweredProgram) -> Vec<FunctionIr> {
-    let ast = &program.source().ast;
     let mut origin_offsets = HashMap::<String, usize>::new();
     program
         .checked()
@@ -397,12 +436,13 @@ fn async_functions(program: &LoweredProgram) -> Vec<FunctionIr> {
         .chain(program.checked().generic_async_mir.iter())
         .chain(program.checked().generic_async_method_mir.iter())
         .map(|body| {
-            let origin_package = ast
-                .async_functions
+            let origin_package = program
+                .checked()
+                .async_signatures
                 .iter()
                 .filter(|function| {
-                    body.name == function.name.name
-                        || body.name.starts_with(&format!("{}_", function.name.name))
+                    body.name == function.name
+                        || body.name.starts_with(&format!("{}_", function.name))
                 })
                 .nth({
                     let key = body.name.split('_').next().unwrap_or(&body.name);
@@ -412,32 +452,42 @@ fn async_functions(program: &LoweredProgram) -> Vec<FunctionIr> {
                     current
                 })
                 .map(|function| {
-                    if function.origin_package.is_empty() {
+                    if function.package.is_empty() {
                         program.checked().package.clone()
                     } else {
-                        function.origin_package.clone()
+                        function.package.clone()
                     }
                 })
                 .unwrap_or_else(|| program.checked().package.clone());
-            let parameter_count = ast
-                .async_functions
+            let parameter_count = program
+                .checked()
+                .async_signatures
                 .iter()
                 .find(|function| {
-                    body.name == function.name.name
-                        || body.name.starts_with(&format!("{}_", function.name.name))
+                    body.name == function.name
+                        || body.name.starts_with(&format!("{}_", function.name))
                 })
                 .map(|function| function.params.len())
                 .or_else(|| {
-                    ast.classes.iter().find_map(|class| {
-                        class.methods.iter().find_map(|method| {
-                            let matches = body.name == method.name.name
-                                || body.name.starts_with(&format!("{}_", method.name.name))
-                                || body.name.contains(&format!("_{}_", method.name.name));
-                            matches.then_some(method.params.len() + 1)
-                        })
+                    program.checked().class_layouts.iter().find_map(|class| {
+                        class
+                            .method_overloads
+                            .values()
+                            .flatten()
+                            .find_map(|method| {
+                                let matches = body.name == method.name
+                                    || body.name.starts_with(&format!("{}_", method.name))
+                                    || body.name.contains(&format!("_{}_", method.name));
+                                matches.then_some(method.params.len() + 1)
+                            })
                     })
                 })
-                .unwrap_or(0);
+                .unwrap_or_else(|| {
+                    body.locals
+                        .iter()
+                        .take_while(|local| !local.name.starts_with("__"))
+                        .count()
+                });
             let mut function = synthetic_function(body, origin_package, parameter_count);
             function.name = format!("__aura_async_body_{}", body.name);
             function
@@ -452,12 +502,11 @@ fn generic_method_functions(program: &LoweredProgram) -> Vec<FunctionIr> {
         .iter()
         .map(|body| {
             let owner_package = program
-                .source()
-                .ast
-                .classes
+                .checked()
+                .class_layouts
                 .iter()
-                .find(|class| body.name.starts_with(&format!("{}_", class.name.name)))
-                .map(|class| class.origin_package.clone())
+                .find(|class| body.name.starts_with(&format!("{}_", class.name)))
+                .map(|class| class.package.clone())
                 .unwrap_or_else(|| program.checked().package.clone());
             let parameter_count = program
                 .checked()
@@ -796,21 +845,21 @@ fn emit_async_wrappers(
     program: &LoweredProgram,
     functions: &[FunctionIr],
 ) -> Result<(), CodegenError> {
-    for declaration in &program.source().ast.async_functions {
-        if matches!(declaration.name.name.as_str(), "serve" | "serveConnection") {
+    for declaration in &program.checked().async_signatures {
+        if matches!(declaration.name.as_str(), "serve" | "serveConnection") {
             continue;
         }
-        let origin_package = if declaration.origin_package.is_empty() {
+        let origin_package = if declaration.package.is_empty() {
             program.checked().package.as_str()
         } else {
-            declaration.origin_package.as_str()
+            declaration.package.as_str()
         };
         let Some(function) = functions.iter().find(|candidate| {
             candidate.package == origin_package
-                && (candidate.name == format!("__aura_async_body_{}", declaration.name.name)
+                && (candidate.name == format!("__aura_async_body_{}", declaration.name)
                     || candidate
                         .name
-                        .starts_with(&format!("__aura_async_body_{}_", declaration.name.name)))
+                        .starts_with(&format!("__aura_async_body_{}_", declaration.name)))
         }) else {
             continue;
         };
@@ -819,7 +868,7 @@ fn emit_async_wrappers(
         {
             continue;
         }
-        let public_symbol = symbol_name(origin_package, &declaration.name.name);
+        let public_symbol = symbol_name(origin_package, &declaration.name);
         let body_symbol = symbol_name(&function.package, &function.name);
         let poll_name = format!("aura_llvm_poll_async_{public_symbol}");
         let result_drop = format!("aura_llvm_drop_async_result_{public_symbol}");
@@ -1007,229 +1056,7 @@ fn synthetic_function(body: &MirBody, package: String, parameter_count: usize) -
 }
 
 fn lambda_functions(program: &LoweredProgram) -> Result<Vec<FunctionIr>, CodegenError> {
-    let mut functions = Vec::new();
-    let mut lambdas = collect_lambdas(&program.source().ast);
-    lambdas.sort_by_key(|lambda| lambda.span.start);
-    for lambda in lambdas {
-        let captures = program
-            .source()
-            .lambda_captures
-            .get(&lambda.span.start)
-            .cloned()
-            .unwrap_or_default();
-        if captures.iter().any(|capture| {
-            (capture.by_ref && !is_boxable_capture_type(&capture.ty))
-                || (!matches!(
-                    capture.ty,
-                    Ty::Int
-                        | Ty::Bool
-                        | Ty::Float
-                        | Ty::String
-                        | Ty::Fun { .. }
-                        | Ty::Class(_)
-                        | Ty::ClassApp { .. }
-                        | Ty::Interface(_)
-                        | Ty::InterfaceApp { .. }
-                ) && !is_array_type(&capture.ty))
-        }) {
-            return Err(unsupported(
-                "unsupported mutable or aggregate lambda capture",
-            ));
-        }
-        let Some(Ty::Fun { params, ret }) = program.source().lambda_tys.get(&lambda.span.start)
-        else {
-            return Err(unsupported("lambda type"));
-        };
-        if params.len() != lambda.params.len() {
-            return Err(unsupported("lambda parameter metadata"));
-        }
-        let body = match &lambda.body {
-            LambdaBody::Expr(expression) => Block {
-                stmts: vec![Stmt::Return(ReturnStmt {
-                    value: Some(expression.as_ref().clone()),
-                    span: lambda.span,
-                })],
-                span: lambda.span,
-            },
-            LambdaBody::Block(body) => body.clone(),
-        };
-        let body = aura_ir::lowering::normalize_nested_call_awaits(&body, program.source());
-        let mut parameters = captures
-            .iter()
-            .map(|capture| (capture.name.clone(), capture.ty.clone()))
-            .collect::<Vec<_>>();
-        parameters.extend(
-            lambda
-                .params
-                .iter()
-                .zip(params)
-                .map(|(parameter, ty)| (parameter.name.name.clone(), ty.clone()))
-                .collect::<Vec<_>>(),
-        );
-        let name = format!("__lambda_{}", lambda.span.start);
-        let body = aura_ir::lowering::lower_body(
-            &name,
-            &body,
-            &parameters,
-            (**ret).clone(),
-            Some(program.source()),
-            aura_ir::Effect::Pure,
-        )
-        .map_err(|_| unsupported("lambda body"))?;
-        functions.push(FunctionIr {
-            name,
-            package: program.checked().package.clone(),
-            params: parameters
-                .iter()
-                .map(|(_, ty)| aura_ir::ValueFact {
-                    ty: ty.clone(),
-                    ownership: aura_ir::ownership::mode_for_ty(ty),
-                    span: lambda.span,
-                })
-                .collect(),
-            closure_captures: captures
-                .iter()
-                .enumerate()
-                .map(|(index, capture)| aura_ir::mir::ClosureCapture {
-                    source: aura_ir::mir::Place { local: index },
-                    ty: capture.ty.clone(),
-                    by_ref: capture.by_ref,
-                })
-                .collect(),
-            ret: aura_ir::ValueFact {
-                ty: (**ret).clone(),
-                ownership: aura_ir::ownership::mode_for_ty(ret),
-                span: lambda.span,
-            },
-            type_params: Vec::new(),
-            bounds: HashMap::new(),
-            effect: aura_ir::Effect::Pure,
-            body: Some(body),
-            span: lambda.span,
-        });
-    }
-    Ok(functions)
-}
-
-fn collect_lambdas(file: &File) -> Vec<&LambdaExpr> {
-    let mut output = Vec::new();
-    for function in &file.functions {
-        walk_block_lambdas(&function.body, &mut output);
-    }
-    for function in &file.async_functions {
-        walk_block_lambdas(&function.body, &mut output);
-    }
-    for class in &file.classes {
-        for constructor in &class.constructors {
-            walk_block_lambdas(&constructor.body, &mut output);
-            for argument in &constructor.delegation_args {
-                walk_expr_lambdas(argument, &mut output);
-            }
-        }
-        for method in &class.methods {
-            walk_block_lambdas(&method.body, &mut output);
-        }
-    }
-    for constant in &file.consts {
-        walk_expr_lambdas(&constant.value, &mut output);
-    }
-    output
-}
-
-fn walk_block_lambdas<'a>(block: &'a Block, output: &mut Vec<&'a LambdaExpr>) {
-    for statement in &block.stmts {
-        walk_stmt_lambdas(statement, output);
-    }
-}
-
-fn walk_stmt_lambdas<'a>(statement: &'a Stmt, output: &mut Vec<&'a LambdaExpr>) {
-    match statement {
-        Stmt::Var(value) => walk_expr_lambdas(&value.init, output),
-        Stmt::If(value) => {
-            walk_expr_lambdas(&value.cond, output);
-            walk_block_lambdas(&value.then_block, output);
-            if let Some(block) = &value.else_block {
-                walk_block_lambdas(block, output);
-            }
-        }
-        Stmt::While(value) => {
-            walk_expr_lambdas(&value.cond, output);
-            walk_block_lambdas(&value.body, output);
-        }
-        Stmt::ForRange(value) => {
-            walk_expr_lambdas(&value.start, output);
-            walk_expr_lambdas(&value.end, output);
-            walk_block_lambdas(&value.body, output);
-        }
-        Stmt::ForIn(value) => {
-            walk_expr_lambdas(&value.iterable, output);
-            walk_block_lambdas(&value.body, output);
-        }
-        Stmt::Match(value) => {
-            walk_expr_lambdas(&value.scrutinee, output);
-            for arm in &value.arms {
-                walk_block_lambdas(&arm.body, output);
-            }
-        }
-        Stmt::Try(value) => {
-            walk_block_lambdas(&value.try_block, output);
-            if let Some(catch) = &value.catch {
-                walk_block_lambdas(&catch.body, output);
-            }
-            if let Some(finally) = &value.finally {
-                walk_block_lambdas(finally, output);
-            }
-        }
-        Stmt::Throw(value) => walk_expr_lambdas(&value.value, output),
-        Stmt::Return(value) => {
-            if let Some(expression) = &value.value {
-                walk_expr_lambdas(expression, output);
-            }
-        }
-        Stmt::Expr(expression) => walk_expr_lambdas(expression, output),
-        Stmt::Break(_) | Stmt::Continue(_) => {}
-    }
-}
-
-fn walk_expr_lambdas<'a>(expression: &'a Expr, output: &mut Vec<&'a LambdaExpr>) {
-    match expression {
-        Expr::Lambda(lambda) => {
-            output.push(lambda);
-            match &lambda.body {
-                LambdaBody::Expr(body) => walk_expr_lambdas(body, output),
-                LambdaBody::Block(block) => walk_block_lambdas(block, output),
-            }
-        }
-        Expr::Call(call) => {
-            walk_expr_lambdas(&call.callee, output);
-            for argument in &call.args {
-                walk_expr_lambdas(argument, output);
-            }
-        }
-        Expr::Field(field) => walk_expr_lambdas(&field.object, output),
-        Expr::Assign(assign) => walk_expr_lambdas(&assign.value, output),
-        Expr::Binary(binary) => {
-            walk_expr_lambdas(&binary.left, output);
-            walk_expr_lambdas(&binary.right, output);
-        }
-        Expr::Unary(unary) => walk_expr_lambdas(&unary.expr, output),
-        Expr::ForceUnwrap(value) => walk_expr_lambdas(&value.expr, output),
-        Expr::Is(value) => walk_expr_lambdas(&value.expr, output),
-        Expr::Group(value, _) => walk_expr_lambdas(value, output),
-        Expr::If(value) => {
-            walk_expr_lambdas(&value.cond, output);
-            walk_block_lambdas(&value.then_block, output);
-            walk_block_lambdas(&value.else_block, output);
-        }
-        Expr::Async(_) => {}
-        Expr::Ident(_)
-        | Expr::This(_)
-        | Expr::Int(_)
-        | Expr::Float(_)
-        | Expr::Bool(_)
-        | Expr::String(_)
-        | Expr::Null(_) => {}
-    }
+    Ok(program.checked().lambda_functions.clone())
 }
 
 fn emit_foreign_declarations(
@@ -1261,6 +1088,12 @@ fn emit_foreign_declarations(
 }
 
 fn validate_program(program: &LoweredProgram) -> Result<(), CodegenError> {
+    if !program.mir_is_complete_for_entrypoint() {
+        return Err(unsupported(&format!(
+            "LLVM backend requires complete reachable MIR; unresolved bodies: {}",
+            program.reachable_lowering_gap_names().join(", ")
+        )));
+    }
     let checked = program.checked();
     for function in checked
         .functions
@@ -1456,6 +1289,16 @@ fn emit_function(
                 Ty::Class(_) | Ty::ClassApp { .. } | Ty::Interface(_) | Ty::InterfaceApp { .. }
             ) {
                 writeln!(out, "  call void @aura_llvm_class_retain(ptr {value})").unwrap();
+            } else if matches!(capture.ty, Ty::Task(_) | Ty::TaskHandle(_)) {
+                let executor = next_temp(out);
+                writeln!(out, "  {executor} = call ptr @aura_llvm_executor()").unwrap();
+                writeln!(
+                    out,
+                    "  call i32 @aura_task_executor_retain_payload(ptr {executor}, ptr {value})"
+                )
+                .unwrap();
+            } else if matches!(capture.ty, Ty::Channel(_)) {
+                writeln!(out, "  call i32 @aura_task_channel_retain(ptr {value})").unwrap();
             }
             writeln!(
                 out,
@@ -1513,10 +1356,16 @@ fn is_boxable_capture_type(ty: &Ty) -> bool {
             | Ty::Float
             | Ty::String
             | Ty::Fun { .. }
+            | Ty::ForeignHandle(_)
+            | Ty::Task(_)
+            | Ty::TaskHandle(_)
+            | Ty::Channel(_)
             | Ty::Class(_)
             | Ty::ClassApp { .. }
             | Ty::Interface(_)
             | Ty::InterfaceApp { .. }
+            | Ty::Enum(_)
+            | Ty::EnumApp { .. }
     ) || is_array_type(ty)
 }
 
@@ -1541,6 +1390,13 @@ fn box_new_expression(ty: &Ty) -> Result<String, CodegenError> {
         Ty::Class(_) | Ty::ClassApp { .. } | Ty::Interface(_) | Ty::InterfaceApp { .. } => {
             "call ptr @aura_box_ptr_new(ptr null, ptr @aura_llvm_class_release)"
         }
+        Ty::Enum(_) | Ty::EnumApp { .. } => {
+            "call ptr @aura_box_ptr_new(ptr null, ptr @aura_llvm_enum_release)"
+        }
+        Ty::Task(_) | Ty::TaskHandle(_) => {
+            "call ptr @aura_box_ptr_new(ptr null, ptr @aura_llvm_task_box_drop)"
+        }
+        Ty::Channel(_) => "call ptr @aura_box_ptr_new(ptr null, ptr @aura_task_channel_destroy)",
         _ => return Err(unsupported("mutable capture type")),
     };
     Ok(expression.into())
@@ -1552,11 +1408,15 @@ fn box_release_helper(ty: &Ty) -> Result<&'static str, CodegenError> {
         Ty::Bool => Ok("aura_box_bool_release"),
         Ty::Float => Ok("aura_box_f64_release"),
         Ty::String => Ok("aura_box_str_release"),
-        Ty::Fun { .. } | Ty::Class(_) | Ty::Interface(_) | Ty::InterfaceApp { .. } => {
-            Ok("aura_box_ptr_release")
-        }
+        Ty::Fun { .. }
+        | Ty::Class(_)
+        | Ty::Interface(_)
+        | Ty::InterfaceApp { .. }
+        | Ty::Enum(_)
+        | Ty::EnumApp { .. } => Ok("aura_box_ptr_release"),
         ty if is_array_type(ty) => Ok("aura_box_ptr_release"),
         Ty::ClassApp { .. } => Ok("aura_box_ptr_release"),
+        Ty::Task(_) | Ty::TaskHandle(_) | Ty::Channel(_) => Ok("aura_box_ptr_release"),
         _ => Err(unsupported("mutable capture type")),
     }
 }
@@ -1774,8 +1634,8 @@ fn emit_terminator(
 
 fn classes(program: &LoweredProgram) -> HashMap<String, Vec<(String, Ty)>> {
     program
-        .source()
-        .classes
+        .checked()
+        .class_layouts
         .iter()
         .map(|class| {
             (
@@ -1793,8 +1653,8 @@ fn classes(program: &LoweredProgram) -> HashMap<String, Vec<(String, Ty)>> {
 
 fn class_type_ids(program: &LoweredProgram) -> HashMap<String, i64> {
     let mut names = program
-        .source()
-        .classes
+        .checked()
+        .class_layouts
         .iter()
         .map(|class| class.name.clone())
         .collect::<Vec<_>>();

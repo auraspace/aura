@@ -6,7 +6,7 @@
 /// GC, I/O, FFI, and type-erased payload surface. Patch-level runtime fixes
 /// must preserve this value; a layout or calling-convention change must change
 /// it before release.
-pub const ID: &str = "aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1;type=1";
+pub const ID: &str = aura_ir::intrinsic_registry::RUNTIME_ABI_ID;
 
 /// Major ABI version retained for artifact/debug metadata.
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = aura_ir::intrinsic_registry::RUNTIME_ABI_VERSION;

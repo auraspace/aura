@@ -40,10 +40,18 @@ pub enum Intrinsic {
     Fs,
 }
 
+/// Version of the source-to-runtime intrinsic contract.
+pub const ABI_VERSION: u32 = 1;
+/// Runtime ABI identity consumed by generated artifacts and the native runtime.
+pub const RUNTIME_ABI_VERSION: u32 = 1;
+pub const RUNTIME_ABI_ID: &str =
+    "aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1;type=1";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AbiSpec {
     pub intrinsic: Intrinsic,
     pub symbol: &'static str,
+    pub version: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -216,7 +224,11 @@ pub fn lookup(package: &str, name: &str) -> Option<AbiSpec> {
         ) => (Intrinsic::Fs, "aura_fs_join"),
         _ => return None,
     };
-    Some(AbiSpec { intrinsic, symbol })
+    Some(AbiSpec {
+        intrinsic,
+        symbol,
+        version: ABI_VERSION,
+    })
 }
 
 pub fn lookup_type(package: &str, name: &str) -> Option<TypeIntrinsic> {
@@ -243,9 +255,23 @@ pub fn lookup_enum(package: &str, name: &str) -> Option<EnumIntrinsic> {
     }
 }
 
+/// Selects the constructor for the two source-level TLS compatibility types.
+/// Keeping this distinction here prevents backend emitters from branching on
+/// stdlib package names while preserving their historical layouts.
+pub fn tls_connection_constructor(package: &str) -> Option<&'static str> {
+    match package {
+        "std.tls" => Some("aura_new_std_tls_Connection"),
+        "std.crypto" => Some("aura_new_std_crypto_TlsConnection"),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{lookup, lookup_enum, lookup_type, EnumIntrinsic, Intrinsic, TypeIntrinsic};
+    use super::{
+        lookup, lookup_enum, lookup_type, tls_connection_constructor, EnumIntrinsic, Intrinsic,
+        TypeIntrinsic, ABI_VERSION,
+    };
 
     #[test]
     fn resolves_stdlib_identity_without_backend_package_branches() {
@@ -257,6 +283,7 @@ mod tests {
             lookup("std.sync", "lazy").unwrap().symbol,
             "aura_llvm_lazy_int"
         );
+        assert_eq!(lookup("std.sync", "lazy").unwrap().version, ABI_VERSION);
         assert_eq!(
             lookup("std.task", "select").unwrap().intrinsic,
             Intrinsic::TaskSelect
@@ -289,6 +316,10 @@ mod tests {
         assert_eq!(
             lookup_enum("std.io", "TaskError"),
             Some(EnumIntrinsic::IoTaskError)
+        );
+        assert_eq!(
+            tls_connection_constructor("std.tls"),
+            Some("aura_new_std_tls_Connection")
         );
         assert!(lookup("demo", "serve").is_none());
     }

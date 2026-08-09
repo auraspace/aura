@@ -15,7 +15,7 @@ This repository currently holds:
 | [`corpus/`](corpus/)                 | Sample `.aura` programs for the compiler                                     |
 | [`examples/`](examples/)             | Dogfood apps (`notes`, `wc` CLI packages)                                    |
 | [`std/`](std/)                       | Standard-library packages                                                    |
-| [`runtime/`](runtime/)               | Linked C runtime (`runtime.c`)                                               |
+| [`runtime/`](runtime/)               | Versioned runtime source and linkable archives (`libaurart*.a`)              |
 
 **License:** [MIT](LICENSE)
 
@@ -86,7 +86,7 @@ cargo run -p aura-cli -- run corpus/std_collections/hashmap_int # generic HashMa
 cargo run -p aura-cli -- run corpus/std_collections/hashset_int # generic HashSet<Int> (C15)
 ```
 
-Native builds use the **C backend** by default (`aura emit-c` + system `cc`) linked with `runtime/runtime.c`. The LLVM backend consumes complete MIR directly and emits textual LLVM IR through Clang (`aura emit-llvm` or `aura build --backend llvm`); its scheduler-backed task path covers the currently implemented task/frame subset, while unsupported MIR remains a diagnostic instead of silently falling back to C.
+Native builds use the **C backend** by default (`aura emit-c` + system `cc`). It keeps `runtime.c` as an embedded compatibility source, while `AURA_RUNTIME_LIB` selects the linkable `runtime/libaurart.a` archive. The LLVM backend consumes complete MIR directly and emits textual LLVM IR through Clang (`aura emit-llvm` or `aura build --backend llvm`); `AURA_LLVM_RUNTIME_LIB` selects `runtime/libaurart-llvm.a`. Unsupported MIR remains a diagnostic instead of silently falling back to C.
 
 ## Supported release targets
 

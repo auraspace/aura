@@ -5,8 +5,9 @@ use std::fmt::Write as _;
 
 use aura_ast::*;
 use aura_ir::intrinsic_registry::{
-    lookup as lookup_std_intrinsic, lookup_enum, lookup_type, EnumIntrinsic as StdEnumIntrinsic,
-    Intrinsic as StdIntrinsic, TypeIntrinsic as StdTypeIntrinsic,
+    lookup as lookup_std_intrinsic, lookup_enum, lookup_type, tls_connection_constructor,
+    EnumIntrinsic as StdEnumIntrinsic, Intrinsic as StdIntrinsic,
+    TypeIntrinsic as StdTypeIntrinsic,
 };
 use aura_ir::{CheckedIr, GenericOwnerKind, LoweredProgram};
 use aura_sema::{CheckedFile, Ty};
@@ -274,15 +275,9 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     );
     if let Some(ir) = ir {
         let mut unsupported = ir
-            .async_mir_unlowered
+            .lowering_diagnostics
             .iter()
-            .chain(ir.open_generic_async_mir_unlowered.iter())
-            .chain(ir.function_mir_unlowered.iter())
-            .chain(ir.generic_function_mir_unlowered.iter())
-            .chain(ir.generic_async_mir_unlowered.iter())
-            .chain(ir.generic_async_method_mir_unlowered.iter())
-            .chain(ir.generic_method_mir_unlowered.iter())
-            .cloned()
+            .map(|diagnostic| diagnostic.owner.clone())
             .collect::<Vec<_>>();
         unsupported.sort();
         unsupported.dedup();
@@ -13416,11 +13411,8 @@ fn emit_async_body(
     {
         let endpoint = mangle_ident(&f.params[0].name.name);
         let config = mangle_ident(&f.params[1].name.name);
-        let ctor = if pkg == "std.tls" {
-            "aura_new_std_tls_Connection"
-        } else {
-            "aura_new_std_crypto_TlsConnection"
-        };
+        let ctor = tls_connection_constructor(&pkg)
+            .expect("TLS intrinsic must have a registered connection constructor");
         out.push_str("  /* AURA_TLS_REQUIRED */\n");
         let _ = writeln!(out, "  if ({endpoint} == NULL || {config} == NULL || !aura_tls_connect({endpoint}, {config}->serverName, {config}->verifyPeer)) {{ char __message[320]; snprintf(__message, sizeof(__message), \"TLS connect failed: %s\", aura_tls_last_error()); aura_throw_string(__message); return NULL; }} return {ctor}({endpoint});");
         return;

@@ -93,9 +93,6 @@ pub struct Artifact {
 }
 
 /// Options visible at the target-neutral backend boundary.
-///
-/// The alpha C adapter maps these to its legacy emission options. Future
-/// backends can override `Backend::emit_ir` without importing C-only context.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BackendOptions {
     pub test: bool,
@@ -106,10 +103,6 @@ pub struct BackendOptions {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BackendCapabilities {
     pub requires_complete_mir: bool,
-    pub accepts_alpha_source: bool,
-    /// Whether the driver must validate and pass the legacy C backend inputs.
-    /// Native MIR backends may still link a runtime internally.
-    pub requires_legacy_c_inputs: bool,
     pub supports_native_compile: bool,
 }
 
@@ -203,30 +196,18 @@ impl Artifact {
 }
 
 /// Backend boundary after frontend and semantic checking have completed.
-/// Backend contract after frontend, semantic checking, and target-neutral
-/// lowering. Implementations must consume LoweredProgram's IR; only the C
-/// alpha backend may use its compatibility source view.
+/// Target-neutral backend contract. Every implementation receives only the
+/// fully lowered program; the C compatibility adapter is defined separately.
 pub trait Backend {
     fn capabilities(&self) -> BackendCapabilities {
         BackendCapabilities {
-            requires_complete_mir: !self.accepts_partial_mir(),
-            accepts_alpha_source: false,
-            requires_legacy_c_inputs: false,
+            requires_complete_mir: true,
             supports_native_compile: false,
         }
     }
 
-    /// C alpha may accept partial MIR while its compatibility lowering is
-    /// migrated. New backends must consume complete target-neutral MIR.
-    fn accepts_partial_mir(&self) -> bool {
-        false
-    }
+    fn emit_ir(&self, program: &LoweredProgram, opts: BackendOptions) -> String;
 
-    fn emit(&self, program: &LoweredProgram, opts: EmitOptions) -> String;
-
-    /// Neutral native-artifact entrypoint for LLVM/Cranelift-class backends.
-    /// It has no C runtime path, compiler command, or source compatibility
-    /// input. The alpha C backend continues through `compile` below.
     fn compile_ir(
         &self,
         _program: &LoweredProgram,
@@ -238,33 +219,20 @@ pub trait Backend {
             "backend does not provide neutral native artifact compilation".into(),
         ))
     }
+}
 
-    /// Target-neutral emission entrypoint for future MIR backends.
-    fn emit_ir(&self, program: &LoweredProgram, opts: BackendOptions) -> String {
-        self.emit(
-            program,
-            EmitOptions {
-                test: opts.test,
-                detector: opts.instrumentation,
-            },
-        )
-    }
+/// Compatibility-only adapter for the legacy C source/runtime pipeline.
+pub trait CBackendCompatibility {
+    fn emit_c(&self, program: &LoweredProgram, opts: EmitOptions) -> String;
 
-    /// Build an artifact when the backend has a native artifact path.
-    /// Text/MIR-only backends do not need to depend on C runtime arguments;
-    /// they can implement `emit` alone and keep this default.
-    fn compile(
+    fn compile_c(
         &self,
-        _program: &LoweredProgram,
-        _out_bin: &Path,
-        _runtime_c: &Path,
-        _options: &CompileOptions,
-        _opts: EmitOptions,
-    ) -> Result<Artifact, CodegenError> {
-        Err(CodegenError::Configuration(
-            "backend does not provide native artifact compilation".into(),
-        ))
-    }
+        program: &LoweredProgram,
+        out_bin: &Path,
+        runtime_c: &Path,
+        options: &CompileOptions,
+        opts: EmitOptions,
+    ) -> Result<Artifact, CodegenError>;
 }
 
 /// Runs frontend/sema once, then delegates emission or compilation to a backend.
@@ -280,7 +248,7 @@ pub fn build_artifact(
     options: CompileOptions,
     opts: EmitOptions,
 ) -> Result<Artifact, CodegenError> {
-    Driver::new(CBackend).build(file, out_bin, runtime_c, options, opts)
+    CBackendDriver::build(file, out_bin, runtime_c, options, opts)
 }
 
 /// Compile a semantically checked file supplied by an external compiler host.
@@ -297,7 +265,7 @@ pub fn build_artifact_from_checked(
     match options.backend {
         BackendKind::C => {
             validate_build(&options, &compiler_command(), runtime_c)?;
-            CBackend.compile(&program, out_bin, runtime_c, &options, opts)
+            CBackend.compile_c(&program, out_bin, runtime_c, &options, opts)
         }
         BackendKind::Llvm => {
             options
@@ -306,7 +274,7 @@ pub fn build_artifact_from_checked(
             if !program.mir_is_complete_for_entrypoint() {
                 return Err(CodegenError::Configuration(format!(
                     "LLVM backend requires complete MIR; unsupported functions: {}",
-                    program.unlowered_reachable_mir_names().join(", ")
+                    program.reachable_lowering_gap_names().join(", ")
                 )));
             }
             LlvmBackend.compile_ir(
@@ -335,7 +303,7 @@ impl<B: Backend> Driver<B> {
         {
             return Err(CodegenError::Configuration(format!(
                 "backend requires complete MIR; unsupported functions: {}",
-                program.unlowered_reachable_mir_names().join(", ")
+                program.reachable_lowering_gap_names().join(", ")
             )));
         }
         Ok(self.backend.emit_ir(&program, opts.into()))
@@ -345,14 +313,12 @@ impl<B: Backend> Driver<B> {
         &self,
         file: &File,
         out_bin: &Path,
-        runtime_c: &Path,
         options: CompileOptions,
         opts: EmitOptions,
     ) -> Result<Artifact, CodegenError> {
-        let capabilities = self.backend.capabilities();
-        if capabilities.requires_legacy_c_inputs {
-            validate_build(&options, &compiler_command(), runtime_c)?;
-        }
+        options
+            .validate()
+            .map_err(|error| CodegenError::Configuration(error.to_string()))?;
         let checked = check_file(file)?;
         let program = LoweredProgram::from_checked(checked);
         if self.backend.capabilities().requires_complete_mir
@@ -360,20 +326,39 @@ impl<B: Backend> Driver<B> {
         {
             return Err(CodegenError::Configuration(format!(
                 "backend requires complete MIR; unsupported functions: {}",
-                program.unlowered_reachable_mir_names().join(", ")
+                program.reachable_lowering_gap_names().join(", ")
             )));
         }
-        if capabilities.requires_legacy_c_inputs {
-            self.backend
-                .compile(&program, out_bin, runtime_c, &options, opts)
-        } else {
-            self.backend.compile_ir(
-                &program,
-                out_bin,
-                &BackendBuildOptions::from(&options),
-                opts.into(),
-            )
-        }
+        self.backend.compile_ir(
+            &program,
+            out_bin,
+            &BackendBuildOptions::from(&options),
+            opts.into(),
+        )
+    }
+}
+
+/// Driver for the C compatibility path. It is intentionally separate from
+/// the target-neutral `Driver` so runtime source/compiler inputs cannot leak
+/// into the Backend trait.
+pub struct CBackendDriver;
+
+impl CBackendDriver {
+    pub fn emit(file: &File, opts: EmitOptions) -> Result<String, CodegenError> {
+        Driver::new(CBackend).emit(file, opts)
+    }
+
+    pub fn build(
+        file: &File,
+        out_bin: &Path,
+        runtime_c: &Path,
+        options: CompileOptions,
+        opts: EmitOptions,
+    ) -> Result<Artifact, CodegenError> {
+        validate_build(&options, &compiler_command(), runtime_c)?;
+        let checked = check_file(file)?;
+        let program = LoweredProgram::from_checked(checked);
+        CBackend.compile_c(&program, out_bin, runtime_c, &options, opts)
     }
 }
 
@@ -390,13 +375,11 @@ impl Backend for MirBackend {
     fn capabilities(&self) -> BackendCapabilities {
         BackendCapabilities {
             requires_complete_mir: true,
-            accepts_alpha_source: false,
-            requires_legacy_c_inputs: false,
             supports_native_compile: false,
         }
     }
 
-    fn emit(&self, program: &LoweredProgram, _opts: EmitOptions) -> String {
+    fn emit_ir(&self, program: &LoweredProgram, _opts: BackendOptions) -> String {
         let ir = program.checked();
         let mut out = String::new();
         out.push_str("aura-mir version=1\n");
@@ -469,21 +452,25 @@ impl Backend for CBackend {
     fn capabilities(&self) -> BackendCapabilities {
         BackendCapabilities {
             requires_complete_mir: false,
-            accepts_alpha_source: true,
-            requires_legacy_c_inputs: true,
-            supports_native_compile: true,
+            supports_native_compile: false,
         }
     }
 
-    fn accepts_partial_mir(&self) -> bool {
-        true
+    fn emit_ir(&self, program: &LoweredProgram, opts: BackendOptions) -> String {
+        let opts = EmitOptions {
+            test: opts.test,
+            detector: opts.instrumentation,
+        };
+        emit_c_with_program(program, opts)
     }
+}
 
-    fn emit(&self, program: &LoweredProgram, opts: EmitOptions) -> String {
+impl CBackendCompatibility for CBackend {
+    fn emit_c(&self, program: &LoweredProgram, opts: EmitOptions) -> String {
         emit_c_with_program(program, opts)
     }
 
-    fn compile(
+    fn compile_c(
         &self,
         program: &LoweredProgram,
         out_bin: &Path,
@@ -503,7 +490,7 @@ impl Backend for CBackend {
         let _output = options.output;
         let mut emit_opts = opts;
         emit_opts.detector = options.profile_settings.detector;
-        let c_src = self.emit(program, emit_opts);
+        let c_src = self.emit_c(program, emit_opts);
         let parent = out_bin
             .parent()
             .map(Path::to_path_buf)
@@ -566,10 +553,7 @@ impl Backend for CBackend {
                 .and_then(|s| s.to_str())
                 .unwrap_or("out")
         ));
-        for (source, object) in [
-            (c_path.as_path(), c_object.as_path()),
-            (runtime_c, runtime_object.as_path()),
-        ] {
+        for (source, object) in [(c_path.as_path(), c_object.as_path())] {
             let status = compiler_process(&compiler)
                 .args(&compile_flags)
                 .arg("-c")
@@ -585,6 +569,26 @@ impl Backend for CBackend {
                 )));
             }
         }
+
+        let runtime_link = if is_runtime_archive(runtime_c) {
+            runtime_c.to_path_buf()
+        } else {
+            let status = compiler_process(&compiler)
+                .args(&compile_flags)
+                .arg("-c")
+                .arg(runtime_c)
+                .arg("-o")
+                .arg(&runtime_object)
+                .status()
+                .map_err(|e| CodegenError::Compile(format!("failed to spawn {compiler}: {e}")))?;
+            if !status.success() {
+                return Err(CodegenError::Compile(format!(
+                    "{compiler} failed compiling runtime input {} with status {status}",
+                    runtime_c.display()
+                )));
+            }
+            runtime_object
+        };
 
         let mut native_objects = Vec::new();
         for (index, native) in options.native_sources.iter().enumerate() {
@@ -673,7 +677,7 @@ impl Backend for CBackend {
         }
         command
             .arg(&c_object)
-            .arg(&runtime_object)
+            .arg(&runtime_link)
             .args(&native_objects)
             .args(&foreign_link_args)
             .arg("-lz");
@@ -701,6 +705,13 @@ impl Backend for CBackend {
 
         Ok(Artifact::new(out_bin.to_path_buf(), options))
     }
+}
+
+fn is_runtime_archive(path: &Path) -> bool {
+    matches!(
+        path.extension().and_then(|extension| extension.to_str()),
+        Some("a" | "lib")
+    )
 }
 
 fn validate_native_source(source: &NativeSource) -> Result<(), CodegenError> {
@@ -780,8 +791,8 @@ mod tests {
     use aura_parser::parse_file;
 
     use super::{
-        Artifact, Backend, BackendBuildOptions, BackendCapabilities, BuildIdentity, Driver,
-        MirBackend,
+        Artifact, Backend, BackendBuildOptions, BackendCapabilities, BackendOptions, BuildIdentity,
+        Driver, MirBackend,
     };
     use crate::ctx::EmitOptions;
     use crate::error::CodegenError;
@@ -810,10 +821,6 @@ mod tests {
         }
     }
 
-    fn runtime_path() -> std::path::PathBuf {
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../runtime/runtime.c")
-    }
-
     struct FailingBackend {
         compile_calls: Rc<Cell<usize>>,
     }
@@ -822,23 +829,20 @@ mod tests {
         fn capabilities(&self) -> BackendCapabilities {
             BackendCapabilities {
                 requires_complete_mir: true,
-                accepts_alpha_source: false,
-                requires_legacy_c_inputs: true,
                 supports_native_compile: true,
             }
         }
 
-        fn emit(&self, _program: &LoweredProgram, _opts: EmitOptions) -> String {
+        fn emit_ir(&self, _program: &LoweredProgram, _opts: BackendOptions) -> String {
             String::new()
         }
 
-        fn compile(
+        fn compile_ir(
             &self,
             _program: &LoweredProgram,
             _out_bin: &std::path::Path,
-            _runtime_c: &std::path::Path,
-            _options: &CompileOptions,
-            _opts: EmitOptions,
+            _options: &BackendBuildOptions,
+            _opts: BackendOptions,
         ) -> Result<Artifact, CodegenError> {
             self.compile_calls.set(self.compile_calls.get() + 1);
             Err(CodegenError::Compile("backend failed".into()))
@@ -856,7 +860,6 @@ mod tests {
             .build(
                 &empty_file(),
                 std::path::Path::new("out"),
-                &runtime_path(),
                 CompileOptions::default(),
                 EmitOptions::default(),
             )
@@ -881,15 +884,12 @@ mod tests {
             .build(
                 &empty_file(),
                 std::path::Path::new("out"),
-                &runtime_path(),
                 options,
                 EmitOptions::default(),
             )
             .expect_err("invalid options should fail before compilation");
 
-        assert!(
-            matches!(error, CodegenError::Configuration(message) if message.contains("AuraRtC"))
-        );
+        assert!(matches!(error, CodegenError::Configuration(_)));
         assert_eq!(compile_calls.get(), 0);
 
         // Keep the invalid case explicit: this is the same validation that
@@ -966,15 +966,11 @@ mod tests {
     fn backend_capabilities_separate_mir_and_alpha_c_requirements() {
         let mir = MirBackend.capabilities();
         assert!(mir.requires_complete_mir);
-        assert!(!mir.accepts_alpha_source);
-        assert!(!mir.requires_legacy_c_inputs);
         assert!(!mir.supports_native_compile);
 
         let c = super::CBackend.capabilities();
         assert!(!c.requires_complete_mir);
-        assert!(c.accepts_alpha_source);
-        assert!(c.requires_legacy_c_inputs);
-        assert!(c.supports_native_compile);
+        assert!(!c.supports_native_compile);
     }
 
     #[test]
@@ -983,7 +979,6 @@ mod tests {
             .build(
                 &empty_file(),
                 Path::new("out"),
-                Path::new("missing-runtime.c"),
                 CompileOptions::default(),
                 EmitOptions::default(),
             )
@@ -1047,25 +1042,22 @@ mod tests {
         fn capabilities(&self) -> BackendCapabilities {
             BackendCapabilities {
                 requires_complete_mir: true,
-                accepts_alpha_source: false,
-                requires_legacy_c_inputs: true,
                 supports_native_compile: true,
             }
         }
 
-        fn emit(&self, _program: &LoweredProgram, _opts: EmitOptions) -> String {
+        fn emit_ir(&self, _program: &LoweredProgram, _opts: BackendOptions) -> String {
             String::new()
         }
 
-        fn compile(
+        fn compile_ir(
             &self,
             _program: &LoweredProgram,
             out_bin: &std::path::Path,
-            _runtime_c: &std::path::Path,
-            options: &CompileOptions,
-            _opts: EmitOptions,
+            options: &BackendBuildOptions,
+            _opts: BackendOptions,
         ) -> Result<Artifact, CodegenError> {
-            Ok(Artifact::new(out_bin.to_path_buf(), options))
+            Ok(Artifact::from_backend(out_bin.to_path_buf(), options))
         }
     }
 
@@ -1083,13 +1075,10 @@ mod tests {
             .build()
             .expect("complete options");
         let file = empty_file();
-        let runtime = runtime_path();
-
         let first = Driver::new(IdentityBackend)
             .build(
                 &file,
                 Path::new("first.out"),
-                &runtime,
                 options.clone(),
                 EmitOptions::default(),
             )
@@ -1098,7 +1087,6 @@ mod tests {
             .build(
                 &file,
                 Path::new("second.out"),
-                &runtime,
                 options,
                 EmitOptions::default(),
             )

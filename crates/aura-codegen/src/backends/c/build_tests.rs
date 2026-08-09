@@ -13,7 +13,7 @@ use aura_ast::{
 };
 
 use super::{build_from_file, build_from_file_with, emit_c_from_ast, emit_c_tests_from_ast};
-use crate::driver::{CBackend, Driver};
+use crate::driver::CBackendDriver;
 use crate::{Backend, CompileOptions, DiagnosticMode, OutputKind, Profile, RuntimeAbi, Target};
 use aura_parser::parse_file;
 
@@ -87,6 +87,11 @@ fn copy_runtime_fixture(
         runtime_root.join("aura_ffi.h"),
     )
     .expect("copy runtime header");
+    fs::copy(
+        root.join("runtime/aura_runtime_abi.h"),
+        runtime_root.join("aura_runtime_abi.h"),
+    )
+    .expect("copy runtime ABI header");
     copy_dir(&root.join("runtime/src"), &runtime_root.join("src"));
     (runtime_root.join("runtime.c"), runtime_root)
 }
@@ -168,27 +173,25 @@ fn supported_profiles_rebuild_reproducibly_on_native_host() {
             .build()
             .expect("complete matrix options");
 
-        let first = Driver::new(CBackend)
-            .build(
-                &empty_program(),
-                &bin,
-                &runtime,
-                options.clone(),
-                crate::ctx::EmitOptions::default(),
-            )
-            .expect("cold matrix build");
+        let first = CBackendDriver::build(
+            &empty_program(),
+            &bin,
+            &runtime,
+            options.clone(),
+            crate::ctx::EmitOptions::default(),
+        )
+        .expect("cold matrix build");
         let first_bytes = fs::read(first.path()).expect("read first artifact");
         let _ = fs::remove_file(&bin);
         let _ = fs::remove_file(&generated_c);
-        let second = Driver::new(CBackend)
-            .build(
-                &empty_program(),
-                &bin,
-                &runtime,
-                options,
-                crate::ctx::EmitOptions::default(),
-            )
-            .expect("warm matrix build");
+        let second = CBackendDriver::build(
+            &empty_program(),
+            &bin,
+            &runtime,
+            options,
+            crate::ctx::EmitOptions::default(),
+        )
+        .expect("warm matrix build");
         assert_eq!(first.identity(), second.identity());
         let second_bytes = fs::read(second.path()).expect("read second artifact");
         if cfg!(target_os = "macos") {
@@ -219,7 +222,7 @@ fn mismatched_runtime_abi_stops_before_generated_main() {
     let bin = dir.join(&stem);
     let generated_c = dir.join(format!("{stem}.aura.c"));
     let (runtime, runtime_root) = copy_runtime_fixture(root, &stem);
-    let module = runtime_root.join("src/ffi/abi_race.c");
+    let module = runtime_root.join("aura_runtime_abi.h");
     let source = fs::read_to_string(&module).expect("read ABI module");
     let mismatched = source.replace(
         "#define AURA_RT_ABI_VERSION 1u",
@@ -257,7 +260,7 @@ fn mismatched_runtime_ffi_abi_stops_before_generated_main() {
     let bin = dir.join(&stem);
     let generated_c = dir.join(format!("{stem}.aura.c"));
     let (runtime, runtime_root) = copy_runtime_fixture(root, &stem);
-    let module = runtime_root.join("src/ffi/abi_race.c");
+    let module = runtime_root.join("aura_runtime_abi.h");
     let source = fs::read_to_string(&module).expect("read ABI module");
     let mismatched = source.replace(
         "aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1",
