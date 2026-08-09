@@ -55,6 +55,7 @@ runtime/
 |-- aura_ffi.h         # Public ABI for native/foreign callers
 |-- src/
 |   |-- core/           # Preamble, primitives, exceptions, process
+|   |-- platform/       # Cross-platform clock and OS primitives
 |   |-- memory/         # Allocation, GC roots, tracing, ownership
 |   |-- encoding/       # Text encoding and JSON
 |   |-- crypto/         # Hashing, HMAC, random bytes, compression
@@ -71,6 +72,7 @@ runtime/
 
 ```text
 src/core/preamble.c
+src/platform/platform.c
 src/core/core.c
 src/core/string.c
 src/encoding/encoding.c

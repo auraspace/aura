@@ -1,6 +1,7 @@
 /* Aura runtime translation unit. Implementation is organized by subsystem. */
 
 #include "src/core/preamble.c"
+#include "src/platform/platform.c"
 #include "src/core/core.c"
 #include "src/core/string.c"
 #include "src/core/binary.c"

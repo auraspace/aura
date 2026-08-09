@@ -2118,12 +2118,7 @@ void aura_task_frame_clear_waiting(AuraTaskFrame *frame)
 
 int64_t aura_time_monotonic_millis(void)
 {
-  struct timespec now;
-  if (clock_gettime(CLOCK_MONOTONIC, &now) != 0)
-  {
-    return 0;
-  }
-  return (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+  return aura_platform_monotonic_millis();
 }
 
 void *aura_task_frame_waiting_token(const AuraTaskFrame *frame)
