@@ -44,6 +44,7 @@ name = "aura-codegen"
 version = "0.1.1-alpha.7"
 dependencies = [
  "aura-ast",
+ "aura-hir",
  "aura-ir",
  "aura-ownership",
  "aura-parser",
@@ -59,10 +60,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "aura-hir"
+version = "0.1.1-alpha.7"
+dependencies = [
+ "aura-sema",
+]
+
+[[package]]
 name = "aura-ir"
 version = "0.1.1-alpha.7"
 dependencies = [
  "aura-ast",
+ "aura-hir",
  "aura-ownership",
  "aura-parser",
  "aura-sema",

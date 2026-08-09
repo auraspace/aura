@@ -16,27 +16,6 @@ use aura_sema::{
     ExpansionMetadata, FunSig, Ty,
 };
 
-/// Typed HIR is the semantic frontend boundary. It owns the typechecked source
-/// facts consumed by target-neutral lowering; no backend is selected here.
-#[derive(Debug, Clone)]
-pub struct TypedHir {
-    checked: CheckedFile,
-}
-
-impl TypedHir {
-    pub fn new(checked: CheckedFile) -> Self {
-        Self { checked }
-    }
-
-    pub fn checked(&self) -> &CheckedFile {
-        &self.checked
-    }
-
-    pub fn into_checked(self) -> CheckedFile {
-        self.checked
-    }
-}
-
 pub mod generic_lowering;
 pub mod intrinsic_registry;
 pub mod mir_opt;
@@ -6086,11 +6065,11 @@ pub struct LoweredProgram {
 
 impl LoweredProgram {
     pub fn from_checked(source: CheckedFile) -> Self {
-        Self::from_typed_hir(TypedHir::new(source))
+        Self::from_typed_hir(aura_hir::TypedHir::new(source))
     }
 
     /// Lower the explicit typed-HIR stage into target-neutral CheckedIr/MIR.
-    pub fn from_typed_hir(hir: TypedHir) -> Self {
+    pub fn from_typed_hir(hir: aura_hir::TypedHir) -> Self {
         let source = hir.into_checked();
         let async_functions = source
             .ast

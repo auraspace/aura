@@ -1,0 +1,9 @@
+[package]
+name = "aura-hir"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Typed high-level IR boundary for Aura semantic analysis"
+
+[dependencies]
+aura-sema.workspace = true

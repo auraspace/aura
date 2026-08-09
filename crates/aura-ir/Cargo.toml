@@ -9,6 +9,7 @@ description = "Backend-neutral checked IR and lowering contracts for Aura"
 aura-ast.workspace = true
 aura-sema.workspace = true
 aura-ownership.workspace = true
+aura-hir.workspace = true
 
 [dev-dependencies]
 aura-parser.workspace = true
