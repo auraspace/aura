@@ -179,29 +179,7 @@ static char *aura_digest_hex(const unsigned char digest[32])
 
 int aura_crypto_random_bytes_raw(void *output, size_t length)
 {
-  if (output == NULL && length != 0) return 0;
-#if defined(__linux__)
-  unsigned char *cursor = (unsigned char *)output;
-  size_t used = 0;
-  while (used < length)
-  {
-    ssize_t count = getrandom(cursor + used, length - used, 0);
-    if (count > 0) { used += (size_t)count; continue; }
-    if (count < 0 && errno == EINTR) continue;
-    break;
-  }
-  if (used == length) return 1;
-#endif
-#if defined(__unix__) || defined(__APPLE__)
-  FILE *file = fopen("/dev/urandom", "rb");
-  if (file == NULL) return 0;
-  size_t read_count = length == 0 ? 0 : fread(output, 1, length, file);
-  int close_status = fclose(file);
-  return read_count == length && close_status == 0;
-#else
-  (void)output; (void)length;
-  return 0;
-#endif
+  return aura_platform_random_bytes(output, length);
 }
 
 int aura_crypto_sha256_bytes(const void *input, size_t length, uint8_t output[32])
@@ -347,11 +325,7 @@ _Bool aura_crypto_constant_time_equals(const char *left,const char *right)
 { const unsigned char *a=(const unsigned char *)(left==NULL?"":left),*b=(const unsigned char *)(right==NULL?"":right);size_t al=strlen((const char *)a),bl=strlen((const char *)b),n=al>bl?al:bl;unsigned diff=(unsigned)(al^bl);for(size_t i=0;i<n;i++)diff|=(unsigned)(i<al?a[i]:0)^(unsigned)(i<bl?b[i]:0);return diff==0; }
 const char *aura_crypto_random_bytes(int64_t length)
 { if(length<0||(uint64_t)length>SIZE_MAX-1u)return NULL;size_t n=(size_t)length;unsigned char *out=(unsigned char *)malloc(n+1u);if(!out)return NULL;
-#if defined(__unix__) || defined(__APPLE__)
-  FILE *f=fopen("/dev/urandom","rb");if(f==NULL||(n!=0&&fread(out,1,n,f)!=n)){if(f)fclose(f);free(out);return NULL;}if(f)fclose(f);
-#else
-  free(out);return NULL;
-#endif
+  if (!aura_platform_random_bytes(out, n)) { free(out); return NULL; }
   // Aura String is NUL-terminated; reject NUL bytes so the returned byte
   // string retains its requested length without truncating at the first byte.
   for (size_t i = 0; i < n; i++) if (out[i] == 0) out[i] = 1;

@@ -66,6 +66,7 @@ typedef struct pollfd AuraPlatformPollFd;
 
 int aura_platform_poll(AuraPlatformPollFd *descriptors, size_t count,
                        int timeout_ms);
+int aura_platform_random_bytes(void *output, size_t length);
 
 int aura_platform_wake_init(AuraPlatformWake *wake);
 int aura_platform_wake_signal(const AuraPlatformWake *wake);

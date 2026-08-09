@@ -8,10 +8,17 @@
 #include <io.h>
 #include <process.h>
 #include <signal.h>
+#include <bcrypt.h>
 
 int aura_platform_poll(AuraPlatformPollFd *descriptors, size_t count, int timeout_ms)
 {
   return WSAPoll(descriptors, (ULONG)count, timeout_ms);
+}
+int aura_platform_random_bytes(void *output, size_t length)
+{
+  return (output == NULL && length != 0) ? 0 :
+         BCryptGenRandom(NULL, (PUCHAR)output, (ULONG)length,
+                         BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0;
 }
 
 typedef struct
@@ -252,15 +259,39 @@ int aura_platform_signal_restore_shutdown(void) { return 1; }
 
 #include <errno.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#if defined(__linux__)
+#include <sys/random.h>
+#endif
 
 int aura_platform_poll(AuraPlatformPollFd *descriptors, size_t count, int timeout_ms)
 {
   return poll(descriptors, count, timeout_ms);
+}
+int aura_platform_random_bytes(void *output, size_t length)
+{
+  if (output == NULL && length != 0) return 0;
+#if defined(__linux__)
+  unsigned char *cursor = (unsigned char *)output;
+  size_t used = 0;
+  while (used < length)
+  {
+    ssize_t count = getrandom(cursor + used, length - used, 0);
+    if (count > 0) { used += (size_t)count; continue; }
+    if (count < 0 && errno == EINTR) continue;
+    break;
+  }
+  if (used == length) return 1;
+#endif
+  FILE *file = fopen("/dev/urandom", "rb");
+  if (file == NULL) return 0;
+  size_t read_count = length == 0 ? 0 : fread(output, 1, length, file);
+  return read_count == length && fclose(file) == 0;
 }
 
 int aura_platform_mutex_init(AuraPlatformMutex *mutex, int recursive)

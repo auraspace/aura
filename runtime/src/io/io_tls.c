@@ -66,13 +66,13 @@ static AuraTlsEntry *aura_tls_find(const char *endpoint)
 
 static int aura_tls_wait(AuraTcpStream *stream, short events, int timeout_ms)
 {
-  struct pollfd descriptor;
+  AuraPlatformPollFd descriptor;
   int result;
   if (stream == NULL || stream->fd < 0) return 0;
   descriptor.fd = stream->fd;
   descriptor.events = events;
   descriptor.revents = 0;
-  do { result = poll(&descriptor, 1, timeout_ms); } while (result < 0 && errno == EINTR);
+  do { result = aura_platform_poll(&descriptor, 1, timeout_ms); } while (result < 0 && errno == EINTR);
   return result > 0 && (descriptor.revents & events) != 0;
 }
 
