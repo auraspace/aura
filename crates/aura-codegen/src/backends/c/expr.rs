@@ -786,6 +786,7 @@ fn spawn_capture_type_supported(key: &str, checked: &CheckedFile) -> bool {
         || is_iface_type_key(key, checked)
         || is_enum_mono(key, checked)
         || is_value_struct_mono(key, checked)
+        || crate::stmt::local_key_to_c(key, checked) == "AuraTypeErasedValue"
 }
 
 fn spawn_body_contains_await(block: &Block) -> bool {
@@ -2343,6 +2344,12 @@ fn emit_async_expr(expr: &AsyncExpr, ctx: &mut EmitCtx<'_>) -> String {
                                 _ => "aura_box_ptr_retain",
                             };
                             format!("__spawn_data->{n} = {n}; {retain}(__spawn_data->{n});")
+                        } else if crate::stmt::local_key_to_c(key, ctx.checked)
+                            == "AuraTypeErasedValue"
+                        {
+                            format!(
+                                "if (aura_type_erased_clone(&{n}, &__spawn_data->{n}) != AURA_FFI_OK) abort();"
+                            )
                         } else if key == "String" {
                             format!("__spawn_data->{n} = aura_box_str_new({n});")
                         } else if key == "ForeignHandle" || key.starts_with("ForeignHandle_") {

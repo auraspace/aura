@@ -13968,6 +13968,8 @@ fn emit_bounded_spawn_pollers(
                 }
                 if is_heap_class_mono(key, checked) {
                     let _ = writeln!(out, "  aura_gc_mark_ptr((void *)data->{n});");
+                } else if crate::stmt::local_key_to_c(key, checked) == "AuraTypeErasedValue" {
+                    let _ = writeln!(out, "  aura_type_erased_mark(&data->{n});");
                 } else if is_array_type_key(key)
                     || is_iface_type_key(key, checked)
                     || crate::expr::is_enum_mono(key, checked)
@@ -14050,6 +14052,11 @@ fn emit_bounded_spawn_pollers(
                     let _ = writeln!(
                         out,
                         "  if (data != NULL && data->{n} != NULL) aura_gc_remove_root((void **)&data->{n});"
+                    );
+                } else if crate::stmt::local_key_to_c(key, checked) == "AuraTypeErasedValue" {
+                    let _ = writeln!(
+                        out,
+                        "  if (data != NULL) aura_type_erased_drop(&data->{n});"
                     );
                 } else if is_iface_type_key(key, checked) {
                     let cty = crate::stmt::local_key_to_c(key, checked);
