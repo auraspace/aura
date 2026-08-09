@@ -9,6 +9,11 @@
 #include <process.h>
 #include <signal.h>
 
+int aura_platform_poll(AuraPlatformPollFd *descriptors, size_t count, int timeout_ms)
+{
+  return WSAPoll(descriptors, (ULONG)count, timeout_ms);
+}
+
 typedef struct
 {
   AuraPlatformThreadFn function;
@@ -101,6 +106,73 @@ int aura_platform_thread_join(AuraPlatformThread *thread)
   return 0;
 }
 
+int aura_platform_wake_init(AuraPlatformWake *wake)
+{
+  AuraPlatformSocket listener = INVALID_SOCKET;
+  struct sockaddr_in address;
+  int address_size = (int)sizeof(address);
+  if (wake == NULL || aura_platform_socket_startup() != 0) return EINVAL;
+  wake->read = AURA_PLATFORM_SOCKET_INVALID;
+  wake->write = AURA_PLATFORM_SOCKET_INVALID;
+  listener = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (listener == INVALID_SOCKET) return WSAGetLastError();
+  memset(&address, 0, sizeof(address));
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  address.sin_port = 0;
+  if (bind(listener, (const struct sockaddr *)&address, sizeof(address)) != 0 ||
+      listen(listener, 1) != 0 ||
+      getsockname(listener, (struct sockaddr *)&address, &address_size) != 0)
+  {
+    closesocket(listener);
+    return WSAGetLastError();
+  }
+  wake->write = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (wake->write == INVALID_SOCKET ||
+      connect(wake->write, (const struct sockaddr *)&address, sizeof(address)) != 0)
+  {
+    if (wake->write != INVALID_SOCKET) closesocket(wake->write);
+    closesocket(listener);
+    wake->write = INVALID_SOCKET;
+    return WSAGetLastError();
+  }
+  wake->read = accept(listener, NULL, NULL);
+  closesocket(listener);
+  if (wake->read == INVALID_SOCKET ||
+      aura_platform_socket_nonblocking(wake->read) != 0 ||
+      aura_platform_socket_nonblocking(wake->write) != 0)
+  {
+    aura_platform_wake_destroy(wake);
+    return WSAGetLastError();
+  }
+  return 0;
+}
+
+int aura_platform_wake_signal(const AuraPlatformWake *wake)
+{
+  unsigned char byte = 1;
+  return wake == NULL ? EINVAL : send(wake->write, (const char *)&byte, 1, 0) < 0;
+}
+
+int aura_platform_wake_drain(const AuraPlatformWake *wake)
+{
+  unsigned char buffer[64];
+  int result;
+  if (wake == NULL) return EINVAL;
+  do { result = recv(wake->read, (char *)buffer, sizeof(buffer), 0); }
+  while (result > 0);
+  return 0;
+}
+
+void aura_platform_wake_destroy(AuraPlatformWake *wake)
+{
+  if (wake == NULL) return;
+  if (wake->read != INVALID_SOCKET) closesocket(wake->read);
+  if (wake->write != INVALID_SOCKET) closesocket(wake->write);
+  wake->read = INVALID_SOCKET;
+  wake->write = INVALID_SOCKET;
+}
+
 AuraPlatformFile aura_platform_file_open(const char *path, int flags)
 {
   int access = 0;
@@ -186,6 +258,11 @@ int aura_platform_signal_restore_shutdown(void) { return 1; }
 #include <sys/types.h>
 #include <unistd.h>
 
+int aura_platform_poll(AuraPlatformPollFd *descriptors, size_t count, int timeout_ms)
+{
+  return poll(descriptors, count, timeout_ms);
+}
+
 int aura_platform_mutex_init(AuraPlatformMutex *mutex, int recursive)
 {
   pthread_mutexattr_t attributes;
@@ -212,6 +289,38 @@ int aura_platform_thread_create(AuraPlatformThread *thread,
 { return thread == NULL || function == NULL ? EINVAL : pthread_create(&thread->native, NULL, function, context); }
 int aura_platform_thread_join(AuraPlatformThread *thread)
 { return thread == NULL ? EINVAL : pthread_join(thread->native, NULL); }
+
+int aura_platform_wake_init(AuraPlatformWake *wake)
+{
+  int descriptors[2];
+  if (wake == NULL || pipe(descriptors) != 0) return errno;
+  wake->read = descriptors[0];
+  wake->write = descriptors[1];
+  if (aura_platform_socket_nonblocking(wake->read) != 0 ||
+      aura_platform_socket_nonblocking(wake->write) != 0)
+  {
+    aura_platform_wake_destroy(wake);
+    return errno;
+  }
+  return 0;
+}
+int aura_platform_wake_signal(const AuraPlatformWake *wake)
+{ unsigned char byte = 1; return wake == NULL ? EINVAL : (int)write(wake->write, &byte, 1) < 0; }
+int aura_platform_wake_drain(const AuraPlatformWake *wake)
+{
+  unsigned char buffer[64];
+  if (wake == NULL) return EINVAL;
+  while (read(wake->read, buffer, sizeof(buffer)) > 0) {}
+  return 0;
+}
+void aura_platform_wake_destroy(AuraPlatformWake *wake)
+{
+  if (wake == NULL) return;
+  if (wake->read != AURA_PLATFORM_SOCKET_INVALID) close(wake->read);
+  if (wake->write != AURA_PLATFORM_SOCKET_INVALID) close(wake->write);
+  wake->read = AURA_PLATFORM_SOCKET_INVALID;
+  wake->write = AURA_PLATFORM_SOCKET_INVALID;
+}
 
 AuraPlatformFile aura_platform_file_open(const char *path, int flags)
 {

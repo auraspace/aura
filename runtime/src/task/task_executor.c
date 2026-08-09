@@ -155,7 +155,7 @@ struct AuraTaskExecutor
   AuraRaceTracker *race_tracker;
   AuraTaskFailureHookFn failure_hook;
   void *failure_hook_context;
-  int wake_pipe[2];
+  AuraPlatformWake wake;
   AuraReactor *reactor;
 #if AURA_PLATFORM_NETWORK
   pthread_mutex_t worker_lock;
@@ -416,8 +416,8 @@ AuraTaskExecutor *aura_task_executor_new(void)
   if (executor != NULL)
   {
     executor->max_live_tasks = AURA_TASK_DEFAULT_MAX_LIVE_TASKS;
-    executor->wake_pipe[0] = -1;
-    executor->wake_pipe[1] = -1;
+    executor->wake.read = AURA_PLATFORM_SOCKET_INVALID;
+    executor->wake.write = AURA_PLATFORM_SOCKET_INVALID;
     executor->reactor = aura_reactor_posix_new_internal();
     if (executor->reactor == NULL)
     {
@@ -425,11 +425,7 @@ AuraTaskExecutor *aura_task_executor_new(void)
       return NULL;
     }
 #if AURA_PLATFORM_NETWORK
-    if (pipe(executor->wake_pipe) == 0)
-    {
-      (void)fcntl(executor->wake_pipe[0], F_SETFL, O_NONBLOCK);
-      (void)fcntl(executor->wake_pipe[1], F_SETFL, O_NONBLOCK);
-    }
+    (void)aura_platform_wake_init(&executor->wake);
 #endif
   }
   return executor;
@@ -595,12 +591,11 @@ int aura_task_executor_wake(AuraTaskExecutor *executor, AuraTaskFrame *frame)
 {
   int result;
 #if AURA_PLATFORM_NETWORK
-  if (executor != NULL && executor->wake_pipe[1] >= 0)
+  if (executor != NULL && !AURA_PLATFORM_SOCKET_IS_INVALID(executor->wake.write))
   {
-    const unsigned char signal_byte = 1;
     /* Signal before taking the queue lock so a reactor blocked in poll can
      * observe the wake even while another worker is publishing the queue. */
-    (void)write(executor->wake_pipe[1], &signal_byte, sizeof(signal_byte));
+    (void)aura_platform_wake_signal(&executor->wake);
   }
   if (executor != NULL && executor->workers_started)
   {
@@ -826,7 +821,7 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
                                    int timeout_ms)
 {
   AuraTaskFrame *frame;
-  struct pollfd *descriptors;
+  AuraPlatformPollFd *descriptors;
   AuraTaskFrame **frames;
   size_t count = 0;
   size_t descriptor_count;
@@ -847,10 +842,9 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
 #if AURA_PLATFORM_NETWORK
   /* Consume stale submissions before blocking; a wake arriving after this
    * drain remains visible to poll and interrupts the wait. */
-  if (executor->wake_pipe[0] >= 0)
+  if (!AURA_PLATFORM_SOCKET_IS_INVALID(executor->wake.read))
   {
-    unsigned char buffer[64];
-    while (read(executor->wake_pipe[0], buffer, sizeof(buffer)) > 0) {}
+    (void)aura_platform_wake_drain(&executor->wake);
   }
 #endif
 #if AURA_PLATFORM_NETWORK
@@ -918,7 +912,7 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
   descriptor_count = count;
   descriptor_capacity = descriptor_count;
 #if AURA_PLATFORM_NETWORK
-  if (executor->wake_pipe[0] >= 0)
+  if (!AURA_PLATFORM_SOCKET_IS_INVALID(executor->wake.read))
   {
     descriptor_count++;
     descriptor_capacity = descriptor_count;
@@ -930,7 +924,7 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
   }
   if (descriptor_count == 0)
   {
-    (void)poll(NULL, 0, poll_timeout);
+    (void)aura_platform_poll(NULL, 0, poll_timeout);
     now = aura_time_monotonic_millis();
     for (frame = executor->owned_head; frame != NULL; frame = frame->owned_next)
     {
@@ -950,7 +944,7 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
     }
     return (int)woke;
   }
-  descriptors = (struct pollfd *)calloc(descriptor_capacity, sizeof(*descriptors));
+  descriptors = (AuraPlatformPollFd *)calloc(descriptor_capacity, sizeof(*descriptors));
   frames = (AuraTaskFrame **)calloc(descriptor_capacity, sizeof(*frames));
   if (descriptors == NULL || frames == NULL)
   {
@@ -960,9 +954,9 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
   }
   index = 0;
 #if AURA_PLATFORM_NETWORK
-  if (executor->wake_pipe[0] >= 0)
+  if (!AURA_PLATFORM_SOCKET_IS_INVALID(executor->wake.read))
   {
-    descriptors[index] = (struct pollfd){executor->wake_pipe[0], POLLIN, 0};
+    descriptors[index] = (AuraPlatformPollFd){executor->wake.read, POLLIN, 0};
     frames[index] = NULL;
     index++;
   }
@@ -979,8 +973,8 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
       size_t next_capacity = descriptor_capacity == 0
                                  ? 1
                                  : descriptor_capacity * 2;
-      struct pollfd *next_descriptors =
-          (struct pollfd *)calloc(next_capacity, sizeof(*next_descriptors));
+      AuraPlatformPollFd *next_descriptors =
+          (AuraPlatformPollFd *)calloc(next_capacity, sizeof(*next_descriptors));
       AuraTaskFrame **next_frames =
           (AuraTaskFrame **)calloc(next_capacity, sizeof(*next_frames));
       if (next_descriptors == NULL || next_frames == NULL)
@@ -1000,7 +994,7 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
       frames = next_frames;
       descriptor_capacity = next_capacity;
     }
-    descriptors[index] = (struct pollfd){
+    descriptors[index] = (AuraPlatformPollFd){
       frame->fd_wait_fd,
       frame->fd_wait_events,
       0,
@@ -1011,7 +1005,7 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
   /* The list can change after the snapshot lock is released; poll only the
    * descriptors actually copied into the arrays. */
   descriptor_count = index;
-  result = poll(descriptors, descriptor_count, poll_timeout);
+  result = aura_platform_poll(descriptors, descriptor_count, poll_timeout);
   if (result > 0 || (result < 0 && errno != EINTR))
   {
     for (index = 0; index < descriptor_count; index++)
@@ -1022,8 +1016,7 @@ static int aura_posix_reactor_poll(void *data, AuraTaskExecutor *executor,
 #if AURA_PLATFORM_NETWORK
         if (ready_frame == NULL)
         {
-          unsigned char buffer[64];
-          while (read(executor->wake_pipe[0], buffer, sizeof(buffer)) > 0) {}
+          (void)aura_platform_wake_drain(&executor->wake);
           pipe_woke = 1;
           continue;
         }
@@ -1528,10 +1521,9 @@ void aura_task_executor_stop_workers(AuraTaskExecutor *executor)
   pthread_mutex_unlock(&executor->worker_lock);
   if (executor->reactor_started)
   {
-    if (executor->wake_pipe[1] >= 0)
+    if (!AURA_PLATFORM_SOCKET_IS_INVALID(executor->wake.write))
     {
-      const unsigned char signal_byte = 1;
-      (void)write(executor->wake_pipe[1], &signal_byte, sizeof(signal_byte));
+      (void)aura_platform_wake_signal(&executor->wake);
     }
     pthread_join(executor->reactor_thread, NULL);
     executor->reactor_started = 0;
@@ -1949,10 +1941,9 @@ int aura_task_executor_release(AuraTaskExecutor *executor, AuraTaskFrame **handl
   while (executor->workers_started && executor->reactor_active != 0)
   {
     pthread_mutex_unlock(&executor->worker_lock);
-    if (executor->wake_pipe[1] >= 0)
+    if (!AURA_PLATFORM_SOCKET_IS_INVALID(executor->wake.write))
     {
-      const unsigned char signal_byte = 1;
-      (void)write(executor->wake_pipe[1], &signal_byte, sizeof(signal_byte));
+      (void)aura_platform_wake_signal(&executor->wake);
     }
     pthread_mutex_lock(&executor->worker_lock);
     if (executor->reactor_active == 0)
@@ -2196,14 +2187,7 @@ void aura_task_executor_shutdown(AuraTaskExecutor *executor)
     frame = next;
   }
 #if AURA_PLATFORM_NETWORK
-  if (executor->wake_pipe[0] >= 0)
-  {
-    close(executor->wake_pipe[0]);
-  }
-  if (executor->wake_pipe[1] >= 0)
-  {
-    close(executor->wake_pipe[1]);
-  }
+  aura_platform_wake_destroy(&executor->wake);
 #endif
   aura_reactor_destroy(executor->reactor);
   free(executor);
