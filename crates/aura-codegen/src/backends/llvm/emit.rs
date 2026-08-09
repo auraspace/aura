@@ -1037,14 +1037,14 @@ fn synthetic_function(body: &MirBody, package: String, parameter_count: usize) -
             .take(parameter_count)
             .map(|local| aura_ir::ValueFact {
                 ty: local.ty.clone(),
-                ownership: aura_ir::ownership::mode_for_ty(&local.ty),
+                ownership: aura_ownership::mode_for_ty(&local.ty),
                 span: Span::new(0, 0),
             })
             .collect(),
         closure_captures: Vec::new(),
         ret: aura_ir::ValueFact {
             ty: body.return_ty.clone(),
-            ownership: aura_ir::ownership::mode_for_ty(&body.return_ty),
+            ownership: aura_ownership::mode_for_ty(&body.return_ty),
             span: Span::new(0, 0),
         },
         type_params: Vec::new(),

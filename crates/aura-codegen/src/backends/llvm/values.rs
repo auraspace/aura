@@ -5386,13 +5386,13 @@ fn is_moving_call_arg(source_ty: &Ty, expected_ty: &Ty) -> bool {
     if !is_array_type(source_ty) && !matches!(source_ty, Ty::Fun { .. }) {
         return false;
     }
-    let source_storage = aura_ir::ownership::plan_for_ty(source_ty).storage;
-    let expected_storage = aura_ir::ownership::plan_for_ty(expected_ty).storage;
+    let source_storage = aura_ownership::plan_for_ty(source_ty).storage;
+    let expected_storage = aura_ownership::plan_for_ty(expected_ty).storage;
     matches!(
         (source_storage, expected_storage),
         (
-            aura_ir::ownership::Storage::Unique | aura_ir::ownership::Storage::FunctionEnvironment,
-            aura_ir::ownership::Storage::Unique | aura_ir::ownership::Storage::FunctionEnvironment
+            aura_ownership::Storage::Unique | aura_ownership::Storage::FunctionEnvironment,
+            aura_ownership::Storage::Unique | aura_ownership::Storage::FunctionEnvironment
         )
     ) && types_compatible(source_ty, expected_ty)
 }

@@ -42,7 +42,8 @@ pub mod intrinsic_registry;
 pub mod mir_opt;
 
 pub mod mir {
-    use super::{ownership, Effect, OwnershipMode, Ty};
+    use super::{Effect, OwnershipMode, Ty};
+    use aura_ownership;
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct MirBody {
@@ -91,13 +92,13 @@ pub mod mir {
             variant: String,
             field: String,
             to: Place,
-            action: ownership::Action,
+            action: aura_ownership::Action,
         },
         LoadIndex {
             collection: Place,
             index: Place,
             to: Place,
-            action: ownership::Action,
+            action: aura_ownership::Action,
         },
         StoreField {
             object: Place,
@@ -241,7 +242,7 @@ pub mod mir {
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct SpawnCapture {
         pub source: Place,
-        pub action: ownership::Action,
+        pub action: aura_ownership::Action,
         pub by_ref: bool,
     }
 
@@ -544,7 +545,7 @@ pub mod state_machine {
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct OwnershipTransfer {
         pub local: usize,
-        pub action: super::ownership::Action,
+        pub action: aura_ownership::Action,
     }
 
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -604,11 +605,11 @@ pub mod state_machine {
                                     .enumerate()
                                     .filter_map(|(local, value)| {
                                         let action =
-                                            super::ownership::plan_for_ty(&value.ty).across_suspend;
+                                            aura_ownership::plan_for_ty(&value.ty).across_suspend;
                                         (!matches!(
                                             action,
-                                            super::ownership::Action::Copy
-                                                | super::ownership::Action::Noop
+                                            aura_ownership::Action::Copy
+                                                | aura_ownership::Action::Noop
                                         ))
                                         .then_some(OwnershipTransfer { local, action })
                                     })
@@ -662,8 +663,9 @@ pub mod lowering {
             AsyncOp, BasicBlock, BinaryOp, CallTarget, ClosureCapture, Intrinsic, Local, MirBody,
             Place, Rvalue, SpawnCapture, Statement, Terminator, UnaryOp,
         },
-        ownership, Effect, FunctionIr, LoweringDiagnostic, ValueFact,
+        Effect, FunctionIr, LoweringDiagnostic, ValueFact,
     };
+    use aura_ownership;
 
     #[derive(Debug, Clone)]
     enum IterableAccess {
@@ -723,7 +725,7 @@ pub mod lowering {
             locals.push(Local {
                 name: param.clone(),
                 ty: ty.clone(),
-                ownership: ownership::mode_for_ty(ty),
+                ownership: aura_ownership::mode_for_ty(ty),
             });
         }
         let mut blocks = vec![BasicBlock {
@@ -806,7 +808,7 @@ pub mod lowering {
                         locals.push(Local {
                             name: format!("__mir_{handler}_{}", catch.name.name),
                             ty: catch_ty.clone(),
-                            ownership: ownership::mode_for_ty(&catch_ty),
+                            ownership: aura_ownership::mode_for_ty(&catch_ty),
                         });
                         catch_bindings.insert(catch.name.name.clone(), local);
                         blocks[handler].statements.push(Statement::Assign {
@@ -885,7 +887,7 @@ pub mod lowering {
                         locals.push(Local {
                             name: format!("__mir_try_return_{local}"),
                             ty: return_ty.clone(),
-                            ownership: ownership::mode_for_ty(&return_ty),
+                            ownership: aura_ownership::mode_for_ty(&return_ty),
                         });
                         Some(Place { local })
                     };
@@ -893,7 +895,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: format!("__mir_try_returning_{returning_local}"),
                         ty: Ty::Bool,
-                        ownership: ownership::mode_for_ty(&Ty::Bool),
+                        ownership: aura_ownership::mode_for_ty(&Ty::Bool),
                     });
                     let returning = Place {
                         local: returning_local,
@@ -970,7 +972,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: format!("__mir_{handler}_{}", catch.name.name),
                         ty: catch_ty.clone(),
-                        ownership: ownership::mode_for_ty(&catch_ty),
+                        ownership: aura_ownership::mode_for_ty(&catch_ty),
                     });
                     let mut catch_bindings = local_ids.clone();
                     catch_bindings.insert(catch.name.name.clone(), catch_local);
@@ -1085,7 +1087,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: binding.name.name.clone(),
                         ty: result_ty.clone(),
-                        ownership: ownership::mode_for_ty(&result_ty),
+                        ownership: aura_ownership::mode_for_ty(&result_ty),
                     });
                     let mut try_bindings = local_ids.clone();
                     try_bindings.insert(binding.name.name.clone(), local);
@@ -1167,7 +1169,7 @@ pub mod lowering {
                         locals.push(Local {
                             name: format!("__mir_try_return_{local}"),
                             ty: return_ty.clone(),
-                            ownership: ownership::mode_for_ty(&return_ty),
+                            ownership: aura_ownership::mode_for_ty(&return_ty),
                         });
                         Some(Place { local })
                     };
@@ -1175,7 +1177,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: format!("__mir_try_returning_{returning_local}"),
                         ty: Ty::Bool,
-                        ownership: ownership::mode_for_ty(&Ty::Bool),
+                        ownership: aura_ownership::mode_for_ty(&Ty::Bool),
                     });
                     blocks.extend([
                         BasicBlock {
@@ -1219,7 +1221,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: format!("__mir_{handler}_{}", catch.name.name),
                         ty: catch_ty.clone(),
-                        ownership: ownership::mode_for_ty(&catch_ty),
+                        ownership: aura_ownership::mode_for_ty(&catch_ty),
                     });
                     let mut catch_bindings = local_ids.clone();
                     catch_bindings.insert(catch.name.name.clone(), catch_local);
@@ -1319,7 +1321,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: format!("__mir_{handler}_{}", catch.name.name),
                         ty: catch_ty.clone(),
-                        ownership: ownership::mode_for_ty(&catch_ty),
+                        ownership: aura_ownership::mode_for_ty(&catch_ty),
                     });
                     let mut catch_bindings = local_ids.clone();
                     catch_bindings.insert(catch.name.name.clone(), local);
@@ -1403,7 +1405,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: value.name.name.clone(),
                         ty: Ty::Int,
-                        ownership: ownership::mode_for_ty(&Ty::Int),
+                        ownership: aura_ownership::mode_for_ty(&Ty::Int),
                     });
                     let mut loop_bindings = local_ids.clone();
                     loop_bindings.insert(value.name.name.clone(), loop_var);
@@ -1449,7 +1451,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: format!("__mir_for_condition_{condition_local}"),
                         ty: Ty::Bool,
-                        ownership: ownership::mode_for_ty(&Ty::Bool),
+                        ownership: aura_ownership::mode_for_ty(&Ty::Bool),
                     });
                     blocks[head].statements.push(Statement::Assign {
                         place: Place {
@@ -1486,7 +1488,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: format!("__mir_for_one_{one_local}"),
                         ty: Ty::Int,
-                        ownership: ownership::mode_for_ty(&Ty::Int),
+                        ownership: aura_ownership::mode_for_ty(&Ty::Int),
                     });
                     blocks[increment].statements.push(Statement::Assign {
                         place: Place { local: one_local },
@@ -1570,7 +1572,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: format!("__mir_for_in_index_{index_local}"),
                         ty: Ty::Int,
-                        ownership: ownership::mode_for_ty(&Ty::Int),
+                        ownership: aura_ownership::mode_for_ty(&Ty::Int),
                     });
                     blocks[current].statements.push(Statement::Assign {
                         place: Place { local: index_local },
@@ -1600,7 +1602,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: format!("__mir_for_in_length_{length_local}"),
                         ty: Ty::Int,
-                        ownership: ownership::mode_for_ty(&Ty::Int),
+                        ownership: aura_ownership::mode_for_ty(&Ty::Int),
                     });
                     blocks[current].terminator = Terminator::Goto { target: head };
                     let length_value = match &iterable_access {
@@ -1630,7 +1632,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: format!("__mir_for_in_condition_{condition_local}"),
                         ty: Ty::Bool,
-                        ownership: ownership::mode_for_ty(&Ty::Bool),
+                        ownership: aura_ownership::mode_for_ty(&Ty::Bool),
                     });
                     blocks[head].statements.push(Statement::Assign {
                         place: Place {
@@ -1655,7 +1657,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: value.name.name.clone(),
                         ty: element_ty.clone(),
-                        ownership: ownership::mode_for_ty(&element_ty),
+                        ownership: aura_ownership::mode_for_ty(&element_ty),
                     });
                     match &iterable_access {
                         IterableAccess::Builtin => {
@@ -1673,7 +1675,7 @@ pub mod lowering {
                             locals.push(Local {
                                 name: format!("__mir_for_in_item_{item_local}"),
                                 ty: element_ty.clone(),
-                                ownership: ownership::mode_for_ty(&element_ty),
+                                ownership: aura_ownership::mode_for_ty(&element_ty),
                             });
                             blocks[body_target].statements.push(Statement::Assign {
                                 place: Place { local: item_local },
@@ -1711,7 +1713,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: format!("__mir_for_in_one_{one_local}"),
                         ty: Ty::Int,
-                        ownership: ownership::mode_for_ty(&Ty::Int),
+                        ownership: aura_ownership::mode_for_ty(&Ty::Int),
                     });
                     blocks[increment].statements.push(Statement::Assign {
                         place: Place { local: one_local },
@@ -1831,7 +1833,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: format!("__mir_match_tag_{tag_local}"),
                         ty: Ty::Int,
-                        ownership: ownership::mode_for_ty(&Ty::Int),
+                        ownership: aura_ownership::mode_for_ty(&Ty::Int),
                     });
                     blocks[current].statements.push(Statement::Assign {
                         place: Place { local: tag_local },
@@ -1880,7 +1882,7 @@ pub mod lowering {
                                         span: field.span,
                                         construct: "generic match payload",
                                     })?;
-                            let ownership = ownership::mode_for_ty(&field_ty);
+                            let ownership = aura_ownership::mode_for_ty(&field_ty);
                             let local = locals.len();
                             locals.push(Local {
                                 name: binding.name.clone(),
@@ -1899,7 +1901,7 @@ pub mod lowering {
                                     variant: name.name.clone(),
                                     field: field.name.name.clone(),
                                     to: Place { local },
-                                    action: ownership::plan_for_ty(&locals[local].ty).bind,
+                                    action: aura_ownership::plan_for_ty(&locals[local].ty).bind,
                                 });
                         }
                         lower_branch_terminal(
@@ -1945,7 +1947,7 @@ pub mod lowering {
                         ownership: if value.mutable {
                             super::OwnershipMode::Mutable
                         } else {
-                            ownership::mode_for_ty(&ty)
+                            aura_ownership::mode_for_ty(&ty)
                         },
                     });
                     if let Expr::Async(AsyncExpr::Await(await_expr)) = &value.init {
@@ -1978,14 +1980,14 @@ pub mod lowering {
                             checked,
                         )?;
                         let destination = Place { local: id };
-                        match (rvalue, ownership::plan_for_ty(&ty).bind) {
-                            (Rvalue::Use(from), ownership::Action::Move) => {
+                        match (rvalue, aura_ownership::plan_for_ty(&ty).bind) {
+                            (Rvalue::Use(from), aura_ownership::Action::Move) => {
                                 blocks[current].statements.push(Statement::Move {
                                     from,
                                     to: destination,
                                 });
                             }
-                            (Rvalue::Use(from), ownership::Action::Clone) => {
+                            (Rvalue::Use(from), aura_ownership::Action::Clone) => {
                                 blocks[current].statements.push(Statement::Clone {
                                     from,
                                     to: destination,
@@ -2064,7 +2066,7 @@ pub mod lowering {
                             checked,
                         )?;
                         let result = locals.len();
-                        let result_ownership = ownership::mode_for_ty(&result_ty);
+                        let result_ownership = aura_ownership::mode_for_ty(&result_ty);
                         locals.push(Local {
                             name: format!("__await_discard_{result}"),
                             ty: result_ty,
@@ -2337,7 +2339,7 @@ pub mod lowering {
                                 })?;
                             Ok(SpawnCapture {
                                 source: Place { local },
-                                action: ownership::plan_for_ty(&locals_out[local].ty)
+                                action: aura_ownership::plan_for_ty(&locals_out[local].ty)
                                     .across_suspend,
                                 by_ref: locals_out[local].ownership
                                     == super::OwnershipMode::Mutable,
@@ -2782,40 +2784,40 @@ pub mod lowering {
                 checked,
             )?)
         };
-        let action = ownership::plan_for_ty(&locals[destination.local].ty).assign;
+        let action = aura_ownership::plan_for_ty(&locals[destination.local].ty).assign;
         if let Rvalue::Use(source) = value {
             if source == destination {
                 return Ok(());
             }
-            if ownership::plan_for_ty(&locals[destination.local].ty).scope_exit
-                == ownership::Action::Drop
+            if aura_ownership::plan_for_ty(&locals[destination.local].ty).scope_exit
+                == aura_ownership::Action::Drop
             {
                 statements.push(Statement::Drop(destination));
             }
             match action {
-                ownership::Action::Move => statements.push(Statement::Move {
+                aura_ownership::Action::Move => statements.push(Statement::Move {
                     from: source,
                     to: destination,
                 }),
-                ownership::Action::Clone => statements.push(Statement::Clone {
+                aura_ownership::Action::Clone => statements.push(Statement::Clone {
                     from: source,
                     to: destination,
                 }),
-                ownership::Action::Copy | ownership::Action::Noop => {
+                aura_ownership::Action::Copy | aura_ownership::Action::Noop => {
                     statements.push(Statement::Assign {
                         place: destination,
                         value: Rvalue::Use(source),
                     });
                 }
-                ownership::Action::Retain => statements.push(Statement::Retain {
+                aura_ownership::Action::Retain => statements.push(Statement::Retain {
                     from: source,
                     to: destination,
                 }),
-                ownership::Action::Drop => unreachable!("assignment cannot use drop action"),
+                aura_ownership::Action::Drop => unreachable!("assignment cannot use drop action"),
             }
         } else {
-            if ownership::plan_for_ty(&locals[destination.local].ty).scope_exit
-                == ownership::Action::Drop
+            if aura_ownership::plan_for_ty(&locals[destination.local].ty).scope_exit
+                == aura_ownership::Action::Drop
             {
                 statements.push(Statement::Drop(destination));
             }
@@ -2843,7 +2845,7 @@ pub mod lowering {
             if returned.is_some_and(|place| place.local == local) {
                 continue;
             }
-            if ownership::plan_for_ty(&value.ty).scope_exit == ownership::Action::Drop {
+            if aura_ownership::plan_for_ty(&value.ty).scope_exit == aura_ownership::Action::Drop {
                 statements.push(Statement::Drop(Place { local }));
             }
         }
@@ -2867,7 +2869,7 @@ pub mod lowering {
             if value.name == "this" {
                 continue;
             }
-            if ownership::plan_for_ty(&value.ty).scope_exit == ownership::Action::Drop {
+            if aura_ownership::plan_for_ty(&value.ty).scope_exit == aura_ownership::Action::Drop {
                 statements.push(Statement::Drop(Place { local }));
             }
         }
@@ -2895,7 +2897,7 @@ pub mod lowering {
         locals.push(Local {
             name: format!("__await_task_{local}"),
             ty: ty.clone(),
-            ownership: ownership::mode_for_ty(&ty),
+            ownership: aura_ownership::mode_for_ty(&ty),
         });
         let task = Place { local };
         let value = lower_rvalue(expr, locals, statements, bindings, checked)?;
@@ -3085,7 +3087,7 @@ pub mod lowering {
                         ownership: if value.mutable {
                             super::OwnershipMode::Mutable
                         } else {
-                            ownership::mode_for_ty(&ty)
+                            aura_ownership::mode_for_ty(&ty)
                         },
                     });
                     if let Expr::Async(AsyncExpr::Await(await_expr)) = &value.init {
@@ -3167,7 +3169,7 @@ pub mod lowering {
                         locals.push(Local {
                             name: format!("__mir_{block}_await_discard_{result}"),
                             ty: result_ty.clone(),
-                            ownership: ownership::mode_for_ty(&result_ty),
+                            ownership: aura_ownership::mode_for_ty(&result_ty),
                         });
                         let resume = blocks.len();
                         blocks.push(BasicBlock {
@@ -3341,7 +3343,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: format!("__mir_{handler}_{}", catch.name.name),
                         ty: catch_ty.clone(),
-                        ownership: ownership::mode_for_ty(&catch_ty),
+                        ownership: aura_ownership::mode_for_ty(&catch_ty),
                     });
                     let mut catch_bindings = bindings.clone();
                     catch_bindings.insert(catch.name.name.clone(), local);
@@ -3417,7 +3419,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: format!("__mir_match_tag_{tag_local}"),
                         ty: Ty::Int,
-                        ownership: ownership::mode_for_ty(&Ty::Int),
+                        ownership: aura_ownership::mode_for_ty(&Ty::Int),
                     });
                     blocks[block].statements.push(Statement::Assign {
                         place: Place { local: tag_local },
@@ -3471,7 +3473,7 @@ pub mod lowering {
                             locals.push(Local {
                                 name: binding.name.clone(),
                                 ty: binding_ty,
-                                ownership: ownership::mode_for_ty(&field_ty),
+                                ownership: aura_ownership::mode_for_ty(&field_ty),
                             });
                             arm_bindings.insert(binding.name.clone(), local);
                             blocks[arm_block]
@@ -3481,7 +3483,7 @@ pub mod lowering {
                                     variant: name.name.clone(),
                                     field: field.name.name.clone(),
                                     to: Place { local },
-                                    action: ownership::plan_for_ty(&field_ty).bind,
+                                    action: aura_ownership::plan_for_ty(&field_ty).bind,
                                 });
                         }
                         lower_branch_terminal(
@@ -3584,7 +3586,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: value.name.name.clone(),
                         ty: Ty::Int,
-                        ownership: ownership::mode_for_ty(&Ty::Int),
+                        ownership: aura_ownership::mode_for_ty(&Ty::Int),
                     });
                     let mut loop_bindings = branch_bindings.clone();
                     loop_bindings.insert(value.name.name.clone(), loop_var);
@@ -3630,7 +3632,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: format!("__mir_for_condition_{condition_local}"),
                         ty: Ty::Bool,
-                        ownership: ownership::mode_for_ty(&Ty::Bool),
+                        ownership: aura_ownership::mode_for_ty(&Ty::Bool),
                     });
                     blocks[head].statements.push(Statement::Assign {
                         place: Place {
@@ -3667,7 +3669,7 @@ pub mod lowering {
                     locals.push(Local {
                         name: format!("__mir_for_one_{one_local}"),
                         ty: Ty::Int,
-                        ownership: ownership::mode_for_ty(&Ty::Int),
+                        ownership: aura_ownership::mode_for_ty(&Ty::Int),
                     });
                     blocks[increment].statements.push(Statement::Assign {
                         place: Place { local: one_local },
@@ -3837,7 +3839,7 @@ pub mod lowering {
                 locals.push(Local {
                     name: value.name.name.clone(),
                     ty: result_ty.clone(),
-                    ownership: ownership::mode_for_ty(&result_ty),
+                    ownership: aura_ownership::mode_for_ty(&result_ty),
                 });
                 let task = lower_await_operand(
                     &await_expr.operand,
@@ -3891,7 +3893,7 @@ pub mod lowering {
                 locals.push(Local {
                     name: format!("__await_loop_result_{result_local}"),
                     ty: result_ty.clone(),
-                    ownership: ownership::mode_for_ty(&result_ty),
+                    ownership: aura_ownership::mode_for_ty(&result_ty),
                 });
                 let task = lower_await_operand(
                     &await_expr.operand,
@@ -4003,7 +4005,7 @@ pub mod lowering {
         locals.push(Local {
             name: format!("__mir_for_in_index_{index_local}"),
             ty: Ty::Int,
-            ownership: ownership::mode_for_ty(&Ty::Int),
+            ownership: aura_ownership::mode_for_ty(&Ty::Int),
         });
         blocks[current].statements.push(Statement::Assign {
             place: Place { local: index_local },
@@ -4033,7 +4035,7 @@ pub mod lowering {
         locals.push(Local {
             name: format!("__mir_for_in_length_{length_local}"),
             ty: Ty::Int,
-            ownership: ownership::mode_for_ty(&Ty::Int),
+            ownership: aura_ownership::mode_for_ty(&Ty::Int),
         });
         blocks[current].terminator = Terminator::Goto { target: head };
         let length_value = match &iterable_access {
@@ -4063,7 +4065,7 @@ pub mod lowering {
         locals.push(Local {
             name: format!("__mir_for_in_condition_{condition_local}"),
             ty: Ty::Bool,
-            ownership: ownership::mode_for_ty(&Ty::Bool),
+            ownership: aura_ownership::mode_for_ty(&Ty::Bool),
         });
         blocks[head].statements.push(Statement::Assign {
             place: Place {
@@ -4088,7 +4090,7 @@ pub mod lowering {
         locals.push(Local {
             name: value.name.name.clone(),
             ty: element_ty.clone(),
-            ownership: ownership::mode_for_ty(&element_ty),
+            ownership: aura_ownership::mode_for_ty(&element_ty),
         });
         match &iterable_access {
             IterableAccess::Builtin => blocks[body_target].statements.push(Statement::LoadIndex {
@@ -4104,7 +4106,7 @@ pub mod lowering {
                 locals.push(Local {
                     name: format!("__mir_for_in_item_{item_local}"),
                     ty: element_ty.clone(),
-                    ownership: ownership::mode_for_ty(&element_ty),
+                    ownership: aura_ownership::mode_for_ty(&element_ty),
                 });
                 blocks[body_target].statements.push(Statement::Assign {
                     place: Place { local: item_local },
@@ -4142,7 +4144,7 @@ pub mod lowering {
         locals.push(Local {
             name: format!("__mir_for_in_one_{one_local}"),
             ty: Ty::Int,
-            ownership: ownership::mode_for_ty(&Ty::Int),
+            ownership: aura_ownership::mode_for_ty(&Ty::Int),
         });
         blocks[increment].statements.push(Statement::Assign {
             place: Place { local: one_local },
@@ -4288,14 +4290,14 @@ pub mod lowering {
         })
     }
 
-    fn iteration_action(ty: &Ty) -> ownership::Action {
-        match ownership::plan_for_ty(ty).storage {
-            ownership::Storage::Copy => ownership::Action::Copy,
-            ownership::Storage::GcReference => ownership::Action::Retain,
-            ownership::Storage::Unique
-            | ownership::Storage::TaskHandle
-            | ownership::Storage::Channel
-            | ownership::Storage::FunctionEnvironment => ownership::Action::Clone,
+    fn iteration_action(ty: &Ty) -> aura_ownership::Action {
+        match aura_ownership::plan_for_ty(ty).storage {
+            aura_ownership::Storage::Copy => aura_ownership::Action::Copy,
+            aura_ownership::Storage::GcReference => aura_ownership::Action::Retain,
+            aura_ownership::Storage::Unique
+            | aura_ownership::Storage::TaskHandle
+            | aura_ownership::Storage::Channel
+            | aura_ownership::Storage::FunctionEnvironment => aura_ownership::Action::Clone,
         }
     }
 
@@ -4303,21 +4305,21 @@ pub mod lowering {
         statements: &mut Vec<Statement>,
         from: usize,
         to: usize,
-        action: ownership::Action,
+        action: aura_ownership::Action,
     ) {
         let from = Place { local: from };
         let to = Place { local: to };
         match action {
-            ownership::Action::Move => statements.push(Statement::Move { from, to }),
-            ownership::Action::Clone => statements.push(Statement::Clone { from, to }),
-            ownership::Action::Retain => statements.push(Statement::Retain { from, to }),
-            ownership::Action::Copy | ownership::Action::Noop => {
+            aura_ownership::Action::Move => statements.push(Statement::Move { from, to }),
+            aura_ownership::Action::Clone => statements.push(Statement::Clone { from, to }),
+            aura_ownership::Action::Retain => statements.push(Statement::Retain { from, to }),
+            aura_ownership::Action::Copy | aura_ownership::Action::Noop => {
                 statements.push(Statement::Assign {
                     place: to,
                     value: Rvalue::Use(from),
                 });
             }
-            ownership::Action::Drop => {}
+            aura_ownership::Action::Drop => {}
         }
     }
 
@@ -4596,7 +4598,7 @@ pub mod lowering {
                         name: identifier.name.clone(),
                     })?;
                 let local = locals.len();
-                let ownership = ownership::mode_for_ty(&field_ty);
+                let ownership = aura_ownership::mode_for_ty(&field_ty);
                 locals.push(Local {
                     name: format!("__field_{local}"),
                     ty: field_ty,
@@ -4621,7 +4623,7 @@ pub mod lowering {
                 locals.push(Local {
                     name: format!("__field_{local}"),
                     ty: ty.clone(),
-                    ownership: ownership::mode_for_ty(&ty),
+                    ownership: aura_ownership::mode_for_ty(&ty),
                 });
                 statements.push(Statement::Assign {
                     place: Place { local },
@@ -4642,7 +4644,7 @@ pub mod lowering {
             locals.push(Local {
                 name: format!("__return_{local}"),
                 ty: ty.clone(),
-                ownership: ownership::mode_for_ty(&ty),
+                ownership: aura_ownership::mode_for_ty(&ty),
             });
             let value = lower_rvalue(expr, locals, statements, bindings, checked)?;
             statements.push(Statement::Assign {
@@ -4711,7 +4713,7 @@ pub mod lowering {
         locals.push(Local {
             name: format!("__return_{local}"),
             ty: ty.clone(),
-            ownership: ownership::mode_for_ty(&ty),
+            ownership: aura_ownership::mode_for_ty(&ty),
         });
         let value = lower_rvalue(expr, locals, statements, bindings, checked)?;
         statements.push(Statement::Assign {
@@ -4854,14 +4856,14 @@ pub mod lowering {
                         .iter()
                         .map(|(_, ty)| ValueFact {
                             ty: ty.clone(),
-                            ownership: ownership::mode_for_ty(ty),
+                            ownership: aura_ownership::mode_for_ty(ty),
                             span: lambda.span,
                         })
                         .collect(),
                     closure_captures,
                     ret: ValueFact {
                         ty: (*ret).clone(),
-                        ownership: ownership::mode_for_ty(ret.as_ref()),
+                        ownership: aura_ownership::mode_for_ty(ret.as_ref()),
                         span: lambda.span,
                     },
                     type_params: Vec::new(),
@@ -5143,118 +5145,6 @@ pub mod lowering {
                 }
             }
             _ => {}
-        }
-    }
-}
-
-pub mod ownership {
-    use super::Ty;
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum Storage {
-        Copy,
-        Unique,
-        GcReference,
-        TaskHandle,
-        Channel,
-        FunctionEnvironment,
-    }
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum Action {
-        Copy,
-        Move,
-        Clone,
-        Retain,
-        Drop,
-        Noop,
-    }
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct Plan {
-        pub storage: Storage,
-        pub bind: Action,
-        pub assign: Action,
-        pub across_suspend: Action,
-        pub scope_exit: Action,
-    }
-
-    pub fn plan_for_ty(ty: &Ty) -> Plan {
-        match ty {
-            Ty::Unit | Ty::Int | Ty::Float | Ty::Bool | Ty::Null => Plan {
-                storage: Storage::Copy,
-                bind: Action::Copy,
-                assign: Action::Copy,
-                across_suspend: Action::Copy,
-                scope_exit: Action::Noop,
-            },
-            Ty::String | Ty::ForeignHandle(_) => Plan {
-                storage: Storage::Unique,
-                bind: Action::Move,
-                assign: Action::Move,
-                across_suspend: Action::Clone,
-                scope_exit: Action::Drop,
-            },
-            Ty::Class(_) | Ty::Interface(_) | Ty::InterfaceApp { .. } | Ty::Nullable(_) => Plan {
-                storage: Storage::GcReference,
-                bind: Action::Retain,
-                assign: Action::Retain,
-                across_suspend: Action::Retain,
-                scope_exit: Action::Drop,
-            },
-            Ty::ClassApp { name, .. } if name == "Array" => Plan {
-                storage: Storage::Unique,
-                bind: Action::Move,
-                assign: Action::Move,
-                across_suspend: Action::Clone,
-                scope_exit: Action::Drop,
-            },
-            Ty::ClassApp { .. } | Ty::Enum(_) | Ty::EnumApp { .. } => Plan {
-                storage: Storage::Unique,
-                bind: Action::Move,
-                assign: Action::Move,
-                across_suspend: Action::Clone,
-                scope_exit: Action::Drop,
-            },
-            Ty::Fun { .. } => Plan {
-                storage: Storage::FunctionEnvironment,
-                bind: Action::Move,
-                assign: Action::Move,
-                across_suspend: Action::Clone,
-                scope_exit: Action::Drop,
-            },
-            Ty::Task(_) | Ty::TaskHandle(_) => Plan {
-                storage: Storage::TaskHandle,
-                bind: Action::Move,
-                assign: Action::Move,
-                across_suspend: Action::Retain,
-                scope_exit: Action::Drop,
-            },
-            Ty::Channel(_) => Plan {
-                storage: Storage::Channel,
-                bind: Action::Move,
-                assign: Action::Move,
-                across_suspend: Action::Retain,
-                scope_exit: Action::Drop,
-            },
-            Ty::TypeParam(_) => Plan {
-                storage: Storage::Unique,
-                bind: Action::Move,
-                assign: Action::Move,
-                across_suspend: Action::Clone,
-                scope_exit: Action::Drop,
-            },
-        }
-    }
-
-    pub fn mode_for_ty(ty: &Ty) -> super::OwnershipMode {
-        match plan_for_ty(ty).storage {
-            Storage::Copy => super::OwnershipMode::Borrowed,
-            Storage::Unique
-            | Storage::TaskHandle
-            | Storage::Channel
-            | Storage::FunctionEnvironment => super::OwnershipMode::Owned,
-            Storage::GcReference => super::OwnershipMode::Shared,
         }
     }
 }
@@ -6052,15 +5942,7 @@ pub enum Effect {
     Throws,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OwnershipMode {
-    Borrowed,
-    Owned,
-    Move,
-    Shared,
-    /// A mutable local captured by a task shares a boxed cell with the task.
-    Mutable,
-}
+pub use aura_ownership::OwnershipMode;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValueFact {
@@ -6122,7 +6004,7 @@ pub struct OwnershipFact {
     pub owner: String,
     pub value: String,
     pub ty: Ty,
-    pub plan: ownership::Plan,
+    pub plan: aura_ownership::Plan,
 }
 
 /// Link metadata required by a native backend. Keeping this in CheckedIr
@@ -6942,14 +6824,14 @@ impl LoweredProgram {
                     owner: function.name.clone(),
                     value: format!("param_{index}"),
                     ty: ty.clone(),
-                    plan: ownership::plan_for_ty(ty),
+                    plan: aura_ownership::plan_for_ty(ty),
                 });
             }
             ownership.push(OwnershipFact {
                 owner: function.name.clone(),
                 value: "return".into(),
                 ty: function.ret.clone(),
-                plan: ownership::plan_for_ty(&function.ret),
+                plan: aura_ownership::plan_for_ty(&function.ret),
             });
         }
         let exception_regions =
@@ -7068,7 +6950,7 @@ impl LoweredProgram {
                     owner: body.name.clone(),
                     value: local.name.clone(),
                     ty: local.ty.clone(),
-                    plan: ownership::plan_for_ty(&local.ty),
+                    plan: aura_ownership::plan_for_ty(&local.ty),
                 });
             }
         }
@@ -7424,7 +7306,7 @@ fn block_throws(block: &Block) -> bool {
 }
 
 fn ownership_of(ty: &Ty) -> OwnershipMode {
-    ownership::mode_for_ty(ty)
+    aura_ownership::mode_for_ty(ty)
 }
 
 #[cfg(test)]
@@ -7788,7 +7670,7 @@ mod tests {
                     mir::Statement::ExtractVariantField {
                         variant,
                         field,
-                        action: ownership::Action::Copy,
+                        action: aura_ownership::Action::Copy,
                         ..
                     } if variant == "Some" && field == "value"
                 )
@@ -7820,7 +7702,7 @@ mod tests {
                     mir::Statement::ExtractVariantField {
                         variant,
                         field,
-                        action: ownership::Action::Move,
+                        action: aura_ownership::Action::Move,
                         ..
                     } if variant == "Ok" && field == "value"
                 )
@@ -7852,7 +7734,7 @@ mod tests {
                     mir::Statement::ExtractVariantField {
                         variant,
                         field,
-                        action: ownership::Action::Retain,
+                        action: aura_ownership::Action::Retain,
                         ..
                     } if variant == "Some" && field == "value"
                 )
@@ -7883,7 +7765,7 @@ mod tests {
                     mir::Statement::ExtractVariantField {
                         variant,
                         field,
-                        action: ownership::Action::Move,
+                        action: aura_ownership::Action::Move,
                         ..
                     } if variant == "Some" && field == "value"
                 )
@@ -7955,7 +7837,7 @@ mod tests {
                 matches!(
                     statement,
                     mir::Statement::LoadIndex {
-                        action: ownership::Action::Copy,
+                        action: aura_ownership::Action::Copy,
                         ..
                     }
                 )
@@ -8250,10 +8132,10 @@ mod tests {
 
     #[test]
     fn ownership_plan_makes_suspend_action_explicit() {
-        let plan = ownership::plan_for_ty(&Ty::String);
-        assert_eq!(plan.bind, ownership::Action::Move);
-        assert_eq!(plan.across_suspend, ownership::Action::Clone);
-        assert_eq!(plan.scope_exit, ownership::Action::Drop);
+        let plan = aura_ownership::plan_for_ty(&Ty::String);
+        assert_eq!(plan.bind, aura_ownership::Action::Move);
+        assert_eq!(plan.across_suspend, aura_ownership::Action::Clone);
+        assert_eq!(plan.scope_exit, aura_ownership::Action::Drop);
     }
 
     #[test]
@@ -8719,7 +8601,7 @@ mod tests {
         assert!(suspension
             .ownership
             .iter()
-            .any(|transfer| { transfer.action == ownership::Action::Clone }));
+            .any(|transfer| { transfer.action == aura_ownership::Action::Clone }));
     }
 
     #[test]
@@ -8998,7 +8880,7 @@ mod tests {
         };
         assert_eq!(captures.len(), 1);
         assert_eq!(captures[0].source.local, 0);
-        assert_eq!(captures[0].action, ownership::Action::Copy);
+        assert_eq!(captures[0].action, aura_ownership::Action::Copy);
         assert_eq!(body.locals[0].name, "value");
         assert!(body.validate().is_ok());
         assert_eq!(program.checked().spawn_state_machines.len(), 1);
