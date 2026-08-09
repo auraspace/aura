@@ -334,6 +334,7 @@ static void aura_gc_mark_task_frames(void)
 
 static void aura_gc_unlink_task_frame(AuraTaskFrame *frame)
 {
+  aura_gc_lock_enter();
   AuraTaskFrame **link = &aura_gc_task_frames;
   while (*link != NULL)
   {
@@ -341,10 +342,12 @@ static void aura_gc_unlink_task_frame(AuraTaskFrame *frame)
     {
       *link = frame->gc_next;
       frame->gc_next = NULL;
+      aura_gc_lock_leave();
       return;
     }
     link = &(*link)->gc_next;
   }
+  aura_gc_lock_leave();
 }
 
 static void aura_task_frame_detach_wait_target(AuraTaskFrame *frame);
@@ -389,8 +392,10 @@ AuraTaskFrame *aura_task_frame_new(size_t data_size,
   frame->data_size = data_size;
   frame->resume_state = 0;
   frame->state = AURA_TASK_READY;
+  aura_gc_lock_enter();
   frame->gc_next = aura_gc_task_frames;
   aura_gc_task_frames = frame;
+  aura_gc_lock_leave();
   return frame;
 }
 
