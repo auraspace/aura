@@ -7875,10 +7875,7 @@ mod tests {
             .states
             .iter()
             .any(|state| state.suspension.is_some()));
-        assert_eq!(
-            machine.frame_locals,
-            (0..parent.locals.len()).collect::<Vec<_>>()
-        );
+        assert_eq!(machine.frame_locals, vec![0, 1]);
     }
 
     #[test]

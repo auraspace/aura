@@ -12,7 +12,9 @@ pub enum Effect {
     Throws,
 }
 pub mod state_machine {
-    use super::mir::{MirBody, Terminator};
+    use std::collections::BTreeSet;
+
+    use super::mir::{AsyncOp, MirBody, Place, Rvalue, Statement, Terminator};
 
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct StateMachine {
@@ -35,6 +37,10 @@ pub mod state_machine {
         pub result_local: usize,
         pub resume: usize,
         pub unwind: Option<usize>,
+        /// Locals that remain live after this suspension. Backends use this
+        /// typed set to build the frame storage map instead of scanning all
+        /// locals conservatively.
+        pub live_locals: Vec<usize>,
         pub ownership: Vec<OwnershipTransfer>,
     }
 
@@ -49,10 +55,222 @@ pub mod state_machine {
         InvalidMir,
     }
 
+    fn add_place(places: &mut BTreeSet<usize>, place: Place) {
+        places.insert(place.local);
+    }
+
+    fn read_place(place: Place, uses: &mut BTreeSet<usize>, defs: &BTreeSet<usize>) {
+        if !defs.contains(&place.local) {
+            add_place(uses, place);
+        }
+    }
+
+    fn rvalue_uses(value: &Rvalue, uses: &mut BTreeSet<usize>) {
+        match value {
+            Rvalue::Use(place)
+            | Rvalue::Unwrap { operand: place }
+            | Rvalue::TypeTest { operand: place, .. }
+            | Rvalue::VariantTag { operand: place }
+            | Rvalue::Length(place)
+            | Rvalue::Field { object: place, .. }
+            | Rvalue::AsyncOp(AsyncOp::Join(place))
+            | Rvalue::AsyncOp(AsyncOp::Cancel(place))
+            | Rvalue::AsyncOp(AsyncOp::ChannelReceive(place))
+            | Rvalue::AsyncOp(AsyncOp::ChannelClose(place)) => add_place(uses, *place),
+            Rvalue::Unary { operand, .. } => add_place(uses, *operand),
+            Rvalue::Binary { left, right, .. } => {
+                add_place(uses, *left);
+                add_place(uses, *right);
+            }
+            Rvalue::Select {
+                condition,
+                then_value,
+                else_value,
+            } => {
+                add_place(uses, *condition);
+                add_place(uses, *then_value);
+                add_place(uses, *else_value);
+            }
+            Rvalue::Index { collection, index } => {
+                add_place(uses, *collection);
+                add_place(uses, *index);
+            }
+            Rvalue::Intrinsic(_)
+            | Rvalue::ConstInt(_)
+            | Rvalue::ConstFloat(_)
+            | Rvalue::ConstBool(_)
+            | Rvalue::ConstString(_)
+            | Rvalue::ConstNull => {}
+            Rvalue::Function { captures, .. } => {
+                for capture in captures {
+                    add_place(uses, capture.source);
+                }
+            }
+            Rvalue::AsyncOp(AsyncOp::Spawn { captures, .. }) => {
+                for capture in captures {
+                    add_place(uses, capture.source);
+                }
+            }
+            Rvalue::AsyncOp(AsyncOp::ChannelCreate { capacity, .. }) => {
+                add_place(uses, *capacity);
+            }
+            Rvalue::AsyncOp(AsyncOp::ChannelSend { channel, value }) => {
+                add_place(uses, *channel);
+                add_place(uses, *value);
+            }
+            Rvalue::Call { args, .. } => {
+                for arg in args {
+                    add_place(uses, *arg);
+                }
+            }
+            Rvalue::CallIndirect { callee, args } => {
+                add_place(uses, *callee);
+                for arg in args {
+                    add_place(uses, *arg);
+                }
+            }
+        }
+    }
+
+    fn statement_uses_defs(
+        statement: &Statement,
+        uses: &mut BTreeSet<usize>,
+        defs: &mut BTreeSet<usize>,
+    ) {
+        match statement {
+            Statement::Assign { place, value } => {
+                let mut value_uses = BTreeSet::new();
+                rvalue_uses(value, &mut value_uses);
+                for local in value_uses {
+                    read_place(Place { local }, uses, defs);
+                }
+                defs.insert(place.local);
+            }
+            Statement::Evaluate(value) => {
+                let mut value_uses = BTreeSet::new();
+                rvalue_uses(value, &mut value_uses);
+                for local in value_uses {
+                    read_place(Place { local }, uses, defs);
+                }
+            }
+            Statement::Move { from, to }
+            | Statement::Clone { from, to }
+            | Statement::Retain { from, to } => {
+                read_place(*from, uses, defs);
+                defs.insert(to.local);
+            }
+            Statement::ExtractVariantField { operand, to, .. }
+            | Statement::LoadIndex {
+                collection: operand,
+                to,
+                ..
+            } => {
+                read_place(*operand, uses, defs);
+                defs.insert(to.local);
+            }
+            Statement::StoreField { object, value, .. } => {
+                read_place(*object, uses, defs);
+                read_place(*value, uses, defs);
+            }
+            Statement::Drop(place) => read_place(*place, uses, defs),
+            Statement::EnterTry { .. } | Statement::LeaveTry => {}
+        }
+    }
+
+    fn terminator_uses_defs(
+        terminator: &Terminator,
+        uses: &mut BTreeSet<usize>,
+        defs: &mut BTreeSet<usize>,
+    ) {
+        match terminator {
+            Terminator::SwitchInt { condition, .. }
+            | Terminator::SwitchTag {
+                discriminant: condition,
+                ..
+            }
+            | Terminator::Throw {
+                value: condition, ..
+            }
+            | Terminator::Return {
+                value: Some(condition),
+            } => read_place(*condition, uses, defs),
+            Terminator::Await { task, result, .. } => {
+                read_place(*task, uses, defs);
+                defs.insert(result.local);
+            }
+            Terminator::Goto { .. }
+            | Terminator::Return { value: None }
+            | Terminator::Cancel
+            | Terminator::Unreachable => {}
+        }
+    }
+
+    fn successors(terminator: &Terminator) -> Vec<usize> {
+        match terminator {
+            Terminator::Goto { target } => vec![*target],
+            Terminator::SwitchInt {
+                then_target,
+                else_target,
+                ..
+            } => vec![*then_target, *else_target],
+            Terminator::SwitchTag {
+                targets, otherwise, ..
+            } => targets
+                .iter()
+                .map(|(_, target)| *target)
+                .chain(std::iter::once(*otherwise))
+                .collect(),
+            Terminator::Await { resume, unwind, .. } => std::iter::once(*resume)
+                .chain(unwind.iter().copied())
+                .collect(),
+            Terminator::Throw { target, .. } => target.iter().copied().collect(),
+            Terminator::Return { .. } | Terminator::Cancel | Terminator::Unreachable => Vec::new(),
+        }
+    }
+
+    fn liveness(body: &MirBody) -> (Vec<BTreeSet<usize>>, Vec<BTreeSet<usize>>) {
+        let mut block_uses = Vec::with_capacity(body.blocks.len());
+        let mut block_defs = Vec::with_capacity(body.blocks.len());
+        for block in &body.blocks {
+            let mut uses = BTreeSet::new();
+            let mut defs = BTreeSet::new();
+            for statement in &block.statements {
+                statement_uses_defs(statement, &mut uses, &mut defs);
+            }
+            terminator_uses_defs(&block.terminator, &mut uses, &mut defs);
+            block_uses.push(uses);
+            block_defs.push(defs);
+        }
+        let mut live_in = vec![BTreeSet::new(); body.blocks.len()];
+        let mut live_out = vec![BTreeSet::new(); body.blocks.len()];
+        loop {
+            let mut changed = false;
+            for block_index in (0..body.blocks.len()).rev() {
+                let mut out = BTreeSet::new();
+                for successor in successors(&body.blocks[block_index].terminator) {
+                    out.extend(live_in[successor].iter().copied());
+                }
+                let mut input = block_uses[block_index].clone();
+                input.extend(
+                    out.iter()
+                        .filter(|local| !block_defs[block_index].contains(local))
+                        .copied(),
+                );
+                changed |= live_out[block_index] != out || live_in[block_index] != input;
+                live_out[block_index] = out;
+                live_in[block_index] = input;
+            }
+            if !changed {
+                return (live_in, live_out);
+            }
+        }
+    }
+
     impl StateMachine {
         pub fn from_mir(body: &MirBody) -> Result<Self, BuildError> {
             body.validate().map_err(|_| BuildError::InvalidMir)?;
-            let mut frame_locals = Vec::new();
+            let (_, live_out) = liveness(body);
+            let mut frame_locals = BTreeSet::new();
             let states = body
                 .blocks
                 .iter()
@@ -89,17 +307,27 @@ pub mod state_machine {
                             if let Some(unwind) = unwind {
                                 successors.push(*unwind);
                             }
-                            frame_locals.extend([task.local, result.local]);
+                            let mut live_locals = live_out[block].clone();
+                            live_locals.insert(task.local);
+                            // The await result is written before the resumed
+                            // state can run its first drop/mark boundary.
+                            live_locals.insert(result.local);
+                            frame_locals.extend(live_locals.iter().copied());
+                            let live_local_set = live_locals.clone();
                             Some(Suspension {
                                 task_local: task.local,
                                 result_local: result.local,
                                 resume: *resume,
                                 unwind: *unwind,
+                                live_locals: live_locals.into_iter().collect(),
                                 ownership: body
                                     .locals
                                     .iter()
                                     .enumerate()
                                     .filter_map(|(local, value)| {
+                                        if !live_local_set.contains(&local) {
+                                            return None;
+                                        }
                                         let action =
                                             aura_ownership::plan_for_ty(&value.ty).across_suspend;
                                         (!matches!(
@@ -129,18 +357,10 @@ pub mod state_machine {
                     }
                 })
                 .collect::<Vec<_>>();
-            if states.iter().any(|state| state.suspension.is_some()) {
-                // Conservative frame placement is intentional until the
-                // liveness pass is introduced: every local may be observed
-                // by a resumed block, so none may remain stack-only.
-                frame_locals.extend(0..body.locals.len());
-            }
-            frame_locals.sort_unstable();
-            frame_locals.dedup();
             Ok(Self {
                 function: body.name.clone(),
                 entry: body.entry,
-                frame_locals,
+                frame_locals: frame_locals.into_iter().collect(),
                 states,
             })
         }
@@ -593,5 +813,83 @@ pub mod mir {
             }
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mir::{BasicBlock, Local, MirBody, Place, Rvalue, Statement, Terminator};
+    use super::state_machine::StateMachine;
+    use super::Effect;
+    use aura_ownership::OwnershipMode;
+    use aura_sema::Ty;
+
+    #[test]
+    fn suspension_frame_map_contains_live_locals_and_transfer_slots() {
+        let body = MirBody {
+            name: "live_map".into(),
+            locals: vec![
+                Local {
+                    name: "task".into(),
+                    ty: Ty::Task(Box::new(Ty::Int)),
+                    ownership: OwnershipMode::Owned,
+                },
+                Local {
+                    name: "live".into(),
+                    ty: Ty::Int,
+                    ownership: OwnershipMode::Borrowed,
+                },
+                Local {
+                    name: "dead".into(),
+                    ty: Ty::Int,
+                    ownership: OwnershipMode::Borrowed,
+                },
+                Local {
+                    name: "result".into(),
+                    ty: Ty::Int,
+                    ownership: OwnershipMode::Borrowed,
+                },
+            ],
+            blocks: vec![
+                BasicBlock {
+                    statements: vec![
+                        Statement::Assign {
+                            place: Place { local: 1 },
+                            value: Rvalue::ConstInt(1),
+                        },
+                        Statement::Assign {
+                            place: Place { local: 2 },
+                            value: Rvalue::ConstInt(2),
+                        },
+                    ],
+                    terminator: Terminator::Await {
+                        task: Place { local: 0 },
+                        result: Place { local: 3 },
+                        resume: 1,
+                        unwind: None,
+                    },
+                },
+                BasicBlock {
+                    statements: vec![],
+                    terminator: Terminator::Return {
+                        value: Some(Place { local: 1 }),
+                    },
+                },
+            ],
+            entry: 0,
+            return_ty: Ty::Int,
+            effect: Effect::Async,
+        };
+
+        let machine = StateMachine::from_mir(&body).expect("valid MIR");
+        assert_eq!(machine.frame_locals, vec![0, 1, 3]);
+        assert_eq!(
+            machine.states[0]
+                .suspension
+                .as_ref()
+                .expect("await state")
+                .live_locals,
+            vec![0, 1, 3]
+        );
     }
 }

@@ -5,9 +5,9 @@
 #include <stdint.h>
 
 #if defined(_WIN32)
-#include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <windows.h>
 #include <stdatomic.h>
 typedef SOCKET AuraPlatformSocket;
 #define AURA_PLATFORM_SOCKET_INVALID INVALID_SOCKET

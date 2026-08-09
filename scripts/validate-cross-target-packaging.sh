@@ -115,6 +115,15 @@ ci_sorted="$(printf '%s\n' "${ci_targets[@]}" | sed '/^$/d' | sort -u)"
 [[ "$expected_sorted" == "$ci_sorted" ]] \
   || die "CI platform-contract target set differs: expected=[$(tr '\n' ' ' <<<"$expected_sorted")] actual=[$(tr '\n' ' ' <<<"$ci_sorted")]"
 
+# The package matrix intentionally keeps Windows tier-2 artifacts policy-only,
+# but the runtime platform itself still gets a native compile/run gate.
+grep -q '^  windows-platform:' "$ci_workflow" \
+  || die "CI has no native Windows platform fixture job"
+grep -q 'runtime/tests/platform_windows\.c' "$ci_workflow" \
+  || die "Windows platform job does not compile its native fixture"
+grep -q -- '-lws2_32 -lbcrypt' "$ci_workflow" \
+  || die "Windows platform job does not link required native libraries"
+
 for target in "${required[@]}"; do
   expected_runner="$(manifest_field "$target" 3)"
   [[ "$(manifest_field "$target" 4)" == tar.gz ]] || die "required target $target is not tar.gz packaged"

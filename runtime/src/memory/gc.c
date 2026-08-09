@@ -1,19 +1,15 @@
-/* ---- GC (C3x free-all + C4z roots + C5f mark/sweep + C6a deep mark + C6e/C7b) ----
- * aura_gc_collect: if roots registered → mark from roots and Array-of-class
- * buffers (C6e), then deep-scan object bodies for nested GC pointers
- * (conservative pointer slots) + per-object mark_extras (C7b Array fields)
- * + sweep unmarked (C7b: dtor frees owned Array buffers). If no roots →
- * mark-all (safe until compiler emits roots). Shutdown still free-all remaining.
+/* ---- GC: typed roots + tri-color incremental mark/sweep ------------------
+ * Every managed object with GC fields is registered with a typed trace
+ * callback. The collector never interprets arbitrary payload bytes as roots;
+ * objects without a trace callback are treated as leaf allocations.
  */
 
 typedef struct AuraGcNode
 {
   void *ptr;
-  size_t size;                    /* C6a: payload size for deep field scan */
   unsigned char color;            /* 0 white, 1 gray, 2 black */
   void (*dtor)(void *ptr);        /* C7b: free non-GC field buffers before free */
-  void (*mark_extras)(void *ptr); /* C7b: mark Array-of-class field elems */
-  int precise_trace;              /* typed callback covers all GC fields */
+  void (*trace)(void *ptr);       /* typed callback covers every GC field */
   struct AuraGcNode *next;
 } AuraGcNode;
 
@@ -60,7 +56,7 @@ typedef struct
 static AuraGcArrayRoot aura_gc_array_roots[AURA_GC_MAX_ARRAY_ROOTS];
 static int aura_gc_array_root_n = 0;
 
-/* Worklist for deep mark (C6a). */
+/* Worklist for typed object traces. */
 #define AURA_GC_MARK_STACK 1024
 static AuraGcNode *aura_gc_mark_stack[AURA_GC_MARK_STACK];
 static int aura_gc_mark_sp = 0;
@@ -239,8 +235,7 @@ static void aura_gc_mark_push(AuraGcNode *n)
 }
 
 static void *aura_gc_alloc_internal(size_t size, void (*dtor)(void *),
-                                    void (*mark_extras)(void *),
-                                    int precise_trace)
+                                    void (*trace)(void *))
 {
   aura_gc_lock_enter();
   void *p = malloc(size);
@@ -260,25 +255,23 @@ static void *aura_gc_alloc_internal(size_t size, void (*dtor)(void *),
     abort();
   }
   n->ptr = p;
-  n->size = size;
   /* Objects allocated during concurrent marking start black. Their future
    * managed stores are covered by the write barrier, so they cannot be swept
    * before the current cycle ends. */
   n->color = aura_gc_phase != AURA_GC_IDLE ? 2 : 0;
   n->dtor = dtor;
-  n->mark_extras = mark_extras;
-  n->precise_trace = precise_trace;
+  n->trace = trace;
   n->next = aura_gc_list;
   aura_gc_list = n;
   aura_gc_lock_leave();
   return p;
 }
 
-void *aura_gc_alloc_full(size_t size, void (*dtor)(void *), void (*mark_extras)(void *))
+void *aura_gc_alloc_full(size_t size, void (*dtor)(void *), void (*trace)(void *))
 {
   /* The historical name remains ABI-compatible, but its callback is now the
    * complete typed trace contract; NULL means the object has no GC fields. */
-  return aura_gc_alloc_internal(size, dtor, mark_extras, 1);
+  return aura_gc_alloc_internal(size, dtor, trace);
 }
 
 void *aura_gc_alloc_typed(size_t size, void (*dtor)(void *),
@@ -289,7 +282,7 @@ void *aura_gc_alloc_typed(size_t size, void (*dtor)(void *),
     fputs("aura: typed GC allocation requires a trace callback\n", stderr);
     abort();
   }
-  return aura_gc_alloc_internal(size, dtor, trace, 1);
+  return aura_gc_alloc_internal(size, dtor, trace);
 }
 
 void *aura_gc_alloc(size_t size)
@@ -328,7 +321,7 @@ static void aura_gc_release(void *ptr)
   aura_gc_lock_leave();
 }
 
-/* C7b: mark a GC object pointer (for generated mark_extras on Array fields). */
+/* Mark a GC object pointer from a typed trace callback. */
 void aura_gc_mark_ptr(void *obj)
 {
   aura_gc_lock_enter();
@@ -432,7 +425,7 @@ static void aura_gc_begin_locked(void)
 static void aura_gc_process_one_locked(void)
 {
   AuraGcNode *n = aura_gc_mark_stack[--aura_gc_mark_sp];
-  if (n->mark_extras != NULL && n->ptr != NULL) n->mark_extras(n->ptr);
+  if (n->trace != NULL && n->ptr != NULL) n->trace(n->ptr);
   n->color = 2;
 }
 

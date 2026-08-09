@@ -228,6 +228,25 @@ jobs:
             --mode "$mode" \
             --report "dist/${{ matrix.name }}-acceptance.json"
 
+  windows-platform:
+    name: Windows runtime platform
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Compile and run Windows platform fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          clang --version
+          clang -D_WIN32 -std=c11 -Wall -Wextra -Werror \
+            -Iruntime -o platform-windows.exe \
+            runtime/tests/platform_windows.c runtime/src/platform/platform.c \
+            -lws2_32 -lbcrypt
+          ./platform-windows.exe
+
   site:
     name: Site
     runs-on: ubuntu-latest

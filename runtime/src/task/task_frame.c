@@ -401,9 +401,8 @@ AuraTaskFrame *aura_task_frame_new(size_t data_size,
   }
   if (data_size != 0)
   {
-    /* Frame locals are the suspended task's live state.  Store them in the
-     * tracing heap so the collector can deep-scan GC pointers held by the
-     * state while the task is pending. */
+    /* Frame locals are the suspended task's live state. Keep the storage
+     * rooted and let its explicit typed stack map describe nested GC slots. */
     frame->data = aura_gc_alloc(data_size);
     if (frame->data == NULL)
     {

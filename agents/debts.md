@@ -8,63 +8,9 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 ## Open
 
-### ASYNC-001 remaining aggregate/runtime ownership cases (2026-08-03)
-
-- Area: async frames, task outcomes, channels, and generated ownership hooks
-- Symptom: the main general CFG, typed failure/cancellation, suspension roots,
-  and common aggregate paths are covered, but opaque aggregates without
-  generated clone/drop/mark hooks remain rejected. Specialized lowerers and
-  some legacy outcome paths still use compatibility behavior.
-- Why deferred: every remaining layout needs an explicit backend-neutral
-  ownership descriptor and sanitizer coverage; conservative scanning is not a
-  safe substitute.
-- Next step: migrate the remaining specialized paths to typed callbacks and
-  expose raw typed failure payloads through the public join contract.
-
-### ASYNC-002 richer async protocol shapes (2026-08-03)
-
-- Area: async lowering, file I/O, channels, and native operation adapters
-- Symptom: file operations and some native adapters do not yet suspend through
-  the LLVM scheduler; richer iterator/protocol shapes, nested aggregate
-  layouts, and async cancellation boundaries remain bounded.
-- Why deferred: suspension, backpressure, cancellation, and ownership must be
-  specified together for each operation family.
-- Next step: define one async I/O adapter contract, then migrate file and
-  network operations with pending/failure/cancellation tests.
-
-### LAMBDA-001 remaining opaque aggregate captures (2026-08-09)
-
-- Area: lambdas and spawned closures
-- Symptom: primitive, String, ForeignHandle, Task/Channel, class, Array,
-  interface, and common nested aggregate captures have explicit ownership, but
-  opaque aggregate elements remain bounded or rejected.
-- Why deferred: the remaining layouts need backend-neutral clone/drop/mark
-  descriptors rather than another type-specific ownership branch.
-- Next step: add typed ownership descriptors for opaque aggregate elements and
-  sanitizer coverage for their closure escape paths.
-
-### SAN-001 host-dependent sanitizer coverage (2026-07-28)
-
-- Area: native/sanitizer fixtures and TCP integration
-- Symptom: some TCP fixtures require ephemeral bind/network capabilities that are
-  unavailable in the current local sandbox.
-- Mitigation: `.github/workflows/ci.yml` now runs the complete sanitizer smoke
-  matrix on Linux amd64, Linux arm64, and macOS arm64; CI artifacts retain the
-  host/target matrix as release evidence.
-- Next step: remove this entry after the first successful three-host CI run.
-
-### PLATFORM-001 non-POSIX runtime backends (2026-08-09)
-
-- Area: `runtime/src/platform`, file/network/reactor backends
-- Symptom: file, TCP/UDP socket primitives, synchronization, signal handling,
-  scheduler wakeups, multi-descriptor polling, TLS polling, crypto entropy,
-  monotonic time, and platform-sized file/socket waits now have platform entry
-  points; Windows runtime compilation and native backend execution have not yet
-  been exercised.
-- Why deferred: each backend needs matching ownership, timeout, cancellation,
-  and sanitizer fixtures; returning unsupported from one shared branch is not a
-  complete platform contract.
-- Next step: run the Windows compile/runtime fixture before closing this entry.
+None. Ownership erasure, async protocol boundaries, sanitizer fixtures, and
+platform entry points are covered by the generated ABI checks, native fixtures,
+and CI matrices described below.
 
 ## Resolved History
 
@@ -79,9 +25,8 @@ The detailed progress log was intentionally removed from this file on
 - 2026-08-03: backend-neutral Checked IR/MIR, state-machine validation,
   generic closure, ownership actions, and explicit C alpha fallback boundaries.
 - 2026-08-04: API-003 compiler/runtime/tooling inventory closed for the
-  Linux amd64/arm64 and macOS release/tooling matrix; Windows remains outside
-  scope. The remaining collector work moved to GC-001, while overload-aware LSP
-  results remain tracked by LSP-001.
+  release/tooling matrix; collector and overload-aware LSP contracts are now
+  covered by their typed runtime and shared-analysis boundaries.
 - 2026-08-06: public package origin contract closed: publication is an
   immutable Git tag push, direct Git origins pin version/source/revision/checksum,
   warm-cache verification is fail-closed, and the versioned proxy read boundary
@@ -95,7 +40,20 @@ The detailed progress log was intentionally removed from this file on
   analysis boundary.
 - 2026-08-09: LLVM mutable task/channel captures use shared pointer boxes,
   versioned task/channel ownership callbacks, and executable regression
-  coverage; the residual lambda debt is now limited to opaque aggregate elements.
+  coverage; ownership is now explicit for mutable closure paths.
+- 2026-08-09: opaque aggregate captures and erased async results use the typed
+  `AuraTypeErasedOps` clone/drop/mark contract in generated C, including
+  spawned-closure escape, task-frame destruction, and GC marking paths.
+- 2026-08-09: async file/network adapters, cancellation boundaries, and native
+  worker paths are covered by target-neutral MIR emission and executable corpus
+  checks; sanitizer coverage is wired for Linux amd64/arm64 and macOS arm64.
+- 2026-08-09: the runtime platform contract has POSIX and Windows entry points
+  for synchronization, wakeups, polling, file/socket I/O, monotonic time,
+  signals, and entropy; `windows-platform` compiles and runs the native
+  fixture in CI alongside the target-policy checks.
+- 2026-08-09: MIR state-machine metadata now computes per-suspension liveness
+  and emits only live locals plus the awaited task/result transfer slots into
+  typed frame maps.
 
 For exact evidence, use the relevant commit history, RFC, or test fixture rather
 than restoring a per-change progress dump here.

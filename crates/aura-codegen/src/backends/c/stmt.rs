@@ -323,6 +323,98 @@ fn task_result_struct_owner_key<'a>(key: &'a str, ctx: &EmitCtx<'_>) -> Option<&
         .then_some(payload)
 }
 
+// Task-result values live in C locals after join. Register every GC edge in
+// aggregate payloads while ownership is held; the generated mark functions
+// alone cannot see an unrooted C stack value.
+fn emit_owned_gc_edges(
+    out: &mut String,
+    value: &str,
+    key: &str,
+    checked: &CheckedFile,
+    add: bool,
+    depth: usize,
+) {
+    if depth > 8 {
+        return;
+    }
+    let key = crate::expr::full_type_mono(key, checked);
+    if is_heap_class_mono(&key, checked) {
+        let op = if add {
+            "aura_gc_add_root"
+        } else {
+            "aura_gc_remove_root"
+        };
+        let _ = writeln!(out, "{op}((void **)&({value}));");
+        return;
+    }
+    if let Some((base, args)) = mono_split(&key, checked) {
+        if let Some(class) = checked.ast.classes.iter().find(|c| c.name.name == base) {
+            if class.kind == NominalKind::Struct {
+                let params: Vec<String> = class
+                    .type_params
+                    .iter()
+                    .map(|p| p.name.name.clone())
+                    .collect();
+                for (field, field_key) in ownership_fields(class, checked, &params, args) {
+                    let field_key = full_type_mono(&field_key, checked);
+                    emit_owned_gc_edges(
+                        out,
+                        &format!("({value}).{}", mangle_ident(&field)),
+                        &field_key,
+                        checked,
+                        add,
+                        depth + 1,
+                    );
+                }
+                return;
+            }
+        }
+        if let Some(en) = checked.ast.enums.iter().find(|e| e.name.name == base) {
+            let params: Vec<String> = en.type_params.iter().map(|p| p.name.name.clone()).collect();
+            for (tag, variant) in en.variants.iter().enumerate() {
+                let vn = mangle_ident(&variant.name.name);
+                let _ = writeln!(out, "switch (({value}).tag) {{ case {tag}: {{");
+                for field in &variant.fields {
+                    if type_ref_local_key(&field.ty, &params, args) == "Unit" {
+                        continue;
+                    }
+                    let field_key = type_ref_local_key_expand(&field.ty, &params, args, checked);
+                    emit_owned_gc_edges(
+                        out,
+                        &format!("({value}).data.{vn}.{}", mangle_ident(&field.name.name)),
+                        &field_key,
+                        checked,
+                        add,
+                        depth + 1,
+                    );
+                }
+                out.push_str("break; } default: break; }");
+            }
+            return;
+        }
+    }
+    if is_iface_type_key(&key, checked) {
+        let (iface, args) = resolve_iface_decl_and_args(&key, checked);
+        if let Some(iface) = iface {
+            for imp in crate::iface::mono_implementors_for_iface(checked, iface, &args) {
+                let mono = type_mono(
+                    &class_decl_package(imp.class, checked),
+                    &imp.class.name.name,
+                    &imp.class_args,
+                );
+                if is_heap_class_decl(imp.class) {
+                    let op = if add {
+                        "aura_gc_add_root"
+                    } else {
+                        "aura_gc_remove_root"
+                    };
+                    let _ = writeln!(out, "if (({value}).tag == AURA_TAG_{mono}) {op}((void **)&({value}).data.as_{mono});");
+                }
+            }
+        }
+    }
+}
+
 pub(crate) fn task_result_fun_owner_key(key: &str) -> Option<&str> {
     let payload = key
         .strip_prefix("std_io_Result_")
@@ -373,15 +465,33 @@ pub(crate) fn emit_free_task_result_owners(
             let payload = task_result_enum_owner_key(key, ctx).unwrap();
             let payload_cty =
                 local_key_to_c(&crate::expr::task_payload_repr_key(payload), ctx.checked);
+            let mut unroot = String::new();
+            emit_owned_gc_edges(
+                &mut unroot,
+                &format!("{n}.data.Ok.value"),
+                &crate::expr::task_payload_repr_key(payload),
+                ctx.checked,
+                false,
+                0,
+            );
             format!(
-                "if ({n}.tag == 0 && {n}.data.Ok.owned) {{ {payload_cty}_drop(&{n}.data.Ok.value); {n}.data.Ok.owned = false; }} "
+                "if ({n}.tag == 0 && {n}.data.Ok.owned) {{ {unroot} {payload_cty}_drop(&{n}.data.Ok.value); {n}.data.Ok.owned = false; }} "
             )
         } else if task_result_struct_owner_key(key, ctx).is_some() {
             let payload = task_result_struct_owner_key(key, ctx).unwrap();
             let payload_cty =
                 local_key_to_c(&crate::expr::task_payload_repr_key(payload), ctx.checked);
+            let mut unroot = String::new();
+            emit_owned_gc_edges(
+                &mut unroot,
+                &format!("{n}.data.Ok.value"),
+                &crate::expr::task_payload_repr_key(payload),
+                ctx.checked,
+                false,
+                0,
+            );
             format!(
-                "if ({n}.tag == 0 && {n}.data.Ok.owned) {{ {payload_cty}_drop(&{n}.data.Ok.value); {n}.data.Ok.owned = false; }} "
+                "if ({n}.tag == 0 && {n}.data.Ok.owned) {{ {unroot} {payload_cty}_drop(&{n}.data.Ok.value); {n}.data.Ok.owned = false; }} "
             )
         } else if task_result_fun_owner_key(key).is_some() {
             format!(
@@ -1006,6 +1116,34 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                     out,
                     "{p}if ({dst}.tag == 0 && {dst}.data.Ok.value != NULL) aura_gc_add_root((void **)&{dst}.data.Ok.value);"
                 );
+            }
+            if owns_task_result {
+                let payload_key = ty_name
+                    .strip_prefix("std_io_Result_")
+                    .and_then(|rest| rest.strip_suffix("_std_io_TaskError"))
+                    .map(crate::expr::task_payload_repr_key);
+                if let Some(payload_key) = payload_key {
+                    let is_aggregate = task_result_enum_owner_key(&ty_name, ctx).is_some()
+                        || task_result_struct_owner_key(&ty_name, ctx).is_some()
+                        || is_iface_type_key(&payload_key, ctx.checked);
+                    if is_aggregate {
+                        let mut roots = String::new();
+                        emit_owned_gc_edges(
+                            &mut roots,
+                            &format!("{dst}.data.Ok.value"),
+                            &payload_key,
+                            ctx.checked,
+                            true,
+                            0,
+                        );
+                        for line in roots.lines() {
+                            let _ = writeln!(
+                                out,
+                                "{p}if ({dst}.tag == 0 && {dst}.data.Ok.owned) {line}"
+                            );
+                        }
+                    }
+                }
             }
             if is_shared_outcome_error_owner_key(&context_ty_name) {
                 let _ = writeln!(

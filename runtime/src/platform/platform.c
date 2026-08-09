@@ -263,6 +263,7 @@ int aura_platform_signal_restore_shutdown(void) { return 1; }
 #include <signal.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
 #if defined(__linux__)
