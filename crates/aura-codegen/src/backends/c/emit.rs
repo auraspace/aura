@@ -468,6 +468,8 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
         "void *aura_gc_alloc_typed(size_t size, void (*dtor)(void *), void (*trace)(void *));\n",
     );
     out.push_str("void aura_gc_mark_ptr(void *obj);\n");
+    out.push_str("void aura_gc_write_barrier(void *owner, void *value);\n");
+    out.push_str("int aura_gc_step(size_t budget);\n");
     out.push_str("void aura_gc_add_root(void **slot);\n");
     out.push_str("void aura_gc_remove_root(void **slot);\n");
     out.push_str("void aura_gc_add_array_root(void **data_slot, int64_t *len_slot);\n");
@@ -613,6 +615,7 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str("typedef AuraTaskPollState (*AuraTaskCancelFn)(AuraTaskFrame *frame);\n");
     out.push_str("typedef void (*AuraTaskFrameDestroyFn)(AuraTaskFrame *frame);\n");
     out.push_str("typedef void (*AuraTaskFrameGcMarkFn)(AuraTaskFrame *frame);\n");
+    out.push_str("typedef struct { uint32_t offset; } AuraTaskFrameGcSlot;\n");
     out.push_str(
         "typedef void (*AuraTaskFrameDataDropFn)(AuraTaskFrame *frame, void *data, size_t size);\n",
     );
@@ -637,6 +640,9 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     );
     out.push_str(
         "void aura_task_frame_set_gc_mark(AuraTaskFrame *frame, AuraTaskFrameGcMarkFn mark);\n",
+    );
+    out.push_str(
+        "void aura_task_frame_set_gc_stack_map(AuraTaskFrame *frame, const AuraTaskFrameGcSlot *slots, size_t slot_count);\n",
     );
     out.push_str(
         "void aura_task_frame_set_data_drop(AuraTaskFrame *frame, AuraTaskFrameDataDropFn drop);\n",

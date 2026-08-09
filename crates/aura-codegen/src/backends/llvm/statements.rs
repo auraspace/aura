@@ -312,6 +312,15 @@ pub(super) fn emit_statement(
                 retain_pointer_value(out, &value, field_ty)?;
             }
             writeln!(out, "  store i64 {raw}, ptr {address}").unwrap();
+            if is_pointer_value_type(field_ty) {
+                let stored = next_temp(out);
+                writeln!(out, "  {stored} = inttoptr i64 {raw} to ptr").unwrap();
+                writeln!(
+                    out,
+                    "  call void @aura_gc_write_barrier(ptr {object}, ptr {stored})"
+                )
+                .unwrap();
+            }
         }
     }
     Ok(())

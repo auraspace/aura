@@ -412,6 +412,9 @@ void aura_gc_mark_ptr(void *obj);
 /* Publish a pointer store from a managed object.  The owner is used to avoid
  * retaining values written into an untracked allocation. */
 void aura_gc_write_barrier(void *owner, void *value);
+/* Advance an incremental collection by at most `budget` heap nodes. Returns
+ * non-zero while marking or sweeping remains in progress. */
+int aura_gc_step(size_t budget);
 /* Allocate an object whose callback precisely traces every GC field. */
 void *aura_gc_alloc_typed(size_t size, void (*dtor)(void *),
                           void (*trace)(void *));

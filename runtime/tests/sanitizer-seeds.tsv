@@ -20,6 +20,7 @@ task_workers_reactor	0	runtime/tests/task_workers_reactor.c	cc -std=c11 -Wall -W
 reactor_abstraction	0	runtime/tests/reactor_abstraction.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/reactor_abstraction.c
 gc_concurrent	0	runtime/tests/gc_concurrent.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/gc_concurrent.c
 gc_typed_trace	0	runtime/tests/gc_typed_trace.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined runtime/tests/gc_typed_trace.c
+gc_incremental	0	runtime/tests/gc_incremental.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/gc_incremental.c
 task_scope_failure	0	runtime/tests/task_scope_failure.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/task_scope_failure.c
 task_spawn_blocking	0	runtime/tests/task_spawn_blocking.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/task_spawn_blocking.c
 task_reactor_wakeup	0	runtime/tests/task_reactor_wakeup.c	cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined -pthread runtime/tests/task_reactor_wakeup.c

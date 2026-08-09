@@ -10,7 +10,7 @@ typedef struct AuraGcNode
 {
   void *ptr;
   size_t size;                    /* C6a: payload size for deep field scan */
-  int marked;                     /* C4z: mark bit for STW collect */
+  unsigned char color;            /* 0 white, 1 gray, 2 black */
   void (*dtor)(void *ptr);        /* C7b: free non-GC field buffers before free */
   void (*mark_extras)(void *ptr); /* C7b: mark Array-of-class field elems */
   int precise_trace;              /* typed callback covers all GC fields */
@@ -69,6 +69,16 @@ static int aura_gc_array_root_n = 0;
 #define AURA_GC_MARK_STACK 1024
 static AuraGcNode *aura_gc_mark_stack[AURA_GC_MARK_STACK];
 static int aura_gc_mark_sp = 0;
+
+typedef enum
+{
+  AURA_GC_IDLE = 0,
+  AURA_GC_MARKING = 1,
+  AURA_GC_SWEEPING = 2
+} AuraGcPhase;
+
+static AuraGcPhase aura_gc_phase = AURA_GC_IDLE;
+static AuraGcNode **aura_gc_sweep_link = NULL;
 
 void aura_gc_add_root(void **slot)
 {
@@ -191,11 +201,11 @@ static AuraGcNode *aura_gc_find(void *ptr)
 
 static void aura_gc_mark_push(AuraGcNode *n)
 {
-  if (n == NULL || n->marked)
+  if (n == NULL || n->color != 0)
   {
     return;
   }
-  n->marked = 1;
+  n->color = 1;
   if (aura_gc_mark_sp >= AURA_GC_MARK_STACK)
   {
     fputs("aura: GC mark stack overflow\n", stderr);
@@ -252,7 +262,7 @@ static void *aura_gc_alloc_internal(size_t size, void (*dtor)(void *),
   }
   n->ptr = p;
   n->size = size;
-  n->marked = 0;
+  n->color = 0;
   n->dtor = dtor;
   n->mark_extras = mark_extras;
   n->precise_trace = precise_trace;
@@ -336,7 +346,8 @@ void aura_gc_write_barrier(void *owner, void *value)
 {
   aura_gc_lock_enter();
   AuraGcNode *owner_node = aura_gc_find(owner);
-  if (owner_node != NULL && owner_node->marked)
+  if (aura_gc_phase == AURA_GC_MARKING && owner_node != NULL &&
+      owner_node->color == 2)
   {
     AuraGcNode *value_node = aura_gc_find(value);
     aura_gc_mark_push(value_node);
@@ -348,113 +359,119 @@ void aura_gc_write_barrier(void *owner, void *value)
  * collector unless the frame supplies an explicit mark contract. */
 static void aura_gc_mark_task_frames(void);
 
-/* C4z/C5f/C6a/C6e: stop-the-world deep mark + sweep when roots are registered. */
-void aura_gc_collect(void)
+/* Seed a tri-color cycle from all registered roots. */
+static void aura_gc_begin_locked(void)
 {
-  aura_gc_lock_enter();
   for (AuraGcNode *n = aura_gc_list; n != NULL; n = n->next)
   {
-    n->marked = 0;
+    n->color = 0;
   }
   if (aura_gc_root_n == 0 && aura_gc_array_root_n == 0)
   {
-    /* No roots: keep everything (compiler may not have registered yet). */
     for (AuraGcNode *n = aura_gc_list; n != NULL; n = n->next)
     {
-      n->marked = 1;
+      n->color = 2;
     }
-    aura_gc_lock_leave();
+    aura_gc_phase = AURA_GC_IDLE;
     return;
   }
   aura_gc_mark_sp = 0;
+  aura_gc_phase = AURA_GC_MARKING;
   for (int i = 0; i < aura_gc_root_n; i++)
   {
     void **slot = aura_gc_roots[i];
-    if (slot == NULL)
+    if (slot != NULL)
     {
-      continue;
-    }
-    void *obj = *slot;
-    if (obj == NULL)
-    {
-      continue;
-    }
-    AuraGcNode *n = aura_gc_find(obj);
-    if (n != NULL)
-    {
-      aura_gc_mark_push(n);
+      AuraGcNode *n = aura_gc_find(*slot);
+      if (n != NULL) aura_gc_mark_push(n);
     }
   }
-  /* C6e: mark GC objects stored in Array-of-class buffers. */
   for (int i = 0; i < aura_gc_array_root_n; i++)
   {
     void **data_slot = aura_gc_array_roots[i].data_slot;
     int64_t *len_slot = aura_gc_array_roots[i].len_slot;
-    if (data_slot == NULL || len_slot == NULL)
+    if (data_slot == NULL || len_slot == NULL || *data_slot == NULL || *len_slot <= 0)
     {
       continue;
     }
-    int64_t len = *len_slot;
     void *data = *data_slot;
-    if (data == NULL || len <= 0)
-    {
-      continue;
-    }
+    int64_t len = *len_slot;
     if (aura_gc_array_roots[i].mark != NULL)
     {
       aura_gc_array_roots[i].mark(data, len);
-      continue;
     }
-    void **elems = (void **)data;
-    for (int64_t j = 0; j < len; j++)
+    else
     {
-      void *obj = elems[j];
-      if (obj == NULL)
-      {
-        continue;
-      }
-      AuraGcNode *n = aura_gc_find(obj);
-      if (n != NULL)
-      {
-        aura_gc_mark_push(n);
-      }
+      void **elems = (void **)data;
+      for (int64_t j = 0; j < len; j++) aura_gc_mark_push(aura_gc_find(elems[j]));
     }
   }
   aura_gc_mark_task_frames();
-  /* C6a/C7b: deep mark + per-type mark_extras (Array-of-class fields). */
-  while (aura_gc_mark_sp > 0)
+}
+
+static void aura_gc_process_one_locked(void)
+{
+  AuraGcNode *n = aura_gc_mark_stack[--aura_gc_mark_sp];
+  if (n->mark_extras != NULL && n->ptr != NULL) n->mark_extras(n->ptr);
+  if (!n->precise_trace) aura_gc_mark_scan(n);
+  n->color = 2;
+}
+
+/* Advance marking and sweeping in bounded units so schedulers can keep pauses
+ * below their configured budget. */
+int aura_gc_step(size_t budget)
+{
+  aura_gc_lock_enter();
+  if (aura_gc_phase == AURA_GC_IDLE)
   {
-    AuraGcNode *n = aura_gc_mark_stack[--aura_gc_mark_sp];
-    if (n->mark_extras != NULL && n->ptr != NULL)
+    aura_gc_begin_locked();
+    if (aura_gc_phase == AURA_GC_IDLE)
     {
-      n->mark_extras(n->ptr);
-    }
-    if (!n->precise_trace)
-    {
-      aura_gc_mark_scan(n);
+      aura_gc_lock_leave();
+      return 0;
     }
   }
-  /* C5f/C7b: sweep unmarked objects; run dtor to free owned Array buffers. */
-  AuraGcNode **link = &aura_gc_list;
-  while (*link != NULL)
+  while (budget > 0 && aura_gc_phase == AURA_GC_MARKING && aura_gc_mark_sp > 0)
   {
-    AuraGcNode *n = *link;
-    if (!n->marked)
+    aura_gc_process_one_locked();
+    budget--;
+  }
+  if (aura_gc_phase == AURA_GC_MARKING && aura_gc_mark_sp == 0)
+  {
+    aura_gc_phase = AURA_GC_SWEEPING;
+    aura_gc_sweep_link = &aura_gc_list;
+  }
+  while (budget > 0 && aura_gc_phase == AURA_GC_SWEEPING &&
+         aura_gc_sweep_link != NULL && *aura_gc_sweep_link != NULL)
+  {
+    AuraGcNode *n = *aura_gc_sweep_link;
+    if (n->color == 0)
     {
-      *link = n->next;
-      if (n->dtor != NULL && n->ptr != NULL)
-      {
-        n->dtor(n->ptr);
-      }
+      *aura_gc_sweep_link = n->next;
+      if (n->dtor != NULL && n->ptr != NULL) n->dtor(n->ptr);
       free(n->ptr);
       free(n);
     }
     else
     {
-      link = &n->next;
+      aura_gc_sweep_link = &n->next;
     }
+    budget--;
   }
+  if (aura_gc_phase == AURA_GC_SWEEPING &&
+      (aura_gc_sweep_link == NULL || *aura_gc_sweep_link == NULL))
+  {
+    aura_gc_phase = AURA_GC_IDLE;
+    aura_gc_sweep_link = NULL;
+  }
+  int active = aura_gc_phase != AURA_GC_IDLE;
   aura_gc_lock_leave();
+  return active;
+}
+
+void aura_gc_collect(void)
+{
+  while (aura_gc_step(SIZE_MAX) != 0) {}
 }
 
 void aura_gc_shutdown(void)
@@ -473,6 +490,8 @@ void aura_gc_shutdown(void)
     n = next;
   }
   aura_gc_list = NULL;
+  aura_gc_phase = AURA_GC_IDLE;
+  aura_gc_sweep_link = NULL;
   aura_gc_root_n = 0;
   aura_gc_array_root_n = 0;
   aura_ex_dispose_cleared_causes();

@@ -114,6 +114,12 @@ The memory subsystem now contains only GC lifecycle/tracing and ownership
 helpers. New unrelated features should be placed in the owning subsystem
 directory rather than being added to either memory module.
 
+GC collection is exposed as an incremental tri-color contract: schedulers may
+call `aura_gc_step(budget)` between task turns to bound mark/sweep work, while
+`aura_gc_collect()` drains the same state machine for synchronous callers.
+Typed frame slot maps and `aura_gc_write_barrier(owner, value)` preserve the
+black-to-gray invariant when managed fields are written during marking.
+
 ## ABI Boundaries
 
 There are two related but distinct contracts:
