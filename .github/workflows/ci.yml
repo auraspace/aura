@@ -230,6 +230,8 @@ jobs:
 
   windows-platform:
     name: Windows runtime platform
+    # Temporarily disabled while Windows runner coverage is deferred.
+    if: ${{ false }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

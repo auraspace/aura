@@ -8,9 +8,9 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 ## Open
 
-None. Ownership erasure, async protocol boundaries, sanitizer fixtures, and
-platform entry points are covered by the generated ABI checks, native fixtures,
-and CI matrices described below.
+- Windows runtime CI is temporarily disabled in `.github/workflows/ci.yml`;
+  re-enable `windows-platform` once the Windows runner/toolchain fixture is
+  ready to be part of the active CI matrix.
 
 ## Resolved History
 
