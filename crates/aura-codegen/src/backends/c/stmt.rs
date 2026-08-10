@@ -684,6 +684,7 @@ pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
                         | "jsonObjectKeys"
                         | "jsonDecodeString"
                         | "jsonDuplicateKey"
+                        | "escapeString"
                 )
         });
     if is_json_owned {
@@ -712,6 +713,15 @@ pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
     if is_compress_owned {
         return true;
     }
+    if matches!(call.callee.as_ref(), Expr::Ident(id) if matches!(id.name.as_str(), "escapeString" | "join"))
+    {
+        return true;
+    }
+    if matches!(call.callee.as_ref(), Expr::Field(field) if field.field.name == "join")
+        && infer_type_name(e, ctx) == "String"
+    {
+        return true;
+    }
     // Generic std helpers can return borrowed/static storage, but user-defined
     // generic String functions return owned values by convention below.
     let is_array_string_get = match call.callee.as_ref() {
@@ -734,7 +744,7 @@ pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
         return false;
     }
     if let Expr::Ident(id) = call.callee.as_ref() {
-        if id.name == "exception_cause_type" {
+        if matches!(id.name.as_str(), "exception_cause_type" | "escapeString") {
             return true;
         }
         if ctx
@@ -777,6 +787,20 @@ pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
             let receiver = resolve_type_name(&field.object, ctx)
                 .or_else(|| Some(infer_type_name(&field.object, ctx)))
                 .unwrap_or_default();
+            // User-defined class methods returning String follow the owned
+            // return convention, so consumers such as println must release
+            // the temporary result.
+            let receiver_base = mono_base_name(&receiver, ctx.checked).unwrap_or(receiver.as_str());
+            let class_method_returns_string =
+                matches!(infer_type_name(e, ctx).as_str(), "String" | "Opt_String")
+                    && ctx.checked.ast.classes.iter().any(|class| {
+                        class.kind == NominalKind::Class
+                            && class.name.name == receiver_base
+                            && class
+                                .methods
+                                .iter()
+                                .any(|method| method.name.name == field.field.name)
+                    });
             // Array<String>.get() always returns a heap copy.  Keep this
             // ownership rule based on the expression's String result rather
             // than one exact monomorph spelling: local type resolution may
@@ -794,6 +818,7 @@ pub(crate) fn string_call_owns_result(e: &Expr, ctx: &EmitCtx<'_>) -> bool {
                         field.field.name.as_str(),
                         "substring" | "trim" | "trimStart" | "trimEnd" | "toLower"
                     ))
+                || class_method_returns_string
         }
         _ => false,
     }
@@ -1349,6 +1374,13 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 emit_release_box_locals(out, indent + 2, ctx, &ctx.box_owners_current());
                 ctx.pop_scope();
                 let _ = writeln!(out, "{p}  }}");
+                // A call-produced Array is a temporary iterable. Release its
+                // backing storage after iteration; named locals keep their
+                // ownership in the surrounding scope.
+                if !matches!(&f.iterable, Expr::Ident(_)) {
+                    let cleanup = crate::array_emit::array_contents_free_expr(&it_tmp, &mono);
+                    let _ = writeln!(out, "{p}  {cleanup}");
+                }
             } else if is_iface_type_key(&iter_key, ctx.checked) {
                 // C6c/C8c: for-in over interface with len() + get(i) via iface dispatch.
                 let (imono, iface, iargs) = resolve_iface_for_iter(&iter_key, ctx.checked);
@@ -1379,6 +1411,9 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 );
                 ctx.push_scope();
                 ctx.define_local(&f.name.name, elem_key);
+                if ctx.lookup_local(&f.name.name) == Some("String") {
+                    ctx.mark_string_owner(&f.name.name);
+                }
                 for stmt in &f.body.stmts {
                     emit_stmt(out, stmt, indent + 2, ctx);
                 }
@@ -1455,6 +1490,9 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                 );
                 ctx.push_scope();
                 ctx.define_local(&f.name.name, elem_key);
+                if ctx.lookup_local(&f.name.name) == Some("String") {
+                    ctx.mark_string_owner(&f.name.name);
+                }
                 for stmt in &f.body.stmts {
                     emit_stmt(out, stmt, indent + 2, ctx);
                 }
@@ -1770,9 +1808,13 @@ pub(crate) fn emit_stmt(out: &mut String, stmt: &Stmt, indent: usize, ctx: &mut 
                         };
                         let borrowed_string_ident = matches!(e, Expr::Ident(id)
                             if !ctx.is_string_owner(&id.name));
+                        let string_return_needs_copy = match e {
+                            Expr::Ident(id) => !ctx.is_string_owner(&id.name),
+                            _ => !string_expr_is_owned_temp(e, ctx),
+                        };
                         let val = if expected == "String"
                             && !matches!(e, Expr::Null(_))
-                            && (borrowed_string_ident || !string_expr_is_owned_temp(e, ctx))
+                            && (borrowed_string_ident || string_return_needs_copy)
                         {
                             // String returns are owned at the ABI boundary; copy borrowed
                             // literals/expressions before the caller releases the result.

@@ -347,6 +347,7 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 let function = ctx.checked.ast.functions.iter().find(|function| {
                     function.name.name == *name && fun_decl_package(function, ctx.checked) == pkg
                 });
+                let mut owned_string_args = Vec::new();
                 let args = if let Some(function) = function {
                     let params = function
                         .type_params
@@ -358,7 +359,14 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                         if let Some(param) = function.params.get(index) {
                             let expected =
                                 type_ref_local_key_expand(&param.ty, &params, &targs, ctx.checked);
-                            emitted.push(coerce_owner_arg_expr(arg, &expected, ctx));
+                            let value = coerce_owner_arg_expr(arg, &expected, ctx);
+                            if expected == "String" && string_expr_is_owned_temp(arg, ctx) {
+                                let temp = format!("__aura_alias_string_arg_{index}");
+                                owned_string_args.push((temp.clone(), value));
+                                emitted.push(temp);
+                            } else {
+                                emitted.push(value);
+                            }
                         } else {
                             emitted.push(emit_expr(arg, ctx));
                         }
@@ -465,7 +473,28 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 {
                     return emit_foreign_call(foreign, c, ctx);
                 }
-                return format!("{}({args})", c_fun_name(pkg, name, &targs));
+                let call = format!("{}({args})", c_fun_name(pkg, name, &targs));
+                if owned_string_args.is_empty() {
+                    return call;
+                }
+                let prelude = owned_string_args
+                    .iter()
+                    .map(|(temp, value)| format!("const char *{temp} = ({value}); "))
+                    .collect::<String>();
+                let cleanup = owned_string_args
+                    .iter()
+                    .map(|(temp, _)| format!("free((void *){temp}); "))
+                    .collect::<String>();
+                let ret_c = function
+                    .and_then(|f| f.return_type.as_ref())
+                    .map(|ty| c_type_from_opt(&Some(ty.clone()), ctx.checked, &[], &[]))
+                    .unwrap_or_else(|| "void".into());
+                if ret_c == "void" {
+                    return format!("({{ {prelude}{call}; {cleanup} }})");
+                }
+                return format!(
+                    "({{ {prelude}{ret_c} __aura_alias_result = ({call}); {cleanup} __aura_alias_result; }})"
+                );
             }
         }
 
@@ -1472,10 +1501,39 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                         mangle_ident(&id.name)
                     };
                     let mut parts = vec![format!("{f}.env")];
-                    for a in &c.args {
-                        parts.push(emit_expr(a, ctx));
+                    let mut prelude = String::new();
+                    let mut cleanup = String::new();
+                    for (index, a) in c.args.iter().enumerate() {
+                        if string_expr_is_owned_temp(a, ctx) {
+                            let temp = format!("__aura_fun_string_arg_{}_{}", c.span.start, index);
+                            let value = emit_expr(a, ctx);
+                            prelude.push_str(&format!("const char *{temp} = ({value}); "));
+                            cleanup.push_str(&format!("free((void *){temp}); "));
+                            parts.push(temp);
+                        } else {
+                            parts.push(emit_expr(a, ctx));
+                        }
                     }
-                    return format!("{f}.fn({})", parts.join(", "));
+                    let call = format!("{f}.fn({})", parts.join(", "));
+                    if prelude.is_empty() {
+                        return call;
+                    }
+                    let ret_key = ctx
+                        .checked
+                        .expr_tys
+                        .get(&(c.span.start, c.span.end))
+                        .map(|ty| {
+                            let subst = aura_sema::type_subst_map(&ctx.type_params, &ctx.type_args);
+                            aura_sema::subst_ty(ty, &subst).mono_suffix()
+                        })
+                        .unwrap_or_else(|| "Unit".into());
+                    let ret_c = crate::stmt::local_key_to_c(&ret_key, ctx.checked);
+                    if ret_c == "void" {
+                        return format!("({{ {prelude}{call}; {cleanup} }})");
+                    }
+                    return format!(
+                        "({{ {prelude}{ret_c} __aura_fun_result = ({call}); {cleanup} __aura_fun_result; }})"
+                    );
                 }
             }
 
@@ -1725,13 +1783,13 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                 let a_v = if is_opt_prim_key(&ta) {
                     format!("({a}).value")
                 } else {
-                    a
+                    a.clone()
                 };
                 let tb = infer_type_name(&c.args[1], ctx);
                 let b_v = if is_opt_prim_key(&tb) {
                     format!("({b}).value")
                 } else {
-                    b
+                    b.clone()
                 };
                 let kind = if is_opt_prim_key(&ta) {
                     ta.strip_prefix("Opt_").unwrap_or(ta.as_str())
@@ -1739,7 +1797,31 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
                     ta.as_str()
                 };
                 return match kind {
-                    "String" => format!("aura_assert_eq_string({a_v}, {b_v})"),
+                    "String" => {
+                        let owned_a = string_expr_is_owned_temp(&c.args[0], ctx);
+                        let owned_b = string_expr_is_owned_temp(&c.args[1], ctx);
+                        if !owned_a && !owned_b {
+                            format!("aura_assert_eq_string({a_v}, {b_v})")
+                        } else {
+                            let a_name = format!("__aura_assert_eq_a_{}", c.args[0].span().start);
+                            let b_name = format!("__aura_assert_eq_b_{}", c.args[1].span().start);
+                            let a_ref = if owned_a { &a_name } else { &a_v };
+                            let b_ref = if owned_b { &b_name } else { &b_v };
+                            let mut prelude = String::new();
+                            let mut cleanup = String::new();
+                            if owned_a {
+                                prelude.push_str(&format!("const char *{a_name} = ({a}); "));
+                                cleanup.push_str(&format!("free((void *){a_name}); "));
+                            }
+                            if owned_b {
+                                prelude.push_str(&format!("const char *{b_name} = ({b}); "));
+                                cleanup.push_str(&format!("free((void *){b_name}); "));
+                            }
+                            format!(
+                                "({{ {prelude} aura_assert_eq_string({a_ref}, {b_ref}); {cleanup} }})"
+                            )
+                        }
+                    }
                     "Float" => format!("aura_assert_eq_float({a_v}, {b_v})"),
                     "Bool" => format!("aura_assert_eq_bool({a_v}, {b_v})"),
                     _ => format!("aura_assert_eq_int({a_v}, {b_v})"),
@@ -2053,11 +2135,41 @@ pub(crate) fn emit_call(c: &CallExpr, ctx: &mut EmitCtx<'_>) -> String {
         other => {
             let callee = emit_expr(other, ctx);
             let mut parts = vec![format!("({callee}).env")];
-            for a in &c.args {
-                parts.push(emit_expr(a, ctx));
+            let mut prelude = String::new();
+            let mut cleanup = String::new();
+            for (index, a) in c.args.iter().enumerate() {
+                if string_expr_is_owned_temp(a, ctx) {
+                    let temp = format!("__aura_fun_string_arg_{}_{}", c.span.start, index);
+                    let value = emit_expr(a, ctx);
+                    prelude.push_str(&format!("const char *{temp} = ({value}); "));
+                    cleanup.push_str(&format!("free((void *){temp}); "));
+                    parts.push(temp);
+                } else {
+                    parts.push(emit_expr(a, ctx));
+                }
             }
             let args = parts.join(", ");
-            format!("({callee}).fn({args})")
+            let call = format!("({callee}).fn({args})");
+            if prelude.is_empty() {
+                return call;
+            }
+            let ret_key = ctx
+                .checked
+                .expr_tys
+                .get(&(c.span.start, c.span.end))
+                .map(|ty| {
+                    let subst = aura_sema::type_subst_map(&ctx.type_params, &ctx.type_args);
+                    aura_sema::subst_ty(ty, &subst).mono_suffix()
+                })
+                .unwrap_or_else(|| "Unit".into());
+            let ret_c = crate::stmt::local_key_to_c(&ret_key, ctx.checked);
+            if ret_c == "void" {
+                format!("({{ {prelude}{call}; {cleanup} }})")
+            } else {
+                format!(
+                    "({{ {prelude}{ret_c} __aura_fun_result = ({call}); {cleanup} __aura_fun_result; }})"
+                )
+            }
         }
     }
 }
