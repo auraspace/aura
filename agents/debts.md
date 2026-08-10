@@ -11,9 +11,6 @@ commits, RFCs, or release notes instead of appending progress for every change.
 - Windows runtime CI is temporarily disabled in `.github/workflows/ci.yml`;
   re-enable `windows-platform` once the Windows runner/toolchain fixture is
   ready to be part of the active CI matrix.
-- Legacy local runtime archives without adjacent metadata remain accepted for
-  source-checkout compatibility; require generated metadata for all future
-  shared/cache archives before broadening the multi-target cache contract.
 
 ## Resolved History
 

@@ -250,6 +250,12 @@ struct RuntimeRequest {
     rebuild_runtime: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimeCandidate {
+    path: PathBuf,
+    metadata_required: bool,
+}
+
 impl RuntimeRequest {
     fn from_env(backend: Backend, detector: Option<bool>) -> Self {
         let profile = runtime_profile();
@@ -318,13 +324,16 @@ fn resolve_runtime_input_with_request(request: RuntimeRequest) -> Result<PathBuf
                 path.display()
             ));
         }
-        validate_runtime_archive(&path, &request)?;
+        validate_runtime_archive(&path, &request, false)?;
         return Ok(path.canonicalize().unwrap_or(path));
     }
 
     for candidate in archive_candidates(&request) {
-        if candidate.is_file() && validate_runtime_archive(&candidate, &request).is_ok() {
-            return Ok(candidate.canonicalize().unwrap_or(candidate));
+        if candidate.path.is_file()
+            && validate_runtime_archive(&candidate.path, &request, candidate.metadata_required)
+                .is_ok()
+        {
+            return Ok(candidate.path.canonicalize().unwrap_or(candidate.path));
         }
     }
 
@@ -350,7 +359,7 @@ fn runtime_profile() -> String {
     env::var("AURA_RUNTIME_PROFILE").unwrap_or_else(|_| "dev".into())
 }
 
-fn archive_candidates(request: &RuntimeRequest) -> Vec<PathBuf> {
+fn archive_candidates(request: &RuntimeRequest) -> Vec<RuntimeCandidate> {
     let archive = match request.backend {
         Backend::C => "libaurart.a",
         Backend::Llvm => "libaurart-llvm.a",
@@ -380,33 +389,41 @@ fn archive_candidates(request: &RuntimeRequest) -> Vec<PathBuf> {
         }
     }
     for root in installed_roots {
-        push_archive_candidates(&mut out, &root, &target, request, archive);
-        // Legacy local/toolchain archive layout remains supported.
-        out.push(root.join(archive));
+        push_archive_candidates(&mut out, &root, &target, request, archive, true);
+        out.push(RuntimeCandidate {
+            path: root.join(archive),
+            metadata_required: true,
+        });
     }
     for root in cache_roots() {
-        out.push(
-            root.join(&target)
+        out.push(RuntimeCandidate {
+            path: root
+                .join(&target)
                 .join(backend_name(request.backend))
                 .join(&request.profile)
                 .join(runtime_cache_key(request))
                 .join(archive),
-        );
+            metadata_required: true,
+        });
     }
     for root in local_roots {
-        push_archive_candidates(&mut out, &root, &target, request, archive);
+        push_archive_candidates(&mut out, &root, &target, request, archive, false);
         // Legacy local/toolchain archive layout remains supported.
-        out.push(root.join(archive));
+        out.push(RuntimeCandidate {
+            path: root.join(archive),
+            metadata_required: false,
+        });
     }
     out
 }
 
 fn push_archive_candidates(
-    out: &mut Vec<PathBuf>,
+    out: &mut Vec<RuntimeCandidate>,
     root: &std::path::Path,
     target: &str,
     request: &RuntimeRequest,
     archive: &str,
+    metadata_required: bool,
 ) {
     let profile_root = root
         .join(target)
@@ -414,12 +431,17 @@ fn push_archive_candidates(
         .join(&request.profile);
     // Keep the original profile path as the default release layout, then use
     // a sanitizer-specific sibling for profiles that have multiple variants.
-    out.push(profile_root.join(archive));
-    out.push(
+    for path in [
+        profile_root.join(archive),
         profile_root
             .join(runtime_sanitizer_dir(&request.sanitizer))
             .join(archive),
-    );
+    ] {
+        out.push(RuntimeCandidate {
+            path,
+            metadata_required,
+        });
+    }
 }
 
 fn runtime_sanitizer_dir(sanitizer: &str) -> String {
@@ -508,9 +530,16 @@ fn is_runtime_archive(path: &std::path::Path) -> bool {
 fn validate_runtime_archive(
     path: &std::path::Path,
     request: &RuntimeRequest,
+    metadata_required: bool,
 ) -> Result<(), String> {
     let metadata_path = PathBuf::from(format!("{}.meta", path.display()));
     if !metadata_path.is_file() {
+        if metadata_required {
+            return Err(format!(
+                "error: runtime metadata is required for shared/cache archive: {}",
+                metadata_path.display()
+            ));
+        }
         return Ok(()); // Legacy local archives predate runtime metadata.
     }
     let text = fs::read_to_string(&metadata_path).map_err(|error| {
@@ -729,6 +758,18 @@ fn materialize_embedded_at(path: &std::path::Path) -> Result<PathBuf, String> {
 mod tests {
     use super::*;
 
+    fn test_request() -> RuntimeRequest {
+        RuntimeRequest {
+            backend: Backend::C,
+            profile: "dev".into(),
+            sanitizer: "none".into(),
+            lto: "off".into(),
+            features: String::new(),
+            compiler: "cc".into(),
+            rebuild_runtime: false,
+        }
+    }
+
     #[test]
     fn embedded_nonempty() {
         let embedded = EMBEDDED_RUNTIME_FILES
@@ -744,6 +785,38 @@ mod tests {
         assert!(embedded.contains("aura_read_all_stdin"));
         assert!(embedded.contains("aura_exit"));
         assert!(embedded.contains("src/io/io_tls.c"));
+    }
+
+    #[test]
+    fn legacy_local_archive_without_metadata_remains_accepted() {
+        let path = env::temp_dir().join(format!(
+            "aura-legacy-runtime-{}-{}.a",
+            std::process::id(),
+            unique_test_suffix()
+        ));
+
+        validate_runtime_archive(&path, &test_request(), false)
+            .expect("legacy local archive should not require metadata");
+    }
+
+    #[test]
+    fn shared_or_cached_archive_without_metadata_is_rejected() {
+        let path = env::temp_dir().join(format!(
+            "aura-shared-runtime-{}-{}.a",
+            std::process::id(),
+            unique_test_suffix()
+        ));
+
+        let error = validate_runtime_archive(&path, &test_request(), true)
+            .expect_err("shared/cache archive should require metadata");
+        assert!(error.contains("metadata is required"));
+    }
+
+    fn unique_test_suffix() -> u128 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos()
     }
 
     #[test]
