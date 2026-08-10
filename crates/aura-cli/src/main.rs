@@ -74,8 +74,8 @@ fn eprint_usage() {
            aura new <path>                   Scaffold package directory\n  \
            aura init [name]                  Scaffold package in current directory\n  \
            aura check [path]                 Parse + typecheck (.aura | dir | aura.toml)\n  \
-           aura build [path] [-o <bin>] [--backend c|llvm]  Compile to native binary\n  \
-           aura run [path] [-- args...]      Build to temp and execute\n  \
+           aura build [path] [-o <bin>] [--backend c|llvm] [--rebuild-runtime]  Compile to native binary\n  \
+           aura run [path] [--rebuild-runtime] [-- args...]  Build to temp and execute\n  \
            aura test [path] [--test-name <pattern>] [--format json] [-- args...]\n  \
            aura bench [path] [--test-name <pattern>] [-- args...]\n  \
            aura race [path] [--format json] [-- args...]\n  \
@@ -684,6 +684,19 @@ fn split_pass_through(args: &[String]) -> (&[String], &[String]) {
     }
 }
 
+fn take_rebuild_runtime(args: &[String]) -> (Vec<String>, bool) {
+    let mut filtered = Vec::with_capacity(args.len());
+    let mut rebuild = false;
+    for arg in args {
+        if arg == "--rebuild-runtime" {
+            rebuild = true;
+        } else {
+            filtered.push(arg.clone());
+        }
+    }
+    (filtered, rebuild)
+}
+
 fn diag_sema(pkg: &LoadedPackage, e: &SemaError) -> String {
     let (path, src, span) = pkg.locate(e.span);
     // C10b: one line of context above the error; auto expected/found notes.
@@ -948,6 +961,7 @@ fn cmd_build(args: &[String]) -> ExitCode {
     let mut input: Option<PathBuf> = None;
     let mut output: Option<PathBuf> = None;
     let mut backend: Option<Backend> = None;
+    let mut rebuild_runtime = false;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -974,6 +988,7 @@ fn cmd_build(args: &[String]) -> ExitCode {
                     }
                 });
             }
+            "--rebuild-runtime" => rebuild_runtime = true,
             s if s.starts_with('-') => {
                 eprintln!("error: unknown option `{s}`");
                 return ExitCode::from(2);
@@ -1005,7 +1020,7 @@ fn cmd_build(args: &[String]) -> ExitCode {
 
     let out = output.unwrap_or_else(|| PathBuf::from(format!("target/aura/{}", pkg.bin_name)));
     let build_started = Instant::now();
-    let runtime = match runtime_c_path() {
+    let runtime = match runtime_c_path(backend, rebuild_runtime, None) {
         Ok(path) => path,
         Err(msg) => {
             eprintln!("{msg}");
@@ -1072,9 +1087,19 @@ fn cmd_build(args: &[String]) -> ExitCode {
     }
 }
 
-fn runtime_c_path() -> Result<PathBuf, String> {
-    // Dev monorepo path, AURA_RUNTIME, binary-adjacent, or embedded cache (install).
-    runtime_path::resolve_runtime_input()
+fn runtime_c_path(
+    backend: Backend,
+    rebuild_runtime: bool,
+    detector: Option<bool>,
+) -> Result<PathBuf, String> {
+    // Prefer a matching prebuilt archive, then use the source compatibility path.
+    if let Some(detector) = detector {
+        runtime_path::resolve_runtime_input_with_config(backend, rebuild_runtime, Some(detector))
+    } else if rebuild_runtime {
+        runtime_path::resolve_runtime_input_with_rebuild(backend, true)
+    } else {
+        runtime_path::resolve_runtime_input(backend)
+    }
 }
 
 fn native_sources_for(pkg: &LoadedPackage) -> Result<Vec<NativeSource>, String> {
@@ -1124,7 +1149,15 @@ fn native_sources_for(pkg: &LoadedPackage) -> Result<Vec<NativeSource>, String> 
 }
 
 fn build_package(pkg: &LoadedPackage, out: &Path) -> Result<PathBuf, String> {
-    let rt = runtime_c_path()?;
+    build_package_with_runtime(pkg, out, false)
+}
+
+fn build_package_with_runtime(
+    pkg: &LoadedPackage,
+    out: &Path,
+    rebuild_runtime: bool,
+) -> Result<PathBuf, String> {
+    let rt = runtime_c_path(Backend::C, rebuild_runtime, None)?;
     let checked = pkg
         .check_with_plugins()
         .map_err(|e| diag_sema_errors(pkg, e))?;
@@ -1138,8 +1171,9 @@ fn build_package(pkg: &LoadedPackage, out: &Path) -> Result<PathBuf, String> {
 
 fn cmd_run(args: &[String]) -> ExitCode {
     // C12c: `aura run [path] -- arg1 arg2 …` forwards args after `--` to the binary.
-    let (cli_args, program_args) = split_pass_through(args);
-    let pkg = match resolve_package(cli_args) {
+    let (raw_cli_args, program_args) = split_pass_through(args);
+    let (cli_args, rebuild_runtime) = take_rebuild_runtime(raw_cli_args);
+    let pkg = match resolve_package(&cli_args) {
         Ok(p) => p,
         Err(msg) => {
             eprintln!("{msg}");
@@ -1147,7 +1181,12 @@ fn cmd_run(args: &[String]) -> ExitCode {
         }
     };
     let out = PathBuf::from(format!("target/aura/run-{}", pkg.bin_name));
-    match build_package(&pkg, &out) {
+    let build_result = if rebuild_runtime {
+        build_package_with_runtime(&pkg, &out, true)
+    } else {
+        build_package(&pkg, &out)
+    };
+    match build_result {
         Ok(bin) => {
             let status = Command::new(&bin).args(program_args).status();
             match status {
@@ -1438,7 +1477,7 @@ impl TestOptions {
 }
 
 fn build_test_package(pkg: &LoadedPackage, out: &Path, sanitizer: bool) -> Result<PathBuf, String> {
-    let rt = runtime_c_path()?;
+    let rt = runtime_c_path(Backend::C, false, Some(sanitizer))?;
     let checked = pkg
         .check_with_plugins()
         .map_err(|e| diag_sema_errors(pkg, e))?;

@@ -6,21 +6,28 @@ channels, native I/O, HTTP, FFI handles, and selected standard-library
 primitives.
 
 The runtime is shipped both as the compatibility translation unit and as
-linkable static artifacts. `runtime.c` remains the source fallback for embedded
-CLI installs; `make` produces `libaurart.a` for C and `make llvm` produces
-`libaurart-llvm.a` for LLVM. The archives can be linked directly without
-recompiling the runtime for every Aura program.
+linkable static artifacts. `make` produces `libaurart.a` for C and `make llvm`
+produces `libaurart-llvm.a` for LLVM. The CLI prefers these archives when they
+are present and falls back to `runtime.c` for source checkouts or bootstrap
+installs. The archives can be linked directly without recompiling the runtime
+for every Aura program.
+
+Release bundles place target-aware artifacts under
+`<target>/<backend>/<profile>/`, for example
+`darwin-arm64/llvm/release/libaurart-llvm.a`, with an adjacent metadata file
+covering the target, backend, profile, runtime ABI, sanitizer, LTO/features, and
+archive checksum.
 
 ## Build Contract
 
 The current native build is conceptually:
 
 ```text
-generated Aura C + runtime/runtime.c + foreign libraries -> native executable
+generated Aura C + runtime/libaurart.a + foreign libraries -> native executable
 
 or:
 
-generated Aura C + runtime/libaurart.a + foreign libraries -> native executable
+generated Aura C + runtime/runtime.c + foreign libraries -> native executable (fallback)
 
 or:
 
@@ -38,8 +45,10 @@ Keeping one runtime translation unit has a few deliberate properties:
 ## Linkable Artifact
 
 Build the C archive with `make` and the LLVM archive with `make llvm`. Set
-`AURA_RUNTIME_LIB` for C or `AURA_LLVM_RUNTIME_LIB` for LLVM; without those
-variables, the source compatibility path remains available.
+`AURA_RUNTIME_LIB` for C or `AURA_LLVM_RUNTIME_LIB` for LLVM. The source
+compatibility path is available only for dev/bootstrap; release builds require
+a compatible archive unless `--rebuild-runtime` (or `AURA_REBUILD_RUNTIME=1`)
+is explicitly supplied.
 
 The include order in `runtime.c` is therefore part of the build contract. A
 module may use declarations from earlier modules, but should not depend on a

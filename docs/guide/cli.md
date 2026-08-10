@@ -94,7 +94,7 @@ With no path, package commands look for `./aura.toml`. Package mode unlocks mult
 
 ## Runtime and linking
 
-`build` / `run` use the **C backend** by default: Aura → C → system `cc`. The compatibility source `runtime.c` is embedded in the CLI; set `AURA_RUNTIME_LIB` to link the prebuilt `libaurart.a` archive instead. Use `aura emit-llvm` to inspect LLVM IR or `aura build --backend llvm` for complete MIR programs; set `AURA_LLVM_RUNTIME_LIB` to link `libaurart-llvm.a`. LLVM builds require `clang`; unsupported MIR operations are rejected before an artifact is created.
+`build` / `run` use the **C backend** by default: Aura → generated C → system `cc`. The CLI resolves a compatible target/profile `libaurart.a` from the installed toolchain, cache, or checkout and links it without recompiling the runtime. Source `runtime.c` is only a dev/bootstrap fallback; use `--rebuild-runtime` for an explicit rebuild. `AURA_RUNTIME_LIB` overrides the C archive and `AURA_RUNTIME_PROFILE` selects `dev` or `release`. Use `aura emit-llvm` to inspect LLVM IR or `aura build --backend llvm` for complete MIR programs; LLVM selects the separate `libaurart-llvm.a`, while `AURA_LLVM_RUNTIME_LIB` overrides its runtime input. LLVM builds require `clang`; unsupported MIR operations are rejected before an artifact is created.
 
 The LLVM implementation is organized under `crates/aura-codegen/src/backends/llvm/`: the facade, options, MIR emitter, native compiler adapter, and tests are separate modules.
 

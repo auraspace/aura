@@ -96,6 +96,8 @@ fi
 NAME="aura-${TAG_VERSION}-${OS}-${ARCH}"
 DIST="${AURA_DIST_DIR:-$ROOT/dist}"
 STAGE="$DIST/$NAME"
+TARGET_NAME="${OS}-${ARCH}"
+TARGET_TRIPLE="${RUST_TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
 
 echo "packaging $NAME"
 
@@ -107,8 +109,100 @@ mkdir -p "$STAGE/bin" "$STAGE/share/aura/runtime" "$STAGE/share/aura/std"
 cp "$BIN" "$STAGE/bin/aura"
 cp "$ROOT/runtime/runtime.c" "$STAGE/share/aura/runtime/runtime.c"
 cp "$ROOT/runtime/aura_ffi.h" "$STAGE/share/aura/runtime/aura_ffi.h"
+cp "$ROOT/runtime/llvm_exceptions.h" "$STAGE/share/aura/runtime/llvm_exceptions.h"
 cp -R "$ROOT/runtime/src" "$STAGE/share/aura/runtime/src"
 [[ -s "$ROOT/runtime/runtime.c" ]] || die "runtime source is missing or empty"
+
+RUNTIME_CC="${RUNTIME_CC:-${CC:-cc}}"
+RUNTIME_AR="${RUNTIME_AR:-${AR:-ar}}"
+RUNTIME_TARGET_FLAGS="${RUNTIME_TARGET_FLAGS:-}"
+if [[ -z "${RUNTIME_TARGET_FLAGS}" && -n "${RUST_TARGET:-}" && "$OS" == darwin ]]; then
+  # The macOS cross-target release job uses Apple's clang driver.
+  RUNTIME_TARGET_FLAGS="-target $RUST_TARGET"
+fi
+
+runtime_abi_version="$(sed -n 's/^#define AURA_RT_ABI_VERSION[[:space:]][[:space:]]*\([0-9][0-9]*\).*/\1/p' runtime/aura_runtime_abi.h | head -1)"
+runtime_abi_identity="$(sed -n 's/^#define AURA_RT_ABI_ID[[:space:]][[:space:]]*\(".*"\).*/\1/p' runtime/aura_runtime_abi.h | head -1 | sed 's/^"//; s/"$//')"
+[[ -n "$runtime_abi_version" && -n "$runtime_abi_identity" ]] || die "runtime ABI metadata is missing"
+
+write_runtime_metadata() {
+  local archive="$1" backend="$2" profile="$3" sanitizer="$4" lto="$5" features="$6"
+  local metadata="${archive}.meta"
+  local digest
+  if command -v sha256sum >/dev/null 2>&1; then
+    digest="$(sha256sum "$archive" | awk '{print $1}')"
+  else
+    digest="$(shasum -a 256 "$archive" | awk '{print $1}')"
+  fi
+  {
+    printf 'schema=1\n'
+    printf 'target=%s\n' "$TARGET_NAME"
+    printf 'target_triple=%s\n' "$TARGET_TRIPLE"
+    printf 'backend=%s\n' "$backend"
+    printf 'profile=%s\n' "$profile"
+    printf 'sanitizer=%s\n' "$sanitizer"
+    printf 'lto=%s\n' "$lto"
+    printf 'features=%s\n' "$features"
+    printf 'runtime_abi_version=%s\n' "$runtime_abi_version"
+    printf 'runtime_abi_identity=%s\n' "$runtime_abi_identity"
+    printf 'sha256=%s\n' "$digest"
+  } >"$metadata"
+}
+
+build_runtime_profile() {
+  local profile="$1" cflags llvm_cflags plain_cflags sanitizer lto features artifact_root
+  case "$profile" in
+    dev)
+      cflags="-std=c11 -O0 -g -fPIC -I. -fsanitize=address,undefined $RUNTIME_TARGET_FLAGS"
+      plain_cflags="-std=c11 -O0 -g -fPIC -I. $RUNTIME_TARGET_FLAGS"
+      llvm_cflags="-std=c11 -O0 -g -fPIC -I. $RUNTIME_TARGET_FLAGS -Wno-implicit-function-declaration -DAURA_LLVM_RUNTIME -DAURA_RUNTIME_NO_MAIN"
+      sanitizer="address,undefined"
+      lto="off"
+      features="none"
+      ;;
+    release)
+      cflags="-std=c11 -O2 -fPIC -I. $RUNTIME_TARGET_FLAGS"
+      plain_cflags="$cflags"
+      llvm_cflags="$cflags -Wno-implicit-function-declaration -DAURA_LLVM_RUNTIME -DAURA_RUNTIME_NO_MAIN"
+      sanitizer="none"
+      lto="off"
+      features="none"
+      ;;
+    *) die "unsupported runtime profile: $profile" ;;
+  esac
+  artifact_root="$STAGE/share/aura/runtime/$TARGET_NAME"
+  make -C "$ROOT/runtime" \
+    CC="$RUNTIME_CC" AR="$RUNTIME_AR" \
+    RUNTIME_CFLAGS="$cflags" LLVM_RUNTIME_CFLAGS="$llvm_cflags" \
+    RUNTIME_OBJECT="$artifact_root/c/$profile/libaurart.o" \
+    RUNTIME_ARCHIVE="$artifact_root/c/$profile/libaurart.a" \
+    LLVM_RUNTIME_OBJECT="$artifact_root/llvm/$profile/libaurart-llvm.o" \
+    LLVM_RUNTIME_ARCHIVE="$artifact_root/llvm/$profile/libaurart-llvm.a" \
+    all llvm
+  write_runtime_metadata "$artifact_root/c/$profile/libaurart.a" c "$profile" "$sanitizer" "$lto" "$features"
+  write_runtime_metadata "$artifact_root/llvm/$profile/libaurart-llvm.a" llvm "$profile" none "$lto" "$features"
+
+  if [[ "$profile" == dev ]]; then
+    # Normal `aura test` is not sanitizer-enabled; keep a matching dev archive
+    # instead of linking an instrumented runtime into an uninstrumented app.
+    local plain_root="$artifact_root/c/$profile/none"
+    make -C "$ROOT/runtime" \
+      CC="$RUNTIME_CC" AR="$RUNTIME_AR" \
+      RUNTIME_CFLAGS="$plain_cflags" \
+      RUNTIME_OBJECT="$plain_root/libaurart.o" \
+      RUNTIME_ARCHIVE="$plain_root/libaurart.a" \
+      all
+    write_runtime_metadata "$plain_root/libaurart.a" c "$profile" none "$lto" "$features"
+  fi
+}
+
+# Ship the default dev runtime plus a release archive for explicit production
+# application builds. Source remains the bootstrap fallback.
+build_runtime_profile dev
+build_runtime_profile release
+# Object files are build intermediates; only archives and their metadata are
+# part of the installed toolchain payload.
+find "$STAGE/share/aura/runtime/$TARGET_NAME" -type f -name '*.o' -delete
 # Std packages for import / auto-prelude outside the monorepo.
 shopt -s nullglob
 std_packages=("$ROOT"/std/*)
@@ -137,6 +231,11 @@ SYSROOT_MANIFEST="$STAGE/share/aura/sysroot-manifest.txt"
 {
   printf 'format=1\n'
   printf 'runtime=share/aura/runtime\n'
+  printf 'runtime-artifact=%s/c/dev/libaurart.a\n' "$TARGET_NAME"
+  printf 'runtime-artifact=%s/c/dev/none/libaurart.a\n' "$TARGET_NAME"
+  printf 'runtime-artifact=%s/llvm/dev/libaurart-llvm.a\n' "$TARGET_NAME"
+  printf 'runtime-artifact=%s/c/release/libaurart.a\n' "$TARGET_NAME"
+  printf 'runtime-artifact=%s/llvm/release/libaurart-llvm.a\n' "$TARGET_NAME"
   for package_dir in "${std_packages[@]}"; do
     [[ -d "$package_dir" ]] || continue
     printf 'std=%s\n' "$(basename "$package_dir")"
@@ -152,8 +251,8 @@ Install:
   aura new hello && aura run hello
 
 Runtime:
-  share/aura/runtime/ is included; the CLI also embeds a copy.
-  Optional: export AURA_RUNTIME="\$PWD/share/aura/runtime/runtime.c"
+  target-specific C/LLVM static archives are included under share/aura/runtime/.
+  runtime.c remains available as a source/bootstrap fallback.
 
 Standard library:
   share/aura/std/* — all standard-library packages used by auto-prelude and \`import std.*\`.
@@ -217,6 +316,15 @@ archive_has_path() {
 for required in \
   "$NAME/bin/aura" \
   "$NAME/share/aura/runtime/runtime.c" \
+  "$NAME/share/aura/runtime/llvm_exceptions.h" \
+  "$NAME/share/aura/runtime/$TARGET_NAME/c/dev/libaurart.a" \
+  "$NAME/share/aura/runtime/$TARGET_NAME/c/dev/libaurart.a.meta" \
+  "$NAME/share/aura/runtime/$TARGET_NAME/c/release/libaurart.a" \
+  "$NAME/share/aura/runtime/$TARGET_NAME/c/release/libaurart.a.meta" \
+  "$NAME/share/aura/runtime/$TARGET_NAME/llvm/dev/libaurart-llvm.a" \
+  "$NAME/share/aura/runtime/$TARGET_NAME/llvm/dev/libaurart-llvm.a.meta" \
+  "$NAME/share/aura/runtime/$TARGET_NAME/llvm/release/libaurart-llvm.a" \
+  "$NAME/share/aura/runtime/$TARGET_NAME/llvm/release/libaurart-llvm.a.meta" \
   "$NAME/share/aura/sysroot-manifest.txt" \
   "$NAME/LICENSE" \
   "$NAME/README.txt"; do

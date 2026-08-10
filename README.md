@@ -86,7 +86,7 @@ cargo run -p aura-cli -- run corpus/std_collections/hashmap_int # generic HashMa
 cargo run -p aura-cli -- run corpus/std_collections/hashset_int # generic HashSet<Int> (C15)
 ```
 
-Native builds use the **C backend** by default (`aura emit-c` + system `cc`). It keeps `runtime.c` as an embedded compatibility source, while `AURA_RUNTIME_LIB` selects the linkable `runtime/libaurart.a` archive. The LLVM backend consumes complete MIR directly and emits textual LLVM IR through Clang (`aura emit-llvm` or `aura build --backend llvm`); `AURA_LLVM_RUNTIME_LIB` selects `runtime/libaurart-llvm.a`. Unsupported MIR remains a diagnostic instead of silently falling back to C.
+Native builds use the **C backend** by default (`aura emit-c` + system `cc`). The CLI resolves a target/profile archive from the installed toolchain, cache, or checkout before compiling generated Aura C; `runtime.c` is a dev/bootstrap fallback only. `AURA_RUNTIME_LIB` and `AURA_LLVM_RUNTIME_LIB` remain explicit overrides, `AURA_RUNTIME_PROFILE` selects `dev` or `release`, and `--rebuild-runtime` explicitly permits source recompilation. The LLVM backend consumes complete MIR directly and emits textual LLVM IR through Clang (`aura emit-llvm` or `aura build --backend llvm`); it selects the separate `libaurart-llvm.a`. Unsupported MIR remains a diagnostic instead of silently falling back to C.
 
 ## Supported release targets
 

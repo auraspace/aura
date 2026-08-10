@@ -1,14 +1,14 @@
-//! Locate or materialize `runtime.c` for the C backend link step.
+//! Resolve the target/backend/profile runtime artifact for native builds.
 //!
-//! Search order:
-//! 1. `AURA_RUNTIME` env (file path)
-//! 2. Monorepo / cwd candidates (dev workflow)
-//! 3. Next to the `aura` binary (`share/aura/runtime/runtime.c`, `runtime.c`)
-//! 4. User cache written from the embedded copy shipped in the CLI
+//! Search order is explicit: overrides, installed toolchain, local checkout,
+//! dev cache, then source fallback for development/bootstrap only.
 
 use std::env;
 use std::fs;
 use std::path::PathBuf;
+
+use aura_codegen::Backend;
+use sha2::{Digest, Sha256};
 
 /// Exact runtime sources linked into every user binary (compile-time embed).
 pub const EMBEDDED_RUNTIME_C: &str = include_str!(concat!(
@@ -228,19 +228,372 @@ const EMBEDDED_RUNTIME_FILES: &[(&str, &str)] = &[
             "/../../runtime/src/core/process.c"
         )),
     ),
+    (
+        "llvm_exceptions.h",
+        include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../runtime/llvm_exceptions.h"
+        )),
+    ),
 ];
 
 const AURA_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Resolve a filesystem path to `runtime.c` for `cc`.
-pub fn resolve_runtime_c() -> Result<PathBuf, String> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimeRequest {
+    backend: Backend,
+    profile: String,
+    sanitizer: String,
+    lto: String,
+    features: String,
+    compiler: String,
+    rebuild_runtime: bool,
+}
+
+impl RuntimeRequest {
+    fn from_env(backend: Backend, detector: Option<bool>) -> Self {
+        let profile = runtime_profile();
+        Self {
+            sanitizer: if backend == Backend::C && profile == "dev" && detector.unwrap_or(true) {
+                "address,undefined".into()
+            } else {
+                "none".into()
+            },
+            lto: env::var("AURA_RUNTIME_LTO").unwrap_or_else(|_| "off".into()),
+            features: env::var("AURA_RUNTIME_FEATURES").unwrap_or_default(),
+            compiler: env::var("AURA_RUNTIME_CC")
+                .or_else(|_| env::var("CC"))
+                .unwrap_or_else(|_| "cc".into()),
+            rebuild_runtime: env::var("AURA_REBUILD_RUNTIME")
+                .map(|value| matches!(value.as_str(), "1" | "true" | "yes"))
+                .unwrap_or(false),
+            backend,
+            profile,
+        }
+    }
+}
+
+/// Resolve the preferred runtime input for a backend.
+pub fn resolve_runtime_input(backend: Backend) -> Result<PathBuf, String> {
+    resolve_runtime_input_with_rebuild(backend, false)
+}
+
+/// Resolve a runtime while allowing an explicit source rebuild for bootstrap.
+pub fn resolve_runtime_input_with_rebuild(
+    backend: Backend,
+    rebuild_runtime: bool,
+) -> Result<PathBuf, String> {
+    resolve_runtime_input_with_config(backend, rebuild_runtime, None)
+}
+
+/// Resolve a runtime with the application's sanitizer setting in its identity.
+pub fn resolve_runtime_input_with_config(
+    backend: Backend,
+    rebuild_runtime: bool,
+    detector: Option<bool>,
+) -> Result<PathBuf, String> {
+    let mut request = RuntimeRequest::from_env(backend, detector);
+    request.rebuild_runtime |= rebuild_runtime;
+    resolve_runtime_input_with_request(request)
+}
+
+fn resolve_runtime_input_with_request(request: RuntimeRequest) -> Result<PathBuf, String> {
+    let profile = &request.profile;
+    let override_name = match request.backend {
+        Backend::C => "AURA_RUNTIME_LIB",
+        Backend::Llvm => "AURA_LLVM_RUNTIME_LIB",
+        Backend::Cranelift => "AURA_RUNTIME_LIB",
+    };
+    if let Ok(path) = env::var(override_name) {
+        let path = PathBuf::from(path);
+        if !path.is_file() {
+            return Err(format!(
+                "error: {override_name} is set but is not a file: {}",
+                path.display()
+            ));
+        }
+        if !is_runtime_archive(&path) {
+            return Err(format!(
+                "error: {override_name} must point to a runtime archive (.a or .lib): {}",
+                path.display()
+            ));
+        }
+        validate_runtime_archive(&path, &request)?;
+        return Ok(path.canonicalize().unwrap_or(path));
+    }
+
+    for candidate in archive_candidates(&request) {
+        if candidate.is_file() && validate_runtime_archive(&candidate, &request).is_ok() {
+            return Ok(candidate.canonicalize().unwrap_or(candidate));
+        }
+    }
+
+    if source_fallback_allowed(&request) {
+        return resolve_runtime_source();
+    }
+    Err(format!(
+        concat!(
+            "error: no compatible {} runtime archive for profile `{}`; release builds do not ",
+            "compile runtime.c implicitly (use a shipped/local archive or set ",
+            "AURA_REBUILD_RUNTIME=1 for an explicit rebuild)"
+        ),
+        backend_name(request.backend),
+        profile
+    ))
+}
+
+fn source_fallback_allowed(request: &RuntimeRequest) -> bool {
+    request.rebuild_runtime || matches!(request.profile.as_str(), "dev" | "debug" | "test")
+}
+
+fn runtime_profile() -> String {
+    env::var("AURA_RUNTIME_PROFILE").unwrap_or_else(|_| "dev".into())
+}
+
+fn archive_candidates(request: &RuntimeRequest) -> Vec<PathBuf> {
+    let archive = match request.backend {
+        Backend::C => "libaurart.a",
+        Backend::Llvm => "libaurart-llvm.a",
+        Backend::Cranelift => "libaurart.a",
+    };
+    let target = current_target();
+    let mut installed_roots = Vec::new();
+    let mut local_roots = vec![
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../runtime"),
+        PathBuf::from("runtime"),
+    ];
+    let mut out = Vec::new();
+    if let Ok(exe) = env::current_exe() {
+        let mut executables = vec![exe.clone()];
+        if let Ok(resolved) = exe.canonicalize() {
+            if resolved != exe {
+                executables.push(resolved);
+            }
+        }
+        for executable in executables {
+            if let Some(dir) = executable.parent() {
+                installed_roots.push(dir.join("../share/aura/runtime"));
+                installed_roots.push(dir.join("share/aura/runtime"));
+                local_roots.push(dir.join("runtime"));
+                local_roots.push(dir.to_path_buf());
+            }
+        }
+    }
+    for root in installed_roots {
+        push_archive_candidates(&mut out, &root, &target, request, archive);
+        // Legacy local/toolchain archive layout remains supported.
+        out.push(root.join(archive));
+    }
+    for root in cache_roots() {
+        out.push(
+            root.join(&target)
+                .join(backend_name(request.backend))
+                .join(&request.profile)
+                .join(runtime_cache_key(request))
+                .join(archive),
+        );
+    }
+    for root in local_roots {
+        push_archive_candidates(&mut out, &root, &target, request, archive);
+        // Legacy local/toolchain archive layout remains supported.
+        out.push(root.join(archive));
+    }
+    out
+}
+
+fn push_archive_candidates(
+    out: &mut Vec<PathBuf>,
+    root: &std::path::Path,
+    target: &str,
+    request: &RuntimeRequest,
+    archive: &str,
+) {
+    let profile_root = root
+        .join(target)
+        .join(backend_name(request.backend))
+        .join(&request.profile);
+    // Keep the original profile path as the default release layout, then use
+    // a sanitizer-specific sibling for profiles that have multiple variants.
+    out.push(profile_root.join(archive));
+    out.push(
+        profile_root
+            .join(runtime_sanitizer_dir(&request.sanitizer))
+            .join(archive),
+    );
+}
+
+fn runtime_sanitizer_dir(sanitizer: &str) -> String {
+    if sanitizer == "address,undefined" {
+        "asan-ubsan".into()
+    } else if sanitizer.is_empty() || sanitizer == "none" {
+        "none".into()
+    } else {
+        sanitizer.replace(',', "-")
+    }
+}
+
+fn cache_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    let base = if let Ok(xdg) = env::var("XDG_CACHE_HOME") {
+        PathBuf::from(xdg)
+    } else if let Ok(home) = env::var("HOME") {
+        PathBuf::from(home).join(".cache")
+    } else {
+        env::temp_dir()
+    };
+    roots.push(base.join("aura").join(AURA_VERSION).join("runtime"));
+    roots
+}
+
+fn runtime_cache_key(request: &RuntimeRequest) -> String {
+    let feature_key = if request.features.is_empty() {
+        "none".to_owned()
+    } else {
+        Sha256::digest(request.features.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    };
+    format!(
+        "abi-{}-san-{}-lto-{}-cc-{}-features-{}",
+        aura_codegen::RUNTIME_ABI_VERSION,
+        request.sanitizer.replace(',', "-"),
+        request.lto,
+        Sha256::digest(request.compiler.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>(),
+        feature_key
+    )
+}
+
+fn backend_name(backend: Backend) -> &'static str {
+    match backend {
+        Backend::C => "c",
+        Backend::Llvm => "llvm",
+        Backend::Cranelift => "c",
+    }
+}
+
+fn current_target() -> String {
+    let os = match std::env::consts::OS {
+        "macos" => "darwin",
+        other => other,
+    };
+    let arch = match std::env::consts::ARCH {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        other => other,
+    };
+    format!("{os}-{arch}")
+}
+
+fn current_target_triple() -> Option<&'static str> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", "aarch64") => Some("aarch64-apple-darwin"),
+        ("macos", "x86_64") => Some("x86_64-apple-darwin"),
+        ("linux", "aarch64") => Some("aarch64-unknown-linux-gnu"),
+        ("linux", "x86_64") => Some("x86_64-unknown-linux-gnu"),
+        _ => None,
+    }
+}
+
+fn is_runtime_archive(path: &std::path::Path) -> bool {
+    matches!(
+        path.extension().and_then(|extension| extension.to_str()),
+        Some("a" | "lib")
+    )
+}
+
+fn validate_runtime_archive(
+    path: &std::path::Path,
+    request: &RuntimeRequest,
+) -> Result<(), String> {
+    let metadata_path = PathBuf::from(format!("{}.meta", path.display()));
+    if !metadata_path.is_file() {
+        return Ok(()); // Legacy local archives predate runtime metadata.
+    }
+    let text = fs::read_to_string(&metadata_path).map_err(|error| {
+        format!(
+            "error: read runtime metadata {}: {error}",
+            metadata_path.display()
+        )
+    })?;
+    let mut values = std::collections::HashMap::new();
+    for line in text.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            return Err(format!(
+                "error: malformed runtime metadata: {}",
+                metadata_path.display()
+            ));
+        };
+        values.insert(key, value);
+    }
+    let expected_backend = backend_name(request.backend);
+    let expected_target = current_target();
+    let expected_triple = current_target_triple();
+    for (key, expected) in [
+        ("schema", "1".to_owned()),
+        ("target", expected_target),
+        ("backend", expected_backend.to_owned()),
+        ("profile", request.profile.to_owned()),
+        ("sanitizer", request.sanitizer.to_owned()),
+        ("lto", request.lto.to_owned()),
+        (
+            "features",
+            if request.features.is_empty() {
+                "none".to_owned()
+            } else {
+                request.features.to_owned()
+            },
+        ),
+        (
+            "runtime_abi_version",
+            aura_codegen::RUNTIME_ABI_VERSION.to_string(),
+        ),
+        (
+            "runtime_abi_identity",
+            aura_codegen::RUNTIME_ABI_ID.to_owned(),
+        ),
+    ] {
+        if values.get(key).copied() != Some(expected.as_str()) {
+            return Err(format!(
+                "error: runtime metadata mismatch for `{key}` in {}",
+                metadata_path.display()
+            ));
+        }
+    }
+    if let Some(expected_triple) = expected_triple {
+        if values.get("target_triple").copied() != Some(expected_triple) {
+            return Err(format!(
+                "error: runtime target triple mismatch in {}",
+                metadata_path.display()
+            ));
+        }
+    }
+    let bytes = fs::read(path)
+        .map_err(|error| format!("error: read runtime archive {}: {error}", path.display()))?;
+    let digest = Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    if values.get("sha256").copied() != Some(digest.as_str()) {
+        return Err(format!(
+            "error: runtime archive checksum mismatch: {}",
+            path.display()
+        ));
+    }
+    Ok(())
+}
+
+fn resolve_runtime_source() -> Result<PathBuf, String> {
     if let Ok(p) = env::var("AURA_RUNTIME") {
         let p = PathBuf::from(p);
         if p.is_file() {
             return Ok(p.canonicalize().unwrap_or(p));
         }
         return Err(format!(
-            "error: AURA_RUNTIME is set but not a file: {}",
+            "error: AURA_RUNTIME is set but is not a file: {}",
             p.display()
         ));
     }
@@ -252,22 +605,6 @@ pub fn resolve_runtime_c() -> Result<PathBuf, String> {
     }
 
     materialize_embedded()
-}
-
-/// Resolve a prebuilt runtime archive when requested, otherwise use the
-/// embedded source compatibility path.
-pub fn resolve_runtime_input() -> Result<PathBuf, String> {
-    if let Ok(path) = env::var("AURA_RUNTIME_LIB") {
-        let path = PathBuf::from(path);
-        if path.is_file() {
-            return Ok(path.canonicalize().unwrap_or(path));
-        }
-        return Err(format!(
-            "error: AURA_RUNTIME_LIB is set but is not a file: {}",
-            path.display()
-        ));
-    }
-    resolve_runtime_c()
 }
 
 fn disk_candidates() -> Vec<PathBuf> {
@@ -411,7 +748,7 @@ mod tests {
 
     #[test]
     fn resolve_ok() {
-        let p = resolve_runtime_c().expect("runtime path");
+        let p = resolve_runtime_source().expect("runtime path");
         assert!(p.is_file(), "{}", p.display());
         let s = fs::read_to_string(&p).unwrap();
         assert!(s.contains("src/memory/gc.c"));
@@ -450,5 +787,27 @@ mod tests {
         assert_eq!(fs::read_to_string(&path).unwrap(), EMBEDDED_RUNTIME_C);
         assert!(path.parent().unwrap().join("src/core/preamble.c").is_file());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn source_fallback_is_dev_only_unless_explicitly_rebuilt() {
+        let release = RuntimeRequest {
+            backend: Backend::C,
+            profile: "release".into(),
+            sanitizer: "none".into(),
+            lto: "off".into(),
+            features: String::new(),
+            compiler: "cc".into(),
+            rebuild_runtime: false,
+        };
+        assert!(!source_fallback_allowed(&release));
+
+        let mut explicit = release.clone();
+        explicit.rebuild_runtime = true;
+        assert!(source_fallback_allowed(&explicit));
+
+        let mut dev = release;
+        dev.profile = "dev".into();
+        assert!(source_fallback_allowed(&dev));
     }
 }

@@ -178,13 +178,19 @@ archive_has_path() {
 }
 
 verify_archive_contract() {
-  local tarball="$1" expected_name="$2" listing readme
+  local tarball="$1" expected_name="$2" target="$3" listing readme
   [[ -s "$tarball" ]] || die "release archive is missing or empty: $tarball"
   sha256_verify "${tarball}.sha256" >/dev/null || die "archive checksum failed: $(basename "$tarball")"
   listing="$(tar -tzf "$tarball")" || die "cannot list release archive: $tarball"
   for required in \
     "$expected_name/bin/aura" \
     "$expected_name/share/aura/runtime/runtime.c" \
+    "$expected_name/share/aura/runtime/$target/c/dev/libaurart.a" \
+    "$expected_name/share/aura/runtime/$target/c/dev/libaurart.a.meta" \
+    "$expected_name/share/aura/runtime/$target/c/dev/none/libaurart.a" \
+    "$expected_name/share/aura/runtime/$target/c/dev/none/libaurart.a.meta" \
+    "$expected_name/share/aura/runtime/$target/llvm/dev/libaurart-llvm.a" \
+    "$expected_name/share/aura/runtime/$target/llvm/dev/libaurart-llvm.a.meta" \
     "$expected_name/LICENSE" \
     "$expected_name/README.txt"; do
     archive_has_path "$listing" "$required" \
@@ -363,7 +369,7 @@ mode_local_pkg() {
   [[ -n "$tarball" && -f "$tarball" ]] || die "no tarball under dist/ after package-release.sh"
   local artifact_name
   artifact_name="$(basename "$tarball" .tar.gz)"
-  verify_archive_contract "$tarball" "$artifact_name"
+  verify_archive_contract "$tarball" "$artifact_name" "${host_os}-${host_arch}"
 
   # shellcheck disable=SC2064
   [[ "${SMOKE_KEEP:-0}" == "1" ]] || trap "rm -rf '$tmp'" EXIT

@@ -278,11 +278,11 @@ pub fn build_artifact_from_checked(
                     program.reachable_lowering_gap_names().join(", ")
                 )));
             }
-            LlvmBackend.compile_ir(
+            LlvmBackend::compile_with_runtime(
                 &program,
                 out_bin,
                 &BackendBuildOptions::from(&options),
-                opts.into(),
+                Some(runtime_c),
             )
         }
         BackendKind::Cranelift => Err(CodegenError::Configuration(
