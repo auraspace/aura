@@ -25,10 +25,21 @@ $AURA_HOME/
   versions/
     0.1.1-alpha.7/
       bin/aura
-      share/aura/runtime/runtime.c    # from the release archive (optional)
+      share/aura/runtime/runtime.c    # source/bootstrap fallback
+      share/aura/runtime/<target>/    # prebuilt C/LLVM runtime archives
       meta/version, os, arch, installed_at
     0.2.0/
       bin/aura
+      share/aura/runtime/
+        runtime.c                    # source/bootstrap fallback
+        llvm_exceptions.h
+        darwin-arm64/
+          c/dev/libaurart.a
+          c/dev/none/libaurart.a
+          c/release/libaurart.a
+          llvm/dev/libaurart-llvm.a
+          llvm/release/libaurart-llvm.a
+          # every archive has a sibling .meta manifest
       …
   current -> versions/0.1.1-alpha.7     # active toolchain
   bin/
