@@ -1,5 +1,7 @@
 //! Aura CLI — check / build / run / test / bench / new / emit-c with pretty diagnostics.
 
+mod coverage;
+mod doc;
 mod formatter;
 mod runtime_path;
 mod scaffold;
@@ -46,6 +48,11 @@ fn main() -> ExitCode {
         "add" => cmd_add(&args),
         "remove" => cmd_remove(&args),
         "fmt" => cmd_fmt(&args),
+        "fix" => cmd_fmt(&args),
+        "clean" => cmd_clean(&args),
+        "doc" => cmd_doc(&args),
+        "tree" => cmd_tree(&args),
+        "toolchain" => cmd_toolchain(&args),
         "emit-c" => cmd_emit_c(&args),
         "emit-llvm" => cmd_emit_llvm(&args),
         "language-server" | "lsp" => cmd_language_server(&args),
@@ -83,6 +90,11 @@ fn eprint_usage() {
            aura add <origin>[@version] [options] Add dependency and refresh lock\n  \
            aura remove <name|origin> [options] Remove dependency and refresh lock\n  \
            aura fmt [--check] <path>          Format/check `.aura` files, project, or folder\n  \
+           aura fix [--check] <path>          Apply formatter fixes (alias of `fmt`)\n  \
+           aura clean [path]                  Remove only the package target directory\n  \
+           aura doc [path] [-o <file>]        Generate deterministic Markdown API docs\n  \
+           aura tree [path] [--format json]   Show the resolved package graph\n  \
+           aura toolchain [list|current|switch] Manage installed toolchains\n  \
            aura emit-c [path]                Print generated C (debug)\n  \
            aura emit-llvm [path]             Print generated LLVM IR (debug)\n  \
            aura language-server              Run the stdio LSP server (alias: lsp)\n  \
@@ -592,6 +604,309 @@ fn cmd_fmt(args: &[String]) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+fn cmd_clean(args: &[String]) -> ExitCode {
+    if args.len() > 1 || args.first().is_some_and(|arg| arg.starts_with('-')) {
+        eprintln!("error: usage: aura clean [path]");
+        return ExitCode::from(2);
+    }
+    let requested = args.first().map(PathBuf::from);
+    let root = match requested.as_deref() {
+        None => match env::current_dir() {
+            Ok(root) => root,
+            Err(error) => {
+                eprintln!("error: cannot determine project directory: {error}");
+                return ExitCode::from(1);
+            }
+        },
+        Some(path) if path.is_file() => path
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from(".")),
+        Some(path) => path.to_path_buf(),
+    };
+    let root = match fs::canonicalize(&root) {
+        Ok(root) => root,
+        Err(error) => {
+            eprintln!(
+                "error: project directory not found {}: {error}",
+                root.display()
+            );
+            return ExitCode::from(1);
+        }
+    };
+    if requested.is_some() && !root.join("aura.toml").is_file() {
+        eprintln!("error: no aura.toml found in {}", root.display());
+        return ExitCode::from(1);
+    }
+    let target = root.join("target");
+    if target.is_dir() {
+        if let Err(error) = fs::remove_dir_all(&target) {
+            eprintln!("error: failed to remove {}: {error}", target.display());
+            return ExitCode::from(1);
+        }
+        println!("removed {}", target.display());
+    } else {
+        println!("nothing to clean in {}", root.display());
+    }
+    ExitCode::SUCCESS
+}
+
+fn cmd_doc(args: &[String]) -> ExitCode {
+    let mut input = None;
+    let mut output = None;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-o" | "--output" => {
+                i += 1;
+                let Some(path) = args.get(i) else {
+                    eprintln!("error: {} requires a path", args[i - 1]);
+                    return ExitCode::from(2);
+                };
+                output = Some(PathBuf::from(path));
+            }
+            value if value.starts_with('-') => {
+                eprintln!("error: unknown doc option `{value}`");
+                return ExitCode::from(2);
+            }
+            value if input.is_none() => input = Some(PathBuf::from(value)),
+            _ => {
+                eprintln!("error: usage: aura doc [path] [-o <file>]");
+                return ExitCode::from(2);
+            }
+        }
+        i += 1;
+    }
+    let package_args = input
+        .map(|path| path.display().to_string())
+        .into_iter()
+        .collect::<Vec<_>>();
+    let pkg = match resolve_package(&package_args) {
+        Ok(pkg) => pkg,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::from(1);
+        }
+    };
+    let destination =
+        output.unwrap_or_else(|| PathBuf::from(format!("target/aura/doc/{}.md", pkg.bin_name)));
+    if let Some(parent) = destination.parent() {
+        if let Err(error) = fs::create_dir_all(parent) {
+            eprintln!("error: create {}: {error}", parent.display());
+            return ExitCode::from(1);
+        }
+    }
+    let markdown = doc::render(&pkg.ast, &pkg.package);
+    match fs::write(&destination, markdown) {
+        Ok(()) => {
+            println!("generated {}", destination.display());
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("error: write {}: {error}", destination.display());
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn cmd_tree(args: &[String]) -> ExitCode {
+    let mut package_args = Vec::new();
+    let mut json_output = false;
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--format" => {
+                i += 1;
+                if args.get(i).map(String::as_str) != Some("json") {
+                    eprintln!("error: tree format must be json");
+                    return ExitCode::from(2);
+                }
+                json_output = true;
+            }
+            "--format=json" => json_output = true,
+            value if value.starts_with('-') => {
+                eprintln!("error: unknown tree option `{value}`");
+                return ExitCode::from(2);
+            }
+            value => package_args.push(value.to_owned()),
+        }
+        i += 1;
+    }
+    if package_args.len() > 1 {
+        eprintln!("error: usage: aura tree [path] [--format json]");
+        return ExitCode::from(2);
+    }
+    let graph_path = package_args
+        .first()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let graph = match package::dependency_graph(&graph_path) {
+        Ok(graph) => graph,
+        Err(error) => {
+            eprintln!("{error}");
+            return ExitCode::from(1);
+        }
+    };
+    if json_output {
+        println!("{}", dependency_node_json(&graph));
+    } else {
+        println!("{}", graph.name);
+        render_tree_children(&graph.dependencies, "");
+    }
+    ExitCode::SUCCESS
+}
+
+fn render_tree_children(nodes: &[package::DependencyNode], prefix: &str) {
+    for (index, node) in nodes.iter().enumerate() {
+        let last = index + 1 == nodes.len();
+        let branch = if last { "`--" } else { "|--" };
+        println!("{prefix}{branch} {}", node.name);
+        let child_prefix = format!("{prefix}{}   ", if last { "    " } else { "|" });
+        render_tree_children(&node.dependencies, &child_prefix);
+    }
+}
+
+fn cmd_toolchain(args: &[String]) -> ExitCode {
+    let mut json = args.iter().any(|arg| arg == "--format=json");
+    let mut positional = args
+        .iter()
+        .filter(|arg| arg.as_str() != "--format=json")
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    if let Some(index) = positional.iter().position(|arg| *arg == "--format") {
+        if positional.get(index + 1) != Some(&"json") {
+            eprintln!("error: toolchain format must be json");
+            return ExitCode::from(2);
+        }
+        // Keep the spaced and equals forms identical for scripts and editors.
+        json = true;
+        positional.drain(index..=index + 1);
+    }
+    let action = positional.first().copied().unwrap_or("current");
+    if positional.len() > 2 || !matches!(action, "list" | "current" | "switch") {
+        eprintln!("error: usage: aura toolchain [list|current|switch <version>] [--format json]");
+        return ExitCode::from(2);
+    }
+    let home = env::var_os("AURA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("HOME").map(|value| PathBuf::from(value).join(".aura")))
+        .unwrap_or_else(|| PathBuf::from(".aura"));
+    let current = fs::read_link(home.join("current")).ok().and_then(|path| {
+        path.file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+    });
+    match action {
+        "current" => {
+            if json {
+                println!(
+                    "{{\"ok\":true,\"current\":{}}}",
+                    current
+                        .as_deref()
+                        .map(json_quote)
+                        .unwrap_or_else(|| "null".into())
+                );
+            } else {
+                println!("{}", current.as_deref().unwrap_or("(none)"));
+            }
+            if current.is_some() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            }
+        }
+        "list" => {
+            let mut versions = fs::read_dir(home.join("versions"))
+                .ok()
+                .into_iter()
+                .flat_map(|entries| entries.filter_map(Result::ok))
+                .filter(|entry| entry.path().is_dir())
+                .filter_map(|entry| entry.file_name().into_string().ok())
+                .collect::<Vec<_>>();
+            versions.sort();
+            if json {
+                println!(
+                    "{{\"ok\":true,\"current\":{},\"versions\":[{}]}}",
+                    current
+                        .as_deref()
+                        .map(json_quote)
+                        .unwrap_or_else(|| "null".into()),
+                    versions
+                        .iter()
+                        .map(|version| json_quote(version))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                );
+            } else {
+                for version in versions {
+                    let marker = if current.as_deref() == Some(version.as_str()) {
+                        "* "
+                    } else {
+                        "  "
+                    };
+                    println!("{marker}{version}");
+                }
+            }
+            ExitCode::SUCCESS
+        }
+        "switch" => {
+            let Some(version) = positional.get(1) else {
+                eprintln!("error: toolchain switch requires a version");
+                return ExitCode::from(2);
+            };
+            let avm = home.join("bin/avm");
+            if !avm.is_file() {
+                eprintln!(
+                    "error: Aura Version Manager not found at {}; install a toolchain first",
+                    avm.display()
+                );
+                return ExitCode::from(1);
+            }
+            match Command::new(avm)
+                .arg(version)
+                .env("AURA_HOME", &home)
+                .status()
+            {
+                Ok(status) if status.success() => ExitCode::SUCCESS,
+                Ok(status) => status
+                    .code()
+                    .map(|code| ExitCode::from(code.clamp(1, 255) as u8))
+                    .unwrap_or_else(|| ExitCode::from(1)),
+                Err(error) => {
+                    eprintln!("error: toolchain switch failed: {error}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        _ => unreachable!(),
+    }
+}
+
+fn dependency_node_json(node: &package::DependencyNode) -> String {
+    format!(
+        "{{\"package\":{},\"source\":{},\"dependencies\":[{}]}}",
+        json_quote(&node.name),
+        node.source
+            .as_deref()
+            .map(json_quote)
+            .unwrap_or_else(|| "null".into()),
+        node.dependencies
+            .iter()
+            .map(dependency_node_json)
+            .collect::<Vec<_>>()
+            .join(",")
+    )
+}
+
+fn json_quote(value: &str) -> String {
+    format!(
+        "\"{}\"",
+        value
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n")
+    )
 }
 
 fn cmd_new(args: &[String]) -> ExitCode {
@@ -1264,14 +1579,50 @@ fn cmd_test(args: &[String]) -> ExitCode {
         }
     }
     let out = PathBuf::from(format!("target/aura/test-{}", pkg.bin_name));
+    let coverage_dir = options
+        .coverage
+        .then(|| PathBuf::from(format!("target/aura/coverage-{}", pkg.bin_name)));
+    if let Some(directory) = &coverage_dir {
+        if let Err(error) = fs::create_dir_all(directory) {
+            eprintln!(
+                "error: create coverage directory {}: {error}",
+                directory.display()
+            );
+            return ExitCode::from(1);
+        }
+        if let Ok(entries) = fs::read_dir(directory) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().is_some_and(|ext| ext == "profraw")
+                    || path.extension().is_some_and(|ext| ext == "profdata")
+                    || path.extension().is_some_and(|ext| ext == "lcov")
+                {
+                    let _ = fs::remove_file(path);
+                }
+            }
+        }
+        let _ = fs::remove_dir_all(directory.join("html"));
+    }
     let started = Instant::now();
-    match build_test_package(&test_pkg, &out, options.race) {
+    match build_test_package(&test_pkg, &out, options.race, options.coverage) {
         Ok(bin) => {
-            let output = Command::new(&bin).args(program_args).output();
+            let mut command = Command::new(&bin);
+            command.args(program_args);
+            if let Some(directory) = &coverage_dir {
+                command.env("LLVM_PROFILE_FILE", directory.join("default-%p.profraw"));
+            }
+            let output = command.output();
             match output {
                 Ok(output) => {
                     let elapsed = started.elapsed().as_millis();
-                    let status = output.status.success();
+                    let coverage_result = coverage_dir
+                        .as_deref()
+                        .map(|directory| coverage::collect(&out, directory));
+                    if let Some(Err(error)) = &coverage_result {
+                        eprintln!("{error}");
+                    }
+                    let status = output.status.success()
+                        && coverage_result.as_ref().is_none_or(Result::is_ok);
                     let cases = test_report::cases_from_output(
                         &pkg.package,
                         &all_tests,
@@ -1285,6 +1636,12 @@ fn cmd_test(args: &[String]) -> ExitCode {
                             package: pkg.package.clone(),
                             duration_ms: elapsed,
                             tests: cases,
+                            coverage: coverage_result.and_then(|result| {
+                                result.ok().map(|artifacts| test_report::CoverageReport {
+                                    lcov: artifacts.lcov.display().to_string(),
+                                    html: artifacts.html.display().to_string(),
+                                })
+                            }),
                         };
                         if options.race {
                             println!(
@@ -1296,6 +1653,13 @@ fn cmd_test(args: &[String]) -> ExitCode {
                         }
                     } else {
                         println!("{}", render_test_progress(&pkg, &cases, elapsed as f64));
+                        if let Some(Ok(artifacts)) = coverage_result {
+                            println!(
+                                "coverage: LCOV {} | HTML {}",
+                                artifacts.lcov.display(),
+                                artifacts.html.display()
+                            );
+                        }
                         if options.race {
                             println!(
                                 "race: {} (detector=on)",
@@ -1375,7 +1739,7 @@ fn cmd_bench(args: &[String]) -> ExitCode {
     }
     let out = PathBuf::from(format!("target/aura/bench-{}", pkg.bin_name));
     let started = Instant::now();
-    match build_test_package(&bench_pkg, &out, false) {
+    match build_test_package(&bench_pkg, &out, false, false) {
         Ok(bin) => match Command::new(&bin).args(program_args).output() {
             Ok(output) => {
                 let status = output.status.success();
@@ -1392,6 +1756,7 @@ fn cmd_bench(args: &[String]) -> ExitCode {
                         package: pkg.package.clone(),
                         duration_ms: started.elapsed().as_millis(),
                         tests: cases,
+                        coverage: None,
                     };
                     println!("{}", report.to_json());
                 } else {
@@ -1432,6 +1797,7 @@ struct TestOptions {
     test_name: Option<String>,
     json: bool,
     race: bool,
+    coverage: bool,
 }
 
 impl TestOptions {
@@ -1440,6 +1806,7 @@ impl TestOptions {
         let mut test_name = None;
         let mut json = false;
         let mut race = false;
+        let mut coverage = false;
         let mut i = 0;
         while i < args.len() {
             match args[i].as_str() {
@@ -1459,6 +1826,7 @@ impl TestOptions {
                     }
                 }
                 "--race" => race = true,
+                "--coverage" => coverage = true,
                 value if value.starts_with('-') => return Err(format!("unknown option `{value}`")),
                 value => package_args.push(value.to_string()),
             }
@@ -1472,25 +1840,38 @@ impl TestOptions {
             test_name,
             json,
             race,
+            coverage,
         })
     }
 }
 
-fn build_test_package(pkg: &LoadedPackage, out: &Path, sanitizer: bool) -> Result<PathBuf, String> {
+fn build_test_package(
+    pkg: &LoadedPackage,
+    out: &Path,
+    sanitizer: bool,
+    coverage: bool,
+) -> Result<PathBuf, String> {
     let rt = runtime_c_path(Backend::C, false, Some(sanitizer))?;
     let checked = pkg
         .check_with_plugins()
         .map_err(|e| diag_sema_errors(pkg, e))?;
-    build_tests_from_checked_with_native(&checked, out, &rt, native_sources_for(pkg)?, sanitizer)
-        .map_err(|e| match e {
-            aura_codegen::CodegenError::Sema(se) => diag_sema_errors(pkg, se),
-            other => format!("error: {other}"),
-        })
+    build_tests_from_checked_with_native(
+        &checked,
+        out,
+        &rt,
+        native_sources_for(pkg)?,
+        sanitizer,
+        coverage,
+    )
+    .map_err(|e| match e {
+        aura_codegen::CodegenError::Sema(se) => diag_sema_errors(pkg, se),
+        other => format!("error: {other}"),
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{build_package, cmd_fmt, split_pass_through, AddOptions, TestOptions};
+    use super::{build_package, cmd_clean, cmd_fmt, split_pass_through, AddOptions, TestOptions};
     use crate::package::load_package;
     use std::fs;
     use std::path::PathBuf;
@@ -1502,6 +1883,32 @@ mod tests {
 
     fn repo_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+    }
+
+    #[test]
+    fn clean_removes_only_project_target() {
+        let root = std::env::temp_dir().join(format!("aura-clean-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("target/aura")).unwrap();
+        fs::write(root.join("aura.toml"), "[package]\nname = \"clean\"\n").unwrap();
+        fs::write(root.join("keep.txt"), "keep").unwrap();
+
+        assert_eq!(
+            cmd_clean(&[root.display().to_string()]),
+            std::process::ExitCode::SUCCESS
+        );
+        assert!(!root.join("target").exists());
+        assert!(root.join("aura.toml").exists());
+        assert!(root.join("keep.txt").exists());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn clean_rejects_extra_arguments() {
+        assert_eq!(
+            cmd_clean(&s(&["one", "two"])),
+            std::process::ExitCode::from(2)
+        );
     }
 
     #[test]
@@ -1609,6 +2016,14 @@ mod tests {
         assert_eq!(options.package_args, s(&["corpus/test"]));
         assert_eq!(options.test_name.as_deref(), Some("add"));
         assert!(options.json);
+        assert!(!options.race);
+        assert!(!options.coverage);
+    }
+
+    #[test]
+    fn test_options_enable_coverage_mode() {
+        let options = TestOptions::parse(&s(&["corpus/test", "--coverage"])).unwrap();
+        assert!(options.coverage);
         assert!(!options.race);
     }
 

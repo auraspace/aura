@@ -83,5 +83,10 @@ int main(void)
 
   unsigned char nonce[32];
   assert(aura_crypto_random_bytes_raw(nonce, sizeof(nonce)));
+  const char *record = aura_crypto_hash_password("correct horse battery staple");
+  assert(record != NULL && strncmp(record, "aura-pbkdf2-sha256$100000$", 25) == 0);
+  assert(aura_crypto_verify_password("correct horse battery staple", record));
+  assert(!aura_crypto_verify_password("wrong", record));
+  free((void *)record);
   return 0;
 }

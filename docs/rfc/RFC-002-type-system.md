@@ -21,7 +21,7 @@ This RFC specifies Aura’s **static type system**: nominal class/interface type
 
 It assumes the surface from **RFC-001** and leaves runtime representation details to **RFC-004** / **RFC-006**.
 
-**Toolchain today (2026-08-05, C22t + alpha follow-up):** nominal classes/interfaces/`struct`/`enum`, inheritance with virtual dispatch, monomorphized generics + bounds, local null flow + `!!` / `?:` / `?.`, type-argument inference, fun types/`Ty::Fun`, lambdas with value and reference captures, scoped nonowning `ref T` with lexical escape checks, borrow-safe Array field returns, generic HOFs, recursive multi-level nested generic substitution in sema and codegen, `Array<Interface>`, shared owned mutable `var` captures for class/Array/Fun, snapshot and epoch-invalidated live collection iterators, key-based and invalidation-checked live HashMap entry mutation, async/task types with borrow barriers, formatter/structured diagnostics/test reports, and Result-based std.io wrappers. Overload resolution covers top-level functions, class/companion methods, interface methods, constructors, defaults, varargs, generic bounds, and ambiguity diagnostics. Not yet: structural typing, mutable/nullable/nested refs, or general async ownership. Escaping mutable Array captures use an owned shared-cell contract rather than borrowed views; `ref T` remains non-escaping and separately checked.
+**Toolchain today (2026-08-11, production gate):** nominal classes/interfaces/`struct`/`enum`, inheritance with virtual dispatch, monomorphized generics + bounds, local null flow + `!!` / `?:` / `?.`, type-argument inference, fun types/`Ty::Fun`, lambdas with value and reference captures, scoped nonowning `ref T` with lexical escape checks, borrow-safe Array field returns, generic HOFs, recursive multi-level nested generic substitution in sema and codegen, `Array<Interface>`, shared owned mutable `var` captures for class/Array/Fun, snapshot and epoch-invalidated live collection iterators, key-based and invalidation-checked live HashMap entry mutation, async/task types with borrow barriers, formatter/structured diagnostics/test reports, and Result-based std.io wrappers. Overload resolution covers top-level functions, class/companion methods, interface methods, constructors, defaults, varargs, generic bounds, and ambiguity diagnostics. Mutable `ref mut T`, nullable references, and nested references are deliberately rejected with stable diagnostics; general async ownership is complete for the supported owned values and task boundaries. Escaping mutable Array captures use an owned shared-cell contract rather than borrowed views; `ref T` remains non-escaping and separately checked.
 
 ## 2. Motivation
 
@@ -161,9 +161,9 @@ fun first(items: Array<Int>): Int {
 }
 ```
 
-`ref T` is an ephemeral, non-null borrow of an existing `T`; `ref mut T` is the
-future spelling for an explicitly mutable borrow and is not enabled by the
-MVP. A borrow may be created only from an addressable local, parameter, or
+`ref T` is an ephemeral, non-null, immutable borrow of an existing `T`.
+`ref mut T` is reserved and rejected; mutable access uses owned `var` cells or
+an explicit collection mutation API. A borrow may be created only from an addressable local, parameter, or
 field, may be used within the owner's lexical scope, and is never an owning
 value. `clone()` or an explicit owning move remains the escape hatch when a
 value must outlive its owner.
@@ -173,8 +173,10 @@ non-owning pointer/view whose use is bounded by a checked lifetime. The GC
 remains responsible for owning objects; the MVP adds no reference counting,
 pinning, scheduler, or collector changes.
 
-MVP non-goals are mutable borrows, borrow storage in heap objects, nullable or
-nested references, and references escaping through returns/closures/tasks.
+The production boundary rejects mutable borrows, borrow storage in heap
+objects, nullable or nested references, and references escaping through
+returns/closures/tasks. These are finalized non-goals for this release, not
+implicit or undocumented behavior.
 `HashMap.entry(key)` is a separate key-based owning handle, not a permission
 granted by `ref` to mutate through a borrowed collection entry.
 

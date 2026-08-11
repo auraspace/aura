@@ -108,7 +108,7 @@ Compiler MVP needs types to lower; users need I/O and collections for non-toy pr
 | `std.signal`      | SIGINT/SIGTERM graceful-shutdown state                                                                             |
 | `std.log`         | Level-filtered and structured text logging                                                                         |
 | `std.metrics`     | Sequentially consistent counters and Prometheus samples                                                            |
-| `std.crypto`      | Bounded runtime-backed MD5/SHA-256, HMAC, PBKDF2, secure random, and TLS foundations                               |
+| `std.crypto`      | Bounded runtime-backed MD5/SHA-256, HMAC, PBKDF2/password records, secure random, and TLS foundations              |
 | `std.reflect`     | Bounded compiler-backed opt-in reflection metadata (RFC-009)                                                       |
 | `std.tls`         | Bounded OpenSSL-backed certificate/config and String/binary async connection surface                               |
 | `std.udp`         | Bounded POSIX endpoint, datagram, and async socket surface                                                         |
@@ -460,4 +460,4 @@ Go-like pragmatic breadth without framework lock-in. Async-first net matches run
 | 2026-07-22 |        | Define snapshot/live collection view, entry lifetime, invalidation, aliasing, and GC contract                  |
 | 2026-07-15 |        | Initial skeleton                                                                                               |
 | 2026-07-15 |        | Solid draft: package map, core-only scope                                                                      |
-| 2026-07-15 |        | Defer std.http; lock small prelude, no password hash                                                           |
+| 2026-08-11 |        | Add versioned PBKDF2-HMAC-SHA-256 password hash/verify records with fresh salts and constant-time verification |

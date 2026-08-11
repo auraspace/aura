@@ -84,6 +84,8 @@ pub struct ProfileSettings {
     pub debug: bool,
     pub lto: Lto,
     pub detector: bool,
+    /// Emit LLVM source coverage mapping and profile counters for test runs.
+    pub coverage: bool,
     pub panic: PanicStrategy,
     pub backend: Backend,
     /// Optional linker flavor passed through the selected C compiler.
@@ -98,6 +100,7 @@ impl ProfileSettings {
                 debug: true,
                 lto: Lto::Off,
                 detector: true,
+                coverage: false,
                 panic: PanicStrategy::Unwind,
                 backend: Backend::C,
                 linker: None,
@@ -107,6 +110,7 @@ impl ProfileSettings {
                 debug: true,
                 lto: Lto::Off,
                 detector: true,
+                coverage: false,
                 panic: PanicStrategy::Unwind,
                 backend: Backend::C,
                 linker: None,
@@ -116,6 +120,7 @@ impl ProfileSettings {
                 debug: false,
                 lto: Lto::Off,
                 detector: false,
+                coverage: false,
                 panic: PanicStrategy::Abort,
                 backend: Backend::C,
                 linker: None,

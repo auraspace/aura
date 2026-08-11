@@ -169,6 +169,7 @@ impl Artifact {
                     debug: options.debug,
                     lto: options.lto,
                     detector: false,
+                    coverage: false,
                     panic: options.panic,
                     backend: options.backend,
                     linker: None,
@@ -519,6 +520,10 @@ impl CBackendCompatibility for CBackend {
         }
         if options.profile_settings.detector {
             compile_flags.push("-fsanitize=address,undefined".into());
+        }
+        if options.profile_settings.coverage {
+            compile_flags.push("-fprofile-instr-generate".into());
+            compile_flags.push("-fcoverage-mapping".into());
         }
         for native in &options.native_sources {
             for include in &native.include_dirs {
@@ -1032,7 +1037,7 @@ mod tests {
         assert_eq!(first.runtime_abi_identity, Some(crate::runtime_abi::ID));
         assert_eq!(
             first.to_string(),
-            "backend=C, target=Native, profile=Debug, settings=ProfileSettings { optimization: O0, debug: true, lto: Off, detector: true, panic: Unwind, backend: C, linker: None }, runtime_abi=Some(AuraRtC)/Some(1)/Some(\"aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1;type=1\"), output=Executable, features=[alpha,zeta], native_sources=[]"
+            "backend=C, target=Native, profile=Debug, settings=ProfileSettings { optimization: O0, debug: true, lto: Off, detector: true, coverage: false, panic: Unwind, backend: C, linker: None }, runtime_abi=Some(AuraRtC)/Some(1)/Some(\"aura-c-abi/1.0;task=1;value=1;exception=1;channel=1;gc=1;io=1;ffi=1;type=1\"), output=Executable, features=[alpha,zeta], native_sources=[]"
         );
     }
 

@@ -1,7 +1,0 @@
-// C22p expected fail — non-empty spawn needs C22l state-machine lowering.
-package demo.tasks.diag
-
-fun main() {
-    val task = spawn { val later = 1 }
-    cancel(task)
-}

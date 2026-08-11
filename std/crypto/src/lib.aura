@@ -81,6 +81,19 @@ pub fun pbkdf2Sha256(password: CryptoBuffer.Buffer, salt: CryptoBuffer.Buffer, i
   throw "std.crypto pbkdf2Sha256 intrinsic"
 }
 
+/// Hash a password using a versioned PBKDF2-HMAC-SHA-256 record with a fresh
+/// random salt. The returned record is safe to store; it never contains the
+/// clear-text password.
+pub fun hashPassword(password: String): String {
+  throw "std.crypto hashPassword intrinsic"
+}
+
+/// Verify a stored password record in constant time. Malformed or unsupported
+/// records return false rather than becoming a password oracle.
+pub fun verifyPassword(password: String, stored: String): Bool {
+  throw "std.crypto verifyPassword intrinsic"
+}
+
 pub fun constantTimeEquals(left: String, right: String): Bool {
   throw "std.crypto constantTimeEquals intrinsic"
 }

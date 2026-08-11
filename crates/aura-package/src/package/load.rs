@@ -29,6 +29,149 @@ pub fn load_package(path: &Path) -> Result<LoadedPackage, String> {
     load_package_with_lock(path, true, None)
 }
 
+/// Parse a manifest without touching the filesystem or resolving dependencies.
+/// This is intentionally small so malformed input can be fuzzed safely.
+pub fn parse_manifest_for_fuzz(text: &str) -> Result<(), String> {
+    parse_aura_toml(text).map(|_| ())
+}
+
+/// Return the canonical member manifests of a workspace root.
+pub fn workspace_members(path: &Path) -> Result<Vec<PathBuf>, String> {
+    let manifest = graph_manifest(path)?;
+    let text = fs::read_to_string(&manifest)
+        .map_err(|error| format!("error: read {}: {error}", manifest.display()))?;
+    let toml = parse_aura_toml(&text)
+        .map_err(|error| format!("error: {}: {error}", manifest.display()))?;
+    if toml.workspace_members.is_empty() {
+        return Err(format!(
+            "error: {} is not a workspace root",
+            manifest.display()
+        ));
+    }
+    let root = manifest_root(&manifest);
+    toml.workspace_members
+        .into_iter()
+        .map(|member| {
+            let member_path = root.join(member);
+            graph_manifest(&member_path)
+        })
+        .collect()
+}
+
+/// Load every workspace member with the normal lockfile policy.
+pub fn load_workspace(path: &Path) -> Result<Vec<LoadedPackage>, String> {
+    workspace_members(path)?
+        .into_iter()
+        .map(|manifest| load_package(&manifest))
+        .collect()
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DependencyNode {
+    pub name: String,
+    pub source: Option<String>,
+    pub dependencies: Vec<DependencyNode>,
+}
+
+/// Read the package dependency graph without mutating manifests or lockfiles.
+/// Path dependencies are expanded recursively; immutable VCS origins remain
+/// leaves because their source tree is owned by the package cache.
+pub fn dependency_graph(path: &Path) -> Result<DependencyNode, String> {
+    let manifest = graph_manifest(path)?;
+    let text = fs::read_to_string(&manifest)
+        .map_err(|error| format!("error: read {}: {error}", manifest.display()))?;
+    let toml = parse_aura_toml(&text)
+        .map_err(|error| format!("error: {}: {error}", manifest.display()))?;
+    if toml.package_name.is_none() && !toml.workspace_members.is_empty() {
+        let root = manifest_root(&manifest);
+        let mut dependencies = Vec::new();
+        for member in toml.workspace_members {
+            let child = graph_manifest(&root.join(member))?;
+            let mut node = graph_node(&child, &mut Vec::new())?;
+            node.source = Some(format!("workspace:{}", child.display()));
+            dependencies.push(node);
+        }
+        return Ok(DependencyNode {
+            name: root.display().to_string(),
+            source: Some("workspace".into()),
+            dependencies,
+        });
+    }
+    graph_node(&manifest, &mut Vec::new())
+}
+
+fn graph_manifest(path: &Path) -> Result<PathBuf, String> {
+    if path.is_file() {
+        if path.file_name().and_then(|name| name.to_str()) == Some("aura.toml") {
+            return Ok(path.to_path_buf());
+        }
+        if path.extension().and_then(|ext| ext.to_str()) == Some("aura") {
+            return path
+                .parent()
+                .map(|parent| parent.join("aura.toml"))
+                .filter(|manifest| manifest.is_file())
+                .ok_or_else(|| format!("error: no aura.toml next to {}", path.display()));
+        }
+    }
+    let manifest = if path.is_dir() {
+        path.join("aura.toml")
+    } else {
+        path.to_path_buf()
+    };
+    manifest
+        .is_file()
+        .then_some(manifest)
+        .ok_or_else(|| format!("error: package manifest not found: {}", path.display()))
+}
+
+fn graph_node(manifest: &Path, active: &mut Vec<PathBuf>) -> Result<DependencyNode, String> {
+    let canonical = fs::canonicalize(manifest).unwrap_or_else(|_| manifest.to_path_buf());
+    if active.contains(&canonical) {
+        let cycle = active
+            .iter()
+            .chain(std::iter::once(&canonical))
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(" -> ");
+        return Err(format!("error: dependency cycle detected: {cycle}"));
+    }
+    active.push(canonical);
+    let text = fs::read_to_string(manifest)
+        .map_err(|error| format!("error: read {}: {error}", manifest.display()))?;
+    let toml = parse_aura_toml(&text)
+        .map_err(|error| format!("error: {}: {error}", manifest.display()))?;
+    let root = manifest_root(manifest);
+    let name = toml
+        .package_name
+        .clone()
+        .unwrap_or_else(|| root.display().to_string());
+    let mut dependencies = Vec::new();
+    let mut entries = toml.dependencies.into_iter().collect::<Vec<_>>();
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
+    for (dependency_name, spec) in entries {
+        match spec {
+            DepSpec::Path(relative) => {
+                let child = graph_manifest(&root.join(relative))?;
+                let mut node = graph_node(&child, active)?;
+                node.name = dependency_name;
+                node.source = Some(format!("path:{}", child.display()));
+                dependencies.push(node);
+            }
+            DepSpec::Git { source, .. } => dependencies.push(DependencyNode {
+                name: dependency_name,
+                source: Some(format!("git:{source}")),
+                dependencies: Vec::new(),
+            }),
+        }
+    }
+    active.pop();
+    Ok(DependencyNode {
+        name,
+        source: None,
+        dependencies,
+    })
+}
+
 /// Load and resolve a package without updating its lockfile.
 ///
 /// Language-server requests must not mutate a workspace merely to compute
@@ -1327,11 +1470,38 @@ pub(crate) fn load_directory(
 
 #[cfg(test)]
 mod tests {
-    use super::manifest_root;
+    use super::{dependency_graph, manifest_root};
+    use std::fs;
     use std::path::Path;
 
     #[test]
     fn relative_manifest_without_parent_uses_current_directory() {
         assert_eq!(manifest_root(Path::new("aura.toml")), Path::new("."));
+    }
+
+    #[test]
+    fn dependency_graph_expands_nested_path_packages() {
+        let root = std::env::temp_dir().join(format!("aura-graph-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("app")).unwrap();
+        fs::create_dir_all(root.join("mid")).unwrap();
+        fs::create_dir_all(root.join("leaf")).unwrap();
+        fs::write(
+            root.join("app/aura.toml"),
+            "[package]\nname = \"app\"\n[dependencies]\nmid = { path = \"../mid\" }\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("mid/aura.toml"),
+            "[package]\nname = \"mid\"\n[dependencies]\nleaf = { path = \"../leaf\" }\n",
+        )
+        .unwrap();
+        fs::write(root.join("leaf/aura.toml"), "[package]\nname = \"leaf\"\n").unwrap();
+
+        let graph = dependency_graph(&root.join("app")).unwrap();
+        assert_eq!(graph.name, "app");
+        assert_eq!(graph.dependencies[0].name, "mid");
+        assert_eq!(graph.dependencies[0].dependencies[0].name, "leaf");
+        let _ = fs::remove_dir_all(&root);
     }
 }

@@ -72,6 +72,8 @@ pub(crate) struct AuraToml {
     pub(crate) profiles: BTreeMap<Profile, ProfileSettings>,
     pub(crate) native: BTreeMap<String, NativeBuildConfig>,
     pub(crate) native_targets: BTreeMap<String, BTreeMap<String, NativeBuildConfig>>,
+    /// Workspace member paths, relative to the manifest root.
+    pub(crate) workspace_members: Vec<String>,
 }
 
 impl Default for AuraToml {
@@ -86,6 +88,7 @@ impl Default for AuraToml {
             profiles: normalized_default_profiles(),
             native: BTreeMap::new(),
             native_targets: BTreeMap::new(),
+            workspace_members: Vec::new(),
         }
     }
 }
@@ -130,6 +133,11 @@ pub(crate) fn parse_aura_toml(text: &str) -> Result<AuraToml, String> {
         if line.starts_with('[') {
             if line == "[package]" {
                 section = "package".into();
+                in_bin = false;
+                profile = None;
+                native_section = None;
+            } else if line == "[workspace]" {
+                section = "workspace".into();
                 in_bin = false;
                 profile = None;
                 native_section = None;
@@ -303,6 +311,15 @@ pub(crate) fn parse_aura_toml(text: &str) -> Result<AuraToml, String> {
                 out.package_name = Some(
                     parse_toml_string(val_raw).map_err(|e| format!("line {}: {e}", lineno + 1))?,
                 );
+            }
+            "workspace" if key == "members" => {
+                out.workspace_members = parse_string_array(val_raw, lineno)?;
+                if out.workspace_members.is_empty() {
+                    return Err(format!(
+                        "line {}: workspace members cannot be empty",
+                        lineno + 1
+                    ));
+                }
             }
             "package" if key == "version" => {
                 out.package_version = Some(

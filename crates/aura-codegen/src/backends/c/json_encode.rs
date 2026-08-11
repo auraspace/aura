@@ -998,6 +998,21 @@ pub(crate) fn emit_fun(
                 out.push_str("}\n");
                 return;
             }
+            ("hashPassword", 1) => {
+                let password = mangle_ident(&f.params[0].name.name);
+                let _ = writeln!(out, "  const char *__record = aura_crypto_hash_password({password}); if (__record == NULL) {{ aura_throw_string(\"password hashing failed\"); return NULL; }} return __record;");
+                return;
+            }
+            ("verifyPassword", 2) => {
+                let password = mangle_ident(&f.params[0].name.name);
+                let stored = mangle_ident(&f.params[1].name.name);
+                let _ = writeln!(
+                    out,
+                    "  return aura_crypto_verify_password({password}, {stored});"
+                );
+                out.push_str("}\n");
+                return;
+            }
             ("sha256", 1) => {
                 let value = mangle_ident(&f.params[0].name.name);
                 out.push_str("  const char *__hex = aura_crypto_sha256(");

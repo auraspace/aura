@@ -15,6 +15,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 
 const SERVER_NAME: &str = "auralsp";
+const MAX_WORKSPACE_FILES: usize = 10_000;
+const MAX_WORKSPACE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_DOCUMENT_BYTES: usize = 4 * 1024 * 1024;
 
 #[path = "completion.rs"]
 mod completion;
@@ -259,6 +262,7 @@ impl Server {
             "textDocument/documentHighlight" => Ok(self.document_highlight(message.get("params"))),
             "textDocument/references" => Ok(self.references(message.get("params"))),
             "textDocument/rename" => self.rename(message.get("params")),
+            "textDocument/semanticTokens/full" => Ok(self.semantic_tokens(message.get("params"))),
             "workspace/symbol" => Ok(self.workspace_symbols(message.get("params"))),
             "textDocument/codeAction" => Ok(self.code_actions(message.get("params"))),
             "textDocument/diagnostic" => Ok(self.pull_diagnostics(message.get("params"))),
@@ -290,6 +294,13 @@ impl Server {
                 "referencesProvider": true,
                 "renameProvider": true,
                 "workspaceSymbolProvider": true,
+                "semanticTokensProvider": {
+                    "legend": {
+                        "tokenTypes": ["keyword", "number", "string", "function", "type", "operator", "variable"],
+                        "tokenModifiers": []
+                    },
+                    "full": true
+                },
                 "codeActionProvider": {"codeActionKinds":["quickfix","source.format"]},
                 "diagnosticProvider": {"interFileDependencies": false, "workspaceDiagnostics": false},
                 "workspace": {"workspaceFolders": {"supported": true, "changeNotifications": true}}
@@ -310,10 +321,13 @@ impl Server {
     fn index_root(&mut self, root: &Path) {
         let mut files = Vec::new();
         collect_aura_files(root, &mut files);
-        for path in files {
+        for path in files.into_iter().take(MAX_WORKSPACE_FILES) {
             let Ok(text) = fs::read_to_string(&path) else {
                 continue;
             };
+            if !self.within_resource_limits(&path_to_uri(&path), &text) {
+                continue;
+            }
             let uri = path_to_uri(&path);
             self.documents
                 .entry(uri.clone())
@@ -352,6 +366,10 @@ impl Server {
         let Some(text) = document.get("text").and_then(Value::as_str) else {
             return;
         };
+        if !self.within_resource_limits(uri, text) {
+            self.publish_resource_limit(uri);
+            return;
+        }
         let version = document.get("version").and_then(Value::as_i64).unwrap_or(0);
         let disk_text = self
             .documents
@@ -398,6 +416,10 @@ impl Server {
         let Some(text) = apply_content_changes(previous_text, changes) else {
             return;
         };
+        if !self.within_resource_limits(uri, &text) {
+            self.publish_resource_limit(uri);
+            return;
+        }
         let mut overlay = json!({"version":version,"text":text,"open":true});
         if let Some(disk_text) = disk_text {
             overlay["diskText"] = disk_text;
@@ -1029,6 +1051,16 @@ impl Server {
         Value::Array(results)
     }
 
+    fn semantic_tokens(&self, params: Option<&Value>) -> Value {
+        let Some(uri) = uri_param(params) else {
+            return json!({"data": []});
+        };
+        let Some(source) = self.document_text(uri) else {
+            return json!({"data": []});
+        };
+        json!({"data": semantic_token_data(source)})
+    }
+
     fn code_actions(&self, params: Option<&Value>) -> Value {
         let Some(uri) = uri_param(params) else {
             return json!([]);
@@ -1449,6 +1481,44 @@ impl Server {
         self.active_cancellation
             .as_ref()
             .is_some_and(|token| token.load(Ordering::Acquire))
+    }
+
+    fn within_resource_limits(&self, uri: &str, text: &str) -> bool {
+        if text.len() > MAX_DOCUMENT_BYTES {
+            return false;
+        }
+        let existing_bytes = self
+            .documents
+            .get(uri)
+            .and_then(|document| document.get("text"))
+            .and_then(Value::as_str)
+            .map_or(0, str::len);
+        let total = self
+            .documents
+            .values()
+            .filter_map(|document| document.get("text").and_then(Value::as_str))
+            .map(str::len)
+            .sum::<usize>()
+            .saturating_sub(existing_bytes)
+            .saturating_add(text.len());
+        (self.documents.contains_key(uri) || self.documents.len() < MAX_WORKSPACE_FILES)
+            && total <= MAX_WORKSPACE_BYTES
+    }
+
+    fn publish_resource_limit(&mut self, uri: &str) {
+        self.pending_notifications.push_back(json!({
+            "jsonrpc":"2.0",
+            "method":"textDocument/publishDiagnostics",
+            "params":{
+                "uri":uri,
+                "diagnostics":[{
+                    "severity":1,
+                    "source":"auralsp",
+                    "code":"AURA-LSP-RESOURCE-LIMIT",
+                    "message":"document or workspace resource limit exceeded"
+                }]
+            }
+        }));
     }
 
     /// Keep binding identities stable when an edit shifts declaration spans.
@@ -2665,6 +2735,92 @@ fn position(source: &str, offset: usize) -> Value {
     json!({"line":line,"character":column})
 }
 
+fn semantic_token_data(source: &str) -> Vec<u32> {
+    let Ok(tokens) = lex(source) else {
+        return Vec::new();
+    };
+    let mut absolute = tokens
+        .into_iter()
+        .filter_map(|token| {
+            let token_type = semantic_token_type(source, &token.kind, token.span)?;
+            let start = position(source, token.span.start as usize);
+            let line = start["line"].as_u64()? as u32;
+            let character = start["character"].as_u64()? as u32;
+            let text = source.get(token.span.start as usize..token.span.end as usize)?;
+            let length = text.encode_utf16().count() as u32;
+            (length > 0).then_some((line, character, length, token_type))
+        })
+        .collect::<Vec<_>>();
+    absolute.sort_unstable_by_key(|token| (token.0, token.1));
+
+    let mut previous_line = 0;
+    let mut previous_character = 0;
+    let mut data = Vec::with_capacity(absolute.len() * 5);
+    for (line, character, length, token_type) in absolute {
+        data.push(line - previous_line);
+        data.push(if line == previous_line {
+            character - previous_character
+        } else {
+            character
+        });
+        data.push(length);
+        data.push(token_type);
+        data.push(0);
+        previous_line = line;
+        previous_character = character;
+    }
+    data
+}
+
+fn semantic_token_type(source: &str, kind: &TokenKind, span: Span) -> Option<u32> {
+    match kind {
+        TokenKind::Eof => None,
+        kind if kind.is_keyword() => Some(0),
+        TokenKind::Int(_) | TokenKind::Float(_) => Some(1),
+        TokenKind::String(_) => Some(2),
+        TokenKind::Ident(name) => {
+            let suffix = source.get(span.end as usize..).unwrap_or("").trim_start();
+            if suffix.starts_with('(') {
+                Some(3)
+            } else if name.chars().next().is_some_and(char::is_uppercase) {
+                Some(4)
+            } else {
+                Some(6)
+            }
+        }
+        _ if is_semantic_operator(kind) => Some(5),
+        _ => None,
+    }
+}
+
+fn is_semantic_operator(kind: &TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::Plus
+            | TokenKind::Minus
+            | TokenKind::Star
+            | TokenKind::Slash
+            | TokenKind::Percent
+            | TokenKind::EqEq
+            | TokenKind::Ne
+            | TokenKind::Lt
+            | TokenKind::Le
+            | TokenKind::Gt
+            | TokenKind::Ge
+            | TokenKind::AndAnd
+            | TokenKind::OrOr
+            | TokenKind::Bang
+            | TokenKind::BangBang
+            | TokenKind::Eq
+            | TokenKind::FatArrow
+            | TokenKind::ThinArrow
+            | TokenKind::DotDot
+            | TokenKind::DotDotEq
+            | TokenKind::QuestionColon
+            | TokenKind::QuestionDot
+    )
+}
+
 fn full_document_range(source: &str) -> Value {
     json!({
         "start": {"line": 0, "character": 0},
@@ -2676,7 +2832,7 @@ fn full_document_range(source: &str) -> Value {
 mod tests {
     use super::{
         analysis_error_summary, diagnostic_code, diagnostic_json, path_to_uri, position_to_offset,
-        word_span_at, Server,
+        word_span_at, Server, MAX_DOCUMENT_BYTES,
     };
     use aura_analysis::{Diagnostic, Severity};
     use aura_ast::Span;
@@ -2708,6 +2864,37 @@ mod tests {
             analysis_error_summary(""),
             (1, "unknown analysis failure".to_owned())
         );
+    }
+
+    #[test]
+    fn semantic_tokens_return_utf16_delta_encoded_data() {
+        let mut server = Server::new();
+        let uri = "file:///semantic.aura";
+        let source = "fun greet(name: String) { println(\"Hi 😀\") }\n";
+        server.handle(json!({
+            "jsonrpc":"2.0",
+            "id":1,
+            "method":"initialize",
+            "params":{}
+        }));
+        server.handle(json!({
+            "jsonrpc":"2.0",
+            "method":"textDocument/didOpen",
+            "params":{"textDocument":{"uri":uri,"version":1,"text":source}}
+        }));
+        let response = server
+            .handle(json!({
+                "jsonrpc":"2.0",
+                "id":2,
+                "method":"textDocument/semanticTokens/full",
+                "params":{"textDocument":{"uri":uri}}
+            }))
+            .unwrap();
+        let data = response["result"]["data"].as_array().unwrap();
+        assert!(!data.is_empty());
+        assert_eq!(data.len() % 5, 0);
+        assert_eq!(data[0].as_u64(), Some(0));
+        assert_eq!(data[2].as_u64(), Some(3));
     }
 
     fn workspace_path(relative: &str) -> PathBuf {
@@ -4174,5 +4361,24 @@ class Notebook(val items: Array<String>) {\n\
         let contents = hover_contents_text(&response);
 
         assert!(contents.contains("val items: Array<String>"), "{contents}");
+    }
+
+    #[test]
+    fn resource_limits_reject_oversized_documents_with_diagnostic() {
+        let mut server = Server::new();
+        let source = "x".repeat(MAX_DOCUMENT_BYTES + 1);
+        let notification = server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"large.aura","version":1,"text":source}}})).unwrap();
+        assert!(!server.documents.contains_key("large.aura"));
+        assert_eq!(
+            notification["params"]["diagnostics"][0]["code"],
+            "AURA-LSP-RESOURCE-LIMIT"
+        );
+    }
+
+    #[test]
+    fn resource_limits_allow_replacing_an_existing_document() {
+        let mut server = Server::new();
+        server.handle(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":{"uri":"file.aura","version":1,"text":"package demo\nfun main() {}\n"}}}));
+        assert!(server.within_resource_limits("file.aura", "package demo\nfun main() {}\n"));
     }
 }

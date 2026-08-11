@@ -2,18 +2,19 @@
 
 Sample `.aura` programs for the compiler: parse/typecheck (`aura check`), native run (`aura run` / `aura build`), and `@test` (`aura test`). Layout tracks milestones through **C22** (async/task surface, deterministic executor, bounded channels, and DX) + guide sync (see [docs/roadmap.md](../docs/roadmap.md)).
 
-## Async/task corpus (C22 MVP)
+## Async/task corpus (C22)
 
-The async fixtures cover the deterministic, single-threaded C22 surface currently supported by the frontend and codegen: no-await async declarations, empty task lifecycle operations, and bounded typed channels for Int, String, and class payloads. They do not use OS threads, network I/O, or blocking operations. This is a partial MVP: bounded straight-line one- and two-await lowering is supported, while control-flow-sensitive suspension and non-empty spawn capture lowering remain partial.
+The async fixtures cover the deterministic, single-threaded C22 surface:
+await state machines across branches and loops, repeated suspension points,
+spawn captures for scalar, class, array, function, and nested-function values,
+typed task outcomes, cancellation, and bounded typed channels. They do not
+claim OS-thread scheduling or platform-specific reactor behavior.
 
 The following files are intentionally expected to fail and live under `diag/`, so `scripts/check-corpus.sh` excludes them from the green corpus:
 
 - diag/async_await_unsupported.aura — a control-flow/ownership boundary for
   async lowering; direct top-level return-position await is now supported, while
   broader suspension lowering remains deferred.
-- `diag/async_spawn_unsupported.aura` — non-empty `spawn` with locals still
-  requires state-machine/capture lowering; the bounded effect-only subset is
-  covered by native codegen tests.
 - `diag/async_borrow_await.aura`, `diag/async_borrow_spawn.aura`, and `diag/async_borrow_channel_send.aura` — borrowed values cannot cross those async/task/channel boundaries.
 - `diag/async_borrow_task_storage.aura` — `Task<T>` cannot store a borrowed `T`.
 

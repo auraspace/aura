@@ -3,10 +3,12 @@
 #[allow(dead_code)]
 mod archive;
 mod fetch;
+mod integrity;
 mod load;
 mod lock;
 mod manifest;
 mod origin;
+mod proxy;
 mod registry;
 mod semver;
 mod toml;
@@ -24,10 +26,16 @@ pub use fetch::{
     install_from_bytes, is_package_installed, local_crate_path, normalize_cksum, package_src_dir,
     read_crate_bytes, sha256_hex, verify_sha256, ENV_REGISTRY_CACHE,
 };
+pub use integrity::{ChecksumDatabase, ChecksumRecord};
+/// Parse-only entry points used by fuzzers and editor integrations.
+pub use load::parse_manifest_for_fuzz;
 pub use load::{
-    load_package, load_package_default, load_package_read_only, load_package_read_only_with_std,
+    dependency_graph, load_package, load_package_default, load_package_read_only,
+    load_package_read_only_with_std, load_workspace, workspace_members, DependencyNode,
 };
+pub use lock::parse_lockfile_for_fuzz;
 pub use manifest::{add_dependency, remove_dependency};
+pub use proxy::ProxyReadThrough;
 pub use registry::{activate_update, current_target, RegistryIndex, UpdateDecision};
 #[cfg(test)]
 pub use registry::{

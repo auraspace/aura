@@ -29,6 +29,18 @@ importers:
 
   site:
     dependencies:
+      '@shikijs/core':
+        specifier: 4.3.1
+        version: 4.3.1
+      '@shikijs/engine-javascript':
+        specifier: 4.3.1
+        version: 4.3.1
+      '@shikijs/langs':
+        specifier: 4.3.1
+        version: 4.3.1
+      '@shikijs/themes':
+        specifier: 4.3.1
+        version: 4.3.1
       '@tabler/icons-react':
         specifier: ^3.44.0
         version: 3.45.0(react@19.2.7)

@@ -139,12 +139,14 @@ pub fn build_tests_from_checked_with_native(
     runtime_c: &Path,
     native_sources: Vec<NativeSource>,
     sanitizer: bool,
+    coverage: bool,
 ) -> Result<PathBuf, CodegenError> {
     let mut options = CompileOptions {
         native_sources,
         ..CompileOptions::default()
     };
     options.profile_settings.detector = sanitizer;
+    options.profile_settings.coverage = coverage;
     crate::driver::build_artifact_from_checked(
         checked,
         out_bin,

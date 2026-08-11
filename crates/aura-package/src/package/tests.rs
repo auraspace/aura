@@ -1551,6 +1551,37 @@ fn package_loader_rejects_dependency_procedural_plugins() {
 }
 
 #[test]
+fn workspace_members_and_graph_are_deterministic() {
+    let root = std::env::temp_dir().join(format!("aura-workspace-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(root.join("one/src")).unwrap();
+    fs::create_dir_all(root.join("two/src")).unwrap();
+    write_tree(
+        &root,
+        &[
+            ("aura.toml", "[workspace]\nmembers = [\"one\", \"two\"]\n"),
+            ("one/aura.toml", "[package]\nname = \"one\"\n"),
+            ("one/src/main.aura", "package one\nfun main() {}\n"),
+            ("two/aura.toml", "[package]\nname = \"two\"\n"),
+            ("two/src/main.aura", "package two\nfun main() {}\n"),
+        ],
+    );
+    let members = super::workspace_members(&root).unwrap();
+    assert_eq!(members.len(), 2);
+    let graph = super::dependency_graph(&root).unwrap();
+    assert_eq!(graph.source.as_deref(), Some("workspace"));
+    assert_eq!(
+        graph
+            .dependencies
+            .iter()
+            .map(|node| node.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["one", "two"]
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 #[cfg(any())]
 fn s22_rejects_missing_locked_nested_package() {
     let _guard = registry_env_lock();

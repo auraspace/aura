@@ -361,6 +361,60 @@ static int aura_hex_digit(unsigned char value)
   return -1;
 }
 
+static int aura_decode_hex(const char *text, size_t length, unsigned char *output)
+{
+  if (text == NULL || output == NULL || (length & 1u) != 0) return 0;
+  for (size_t i = 0; i < length / 2u; i++) {
+    int high = aura_hex_digit((unsigned char)text[i * 2u]);
+    int low = aura_hex_digit((unsigned char)text[i * 2u + 1u]);
+    if (high < 0 || low < 0) return 0;
+    output[i] = (unsigned char)((high << 4) | low);
+  }
+  return 1;
+}
+
+/* Store a self-describing, bounded PBKDF2 record for application passwords. */
+const char *aura_crypto_hash_password(const char *password)
+{
+  static const char prefix[] = "aura-pbkdf2-sha256$100000$";
+  const unsigned char *value = (const unsigned char *)(password == NULL ? "" : password);
+  unsigned char salt[16];
+  unsigned char derived[32];
+  if (!aura_platform_random_bytes(salt, sizeof(salt)) ||
+      !aura_crypto_pbkdf2_sha256(value, strlen((const char *)value), salt, sizeof(salt),
+                                 100000u, derived, sizeof(derived))) return NULL;
+  char *salt_hex = aura_binary_hex(salt, sizeof(salt));
+  char *derived_hex = aura_binary_hex(derived, sizeof(derived));
+  if (salt_hex == NULL || derived_hex == NULL) { free(salt_hex); free(derived_hex); return NULL; }
+  size_t length = strlen(prefix) + strlen(salt_hex) + 1u + strlen(derived_hex) + 1u;
+  char *record = (char *)malloc(length);
+  if (record != NULL) snprintf(record, length, "%s%s$%s", prefix, salt_hex, derived_hex);
+  free(salt_hex);
+  free(derived_hex);
+  return record;
+}
+
+_Bool aura_crypto_verify_password(const char *password, const char *stored)
+{
+  static const char prefix[] = "aura-pbkdf2-sha256$100000$";
+  const char *record = stored == NULL ? "" : stored;
+  size_t prefix_length = strlen(prefix);
+  if (strncmp(record, prefix, prefix_length) != 0) return false;
+  const char *salt_hex = record + prefix_length;
+  const char *separator = strchr(salt_hex, '$');
+  if (separator == NULL || (size_t)(separator - salt_hex) != 32u || strlen(separator + 1u) != 64u) return false;
+  unsigned char salt[16];
+  unsigned char expected[32];
+  unsigned char actual[32];
+  if (!aura_decode_hex(salt_hex, 32u, salt) || !aura_decode_hex(separator + 1u, 64u, expected)) return false;
+  const unsigned char *value = (const unsigned char *)(password == NULL ? "" : password);
+  if (!aura_crypto_pbkdf2_sha256(value, strlen((const char *)value), salt, sizeof(salt),
+                                 100000u, actual, sizeof(actual))) return false;
+  unsigned diff = 0;
+  for (size_t i = 0; i < sizeof(actual); i++) diff |= (unsigned)(actual[i] ^ expected[i]);
+  return diff == 0;
+}
+
 const char *aura_compress_text(const char *value, int64_t codec, int64_t level)
 {
   const unsigned char *source = (const unsigned char *)(value == NULL ? "" : value);

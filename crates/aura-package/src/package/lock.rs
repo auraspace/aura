@@ -115,6 +115,11 @@ pub(crate) fn parse_lock(text: &str) -> Result<AuraLock, String> {
     })
 }
 
+/// Parse-only lockfile entry point for fuzzing and validation tools.
+pub fn parse_lockfile_for_fuzz(text: &str) -> Result<(), String> {
+    parse_lock(text).map(|_| ())
+}
+
 fn parse_lock_value(v: &str) -> Result<LockEntry, String> {
     let v = v.trim();
     if v.starts_with('{') {

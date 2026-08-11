@@ -296,7 +296,9 @@ Shared contracts land first. Agents must not edit another lane's write set.
 ## Definition of done
 
 - [x] C22a–t are implemented or explicitly marked partial/deferred with reasons.
-- [x] Supported single-threaded task, cancellation, and bounded-channel examples pass; await and non-empty spawn remain unsupported.
+
+* [x] Supported single-threaded task, cancellation, bounded-channel, await-state-machine, and non-empty spawn capture examples pass.
+
 - [ ] Full C21 borrow/GC regression gate is not claimed complete; see verification limitations above and `agents/debts.md`.
 - [x] Verification results and commit hashes are recorded.
 - [x] Release integration is complete for the published bounded scope; broader work remains follow-up.

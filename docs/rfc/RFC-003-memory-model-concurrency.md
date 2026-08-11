@@ -100,11 +100,9 @@ reactor, and concurrent GC. Those facilities may be added by a later RFC or
 milestone without changing the source vocabulary below. Release packaging,
 signing, notarization, and publication are also outside C22.
 
-The landed implementation now lowers general async branch/loop/repeated-await
-CFGs and reuses that typed frame contract for inferred immutable captures in
-`spawn {}` bodies. Mutable captures use the shared-box ownership contract;
-opaque aggregates without generated clone/drop/mark hooks remain explicit
-compiler boundaries. The runtime also exposes a versioned
+The landed implementation lowers general async branch/loop/repeated-await CFGs
+and reuses that typed frame contract for inferred immutable and mutable captures
+spawn bodies. The runtime also exposes a versioned
 `AuraTypeErasedOps`/`AuraTypeErasedValue` clone/drop/mark contract for values
 that must cross an open generic or plugin boundary; concrete compiler
 monomorphs continue to use typed layouts. Typed channel operations,

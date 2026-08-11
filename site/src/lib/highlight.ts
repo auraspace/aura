@@ -1,4 +1,6 @@
-import { createHighlighter, type Highlighter } from 'shiki'
+import type { HighlighterCore as Highlighter } from '@shikijs/core'
+import githubDark from '@shikijs/themes/github-dark'
+import githubLight from '@shikijs/themes/github-light'
 
 const LANG_MAP: Record<string, string> = {
   aura: 'kotlin',
@@ -47,13 +49,33 @@ let initPromise: Promise<Highlighter> | null = null
 export function ensureHighlighter(): Promise<Highlighter> {
   if (highlighter) return Promise.resolve(highlighter)
   if (!initPromise) {
-    initPromise = createHighlighter({
-      themes: ['github-light', 'github-dark'],
-      langs: [...LANGS],
-    }).then((h) => {
-      highlighter = h
-      return h
-    })
+    initPromise = Promise.all([
+      import('shiki/core'),
+      import('@shikijs/engine-javascript'),
+      import('@shikijs/langs/bash'),
+      import('@shikijs/langs/c'),
+      import('@shikijs/langs/java'),
+      import('@shikijs/langs/javascript'),
+      import('@shikijs/langs/json'),
+      import('@shikijs/langs/jsx'),
+      import('@shikijs/langs/kotlin'),
+      import('@shikijs/langs/markdown'),
+      import('@shikijs/langs/rust'),
+      import('@shikijs/langs/toml'),
+      import('@shikijs/langs/tsx'),
+      import('@shikijs/langs/typescript'),
+    ])
+      .then(([core, engine, ...languages]) =>
+        core.createHighlighterCore({
+          engine: engine.createJavaScriptRegexEngine(),
+          themes: [githubLight, githubDark],
+          langs: languages.flatMap(({ default: language }) => language),
+        }),
+      )
+      .then((h) => {
+        highlighter = h
+        return h
+      })
   }
   return initPromise
 }

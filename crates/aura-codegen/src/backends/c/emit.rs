@@ -393,6 +393,8 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str("const char *aura_crypto_sha256(const char *value);\n");
     out.push_str("const char *aura_crypto_hmac_sha256(const char *key, const char *value);\n");
     out.push_str("_Bool aura_crypto_constant_time_equals(const char *left, const char *right);\n");
+    out.push_str("const char *aura_crypto_hash_password(const char *password);\n");
+    out.push_str("_Bool aura_crypto_verify_password(const char *password, const char *stored);\n");
     out.push_str(
         "int aura_tls_connect(const char *endpoint, const char *server_name, int verify_peer);\n",
     );

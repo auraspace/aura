@@ -31,6 +31,13 @@ pub struct TestReport {
     pub package: String,
     pub duration_ms: u128,
     pub tests: Vec<TestCase>,
+    pub coverage: Option<CoverageReport>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CoverageReport {
+    pub lcov: String,
+    pub html: String,
 }
 
 impl TestReport {
@@ -70,7 +77,15 @@ impl TestReport {
             }
             out.push('}');
         }
-        out.push_str("]}");
+        if let Some(coverage) = &self.coverage {
+            out.push_str(&format!(
+                "],\"coverage\":{{\"lcov\":{},\"html\":{}}}}}",
+                quote(&coverage.lcov),
+                quote(&coverage.html)
+            ));
+        } else {
+            out.push_str("]}");
+        }
         out
     }
 }
@@ -197,6 +212,7 @@ mod tests {
                     diagnostic: None,
                 },
             ],
+            coverage: None,
         };
         let json = report.to_json();
         assert!(json.contains("\"passed\":1"));
@@ -216,5 +232,22 @@ mod tests {
             true,
         );
         assert_eq!(cases[0].duration_ms, 17);
+    }
+
+    #[test]
+    fn report_includes_coverage_artifact_paths() {
+        let report = TestReport {
+            package: "demo".into(),
+            duration_ms: 1,
+            tests: Vec::new(),
+            coverage: Some(CoverageReport {
+                lcov: "target/aura/aura.lcov".into(),
+                html: "target/aura/html".into(),
+            }),
+        };
+        let json = report.to_json();
+        assert!(json.contains("\"coverage\""));
+        assert!(json.contains("aura.lcov"));
+        assert!(json.contains("target/aura/html"));
     }
 }

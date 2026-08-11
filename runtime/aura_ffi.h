@@ -258,6 +258,8 @@ int aura_crypto_pbkdf2_sha256(const void *password, size_t password_length,
                               const void *salt, size_t salt_length,
                               uint32_t iterations, void *output,
                               size_t output_length);
+const char *aura_crypto_hash_password(const char *password);
+_Bool aura_crypto_verify_password(const char *password, const char *stored);
 
 int aura_tls_read_bytes(const char *endpoint, void *output, size_t capacity,
                         size_t *out_bytes, int timeout_ms);

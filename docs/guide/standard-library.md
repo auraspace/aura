@@ -488,7 +488,8 @@ The alpha contract provides `Digest`, `TlsConfig`, `TlsConnection`,
 `hmacSha256`, `hmacSha256Bytes`, `pbkdf2Sha256`, and
 `constantTimeEquals`. Binary crypto APIs accept and return
 `std.bytes.Buffer`, so NUL bytes are preserved. PBKDF2-HMAC-SHA-256 supports
-SCRAM-SHA-256 key derivation; randomness, hashes, HMAC, PBKDF2, and constant
+SCRAM-SHA-256 key derivation; `hashPassword` and `verifyPassword` provide
+versioned salted password records; randomness, hashes, HMAC, PBKDF2, and constant
 time comparison are backed by the native runtime.
 
 ## `std.tls`
