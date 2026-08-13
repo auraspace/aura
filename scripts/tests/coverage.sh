@@ -12,9 +12,9 @@ report="$(mktemp "${TMPDIR:-/tmp}/aura-coverage.XXXXXX.json")"
 trap 'rm -f "$report"' EXIT
 
 "$aura_bin" test corpus/test/assertions_edges.aura --coverage --format json >"$report"
-rg -q '"coverage"' "$report"
+grep -Eq '"coverage"' "$report"
 test -s "$coverage_dir/aura.lcov"
 test -f "$coverage_dir/html/index.html"
-rg -q '^SF:' "$coverage_dir/aura.lcov"
+grep -Eq '^SF:' "$coverage_dir/aura.lcov"
 
 printf 'coverage: JSON, LCOV, and HTML artifacts verified\n'
