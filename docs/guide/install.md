@@ -15,7 +15,7 @@ The public `0.1.1-alpha.7` GitHub Release assets are available for the supported
 Unix targets. `0.1.0-alpha` remains available as the previous public alpha.
 
 ```bash
-curl -fsSL https://aura.fadosoft.com/install.sh | bash
+curl -fsSL https://auraspace.github.io/aura/install.sh | bash
 ```
 
 ### Versioned layout (`$AURA_HOME`, default `~/.aura`)
@@ -57,13 +57,13 @@ install instead.
 
 ```bash
 # Pin a version (tag without leading v)
-curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=0.1.1-alpha.7 bash
+curl -fsSL https://auraspace.github.io/aura/install.sh | AURA_VERSION=0.1.1-alpha.7 bash
 
 # Custom home (multi-user or CI)
-curl -fsSL https://aura.fadosoft.com/install.sh | AURA_HOME=/opt/aura bash
+curl -fsSL https://auraspace.github.io/aura/install.sh | AURA_HOME=/opt/aura bash
 
 # Install side-by-side without changing the active version
-curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=0.2.0 AURA_SET_DEFAULT=0 bash
+curl -fsSL https://auraspace.github.io/aura/install.sh | AURA_VERSION=0.2.0 AURA_SET_DEFAULT=0 bash
 avm 0.2.0
 ```
 

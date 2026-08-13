@@ -26,7 +26,7 @@ aggregate manifest, install minisign and opt in:
 
 ```sh
 AURA_VERIFY_SIGNATURE=1 AURA_MINISIGN_PUBLIC_KEY_FILE=/path/to/minisign.pub \
-  curl -fsSL https://aura.fadosoft.com/install.sh | bash
+  curl -fsSL https://auraspace.github.io/aura/install.sh | bash
 ```
 
 `AURA_MINISIGN_PUBLIC_KEY` may be used for inline configuration instead. If

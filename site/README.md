@@ -1,6 +1,6 @@
 # Aura site
 
-Marketing homepage, user guide (`docs/guide/` → `/docs`), and RFC catalog (`docs/rfc/` → `/rfc`). Built with Vite + React + Tailwind CSS v4; prerenders HTML for **Cloudflare Pages**.
+Marketing homepage, user guide (`docs/guide/` → `/docs`), and RFC catalog (`docs/rfc/` → `/rfc`). Built with Vite + React + Tailwind CSS v4; prerenders HTML for **GitHub Pages**.
 
 ## Commands
 
@@ -54,53 +54,29 @@ src/
 
 Scaffold a new section the same way: `pages/<name>/`, optional `pages/<name>/components/`, `lib/<name>/`, then mount under `<Route path="…">` in `app.tsx`.
 
-## Deploy (Cloudflare Pages)
+## Deploy (GitHub Pages)
 
-Production host: **https://aura.fadosoft.com**
+Production host: **https://auraspace.github.io/aura/**
 
-Workflow: `.github/workflows/deploy-site.yml` builds with `VITE_BASE=/` and uploads `site/dist` via Wrangler Direct Upload.
+Workflow: `.github/workflows/deploy-github-pages.yml` builds with `VITE_BASE=/aura/` and uploads `site/dist` as a GitHub Pages artifact.
 
-### One-time Cloudflare + GitHub setup
+### One-time GitHub setup
 
-1. **Cloudflare API token**
-   - My Profile → API Tokens → Create Token
-   - Template **Edit Cloudflare Workers** (or custom: Account → Cloudflare Pages → Edit)
-   - Save as repo secret `CLOUDFLARE_API_TOKEN`
+1. In repository **Settings → Pages**, set the source to **GitHub Actions**.
+2. Push to `main`, or run **Actions → Deploy site (GitHub Pages)** manually.
 
-2. **Account ID**
-   - Cloudflare dashboard → Workers & Pages (or any domain overview) → **Account ID**
-   - Repo secret `CLOUDFLARE_ACCOUNT_ID`
-
-3. **GitHub secrets** on environment **`static-pages`**  
-   (repo **Settings → Environments → static-pages → Environment secrets**):
-   - `CLOUDFLARE_API_TOKEN`
-   - `CLOUDFLARE_ACCOUNT_ID`  
-     Workflow job uses `environment: static-pages` so secrets must live there (not only as repo secrets, unless you also mirror them).
-
-4. **Pages project `aura`**
-   - The deploy workflow runs `wrangler pages project create aura` on first deploy (no-op if it already exists).
-   - Token needs **Account → Cloudflare Pages → Edit** (or the Workers template above).
-
-5. **Custom domain** `aura.fadosoft.com`
-   - After the first successful deploy: Workers & Pages → project **`aura`** → **Custom domains** → Add `aura.fadosoft.com`
-   - DNS: **CNAME** `aura` → `aura.pages.dev` (or the target Cloudflare shows), proxy **ON** if the zone is on Cloudflare
-
-6. Optional: turn off GitHub Pages (Settings → Pages → None) so `*.github.io` stops updating.
-
-Push to `main` (or **Actions → Deploy site → Run workflow**) to publish.
+Push to `main` (or **Actions → Deploy site (GitHub Pages) → Run workflow**) to publish.
 
 ### Public URLs
 
-| Path                                           | Page               |
-| ---------------------------------------------- | ------------------ |
-| https://aura.fadosoft.com/                     | Marketing homepage |
-| https://aura.fadosoft.com/docs                 | User guide hub     |
-| https://aura.fadosoft.com/docs/getting-started | Guide article      |
-| https://aura.fadosoft.com/rfc                  | RFC catalog        |
-| https://aura.fadosoft.com/rfc/000              | RFC-000 detail     |
-| https://aura.fadosoft.com/rfc/graph            | Dependency graph   |
-
-Also available: `https://aura.pages.dev` until the custom domain is live.
+| Path                                                  | Page               |
+| ----------------------------------------------------- | ------------------ |
+| https://auraspace.github.io/aura/                     | Marketing homepage |
+| https://auraspace.github.io/aura/docs                 | User guide hub     |
+| https://auraspace.github.io/aura/docs/getting-started | Guide article      |
+| https://auraspace.github.io/aura/rfc                  | RFC catalog        |
+| https://auraspace.github.io/aura/rfc/000              | RFC-000 detail     |
+| https://auraspace.github.io/aura/rfc/graph            | Dependency graph   |
 
 Legacy `/graph` redirects to `/rfc/graph`.
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Aura toolchain installer — curl | bash
-#   curl -fsSL https://aura.fadosoft.com/install.sh | bash
+#   curl -fsSL https://auraspace.github.io/aura/install.sh | bash
 #
 # Versioned layout (rustup-style) under $AURA_HOME (default ~/.aura):
 #
@@ -60,7 +60,7 @@ detect_os_arch() {
   case "$os" in
     linux*) os=linux ;;
     darwin*) os=darwin ;;
-    *) die "unsupported OS: $(uname -s) (use cargo install — see https://aura.fadosoft.com/docs/install)" ;;
+    *) die "unsupported OS: $(uname -s) (use cargo install — see https://auraspace.github.io/aura/docs/install)" ;;
   esac
   case "$arch" in
     x86_64|amd64) arch=amd64 ;;
@@ -378,7 +378,7 @@ Then:
   avm 0.1.1-alpha             # switch active (after multi-version install)
   aura new hello && aura run hello
 
-Docs: https://aura.fadosoft.com/docs/install
+Docs: https://auraspace.github.io/aura/docs/install
 EOF
 }
 

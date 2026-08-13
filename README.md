@@ -23,7 +23,7 @@ This repository currently holds:
 
 ### Docs site
 
-Homepage, user docs, and RFC catalog: **https://aura.fadosoft.com** (Cloudflare Pages).
+Homepage, user docs, and RFC catalog: **https://auraspace.github.io/aura/** (GitHub Pages).
 
 `site/` is a pnpm workspace package — install from the repo root, then use root scripts:
 

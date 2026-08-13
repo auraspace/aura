@@ -48,7 +48,7 @@ pnpm site:build
 CI (`.github/workflows/ci.yml`) runs the same gates on every PR and push to `main`:
 workspace tests, corpus `check` (excluding `corpus/diag/`), a few `run`/`test` smokes, plus site test + build.
 
-Site production deploys via `.github/workflows/deploy-site.yml` to **Cloudflare Pages** (`https://aura.fadosoft.com`). See [`site/README.md`](https://github.com/auraspace/aura/blob/main/site/README.md).
+Site production deploys via `.github/workflows/deploy-site.yml` to **Cloudflare Pages** (`https://auraspace.github.io/aura`). See [`site/README.md`](https://github.com/auraspace/aura/blob/main/site/README.md).
 
 ## Communication
 

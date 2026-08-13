@@ -1,8 +1,6 @@
-name: Deploy site (Cloudflare Pages)
+name: Deploy site (Cloudflare Pages - disabled)
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -19,7 +17,7 @@ jobs:
     name: Build and deploy
     environment:
       name: static-pages
-      url: https://aura.fadosoft.com
+      url: https://auraspace.github.io/aura
     steps:
       - uses: actions/checkout@v4
 
@@ -40,7 +38,7 @@ jobs:
 
       - name: Build
         env:
-          # Custom domain serves at site root (not /repo/ GitHub Pages prefix).
+          # Retained for manual rollback only; normal deploys use GitHub Pages.
           VITE_BASE: /
         run: pnpm site:build
 

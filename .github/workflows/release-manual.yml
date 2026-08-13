@@ -343,7 +343,7 @@ jobs:
             echo '```'
             echo
             echo "Requires a system C compiler (\`cc\`) to build Aura programs."
-            echo "Docs: https://aura.fadosoft.com"
+            echo "Docs: https://auraspace.github.io/aura"
           } >"$BODY_FILE"
           echo "path=$BODY_FILE" >>"$GITHUB_OUTPUT"
 

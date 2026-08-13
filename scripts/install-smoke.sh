@@ -15,7 +15,7 @@
 #   AURA_HOME           Install root to inspect (default ~/.aura)
 #   AURA_BIN            Override aura binary for default mode
 #   AURA_VERSION        Version pin for --from-release / --local-pkg tag
-#   AURA_INSTALL_URL    install.sh URL (default https://aura.fadosoft.com/install.sh)
+#   AURA_INSTALL_URL    install.sh URL (default https://auraspace.github.io/aura/install.sh)
 #   SMOKE_KEEP=1        Keep temp AURA_HOME and print its path
 #
 # Note: avoid large heredocs inside functions — some bash builds hang (see install.sh).
@@ -23,7 +23,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 AURA_HOME="${AURA_HOME:-${HOME}/.aura}"
-AURA_INSTALL_URL="${AURA_INSTALL_URL:-https://aura.fadosoft.com/install.sh}"
+AURA_INSTALL_URL="${AURA_INSTALL_URL:-https://auraspace.github.io/aura/install.sh}"
 package_version="$(grep -E '^version = ' "$root/Cargo.toml" | head -1 | sed 's/.*"\(.*\)"/\1/')"
 AURA_VERSION="${AURA_VERSION:-${package_version:-0.1.1-alpha}}"
 mode="default"
@@ -48,7 +48,7 @@ usage() {
     'Human checklist (after a GitHub Release is live):' \
     '' \
     '  1. Install (pin recommended):' \
-    '       curl -fsSL https://aura.fadosoft.com/install.sh \' \
+    '       curl -fsSL https://auraspace.github.io/aura/install.sh \' \
     '         | AURA_VERSION=0.1.1-alpha bash' \
     '' \
     '  2. PATH — prefer versioned layout:' \
@@ -68,7 +68,7 @@ usage() {
     '       aura test /tmp/aura-smoke         # if scaffold has @test' \
     '' \
     '  5. Side-by-side install (optional):' \
-    '       curl -fsSL https://aura.fadosoft.com/install.sh \' \
+    '       curl -fsSL https://auraspace.github.io/aura/install.sh \' \
     '         | AURA_VERSION=0.1.1-alpha AURA_SET_DEFAULT=0 bash' \
     '       avm 0.1.1-alpha && avm --show' \
     '' \

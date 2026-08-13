@@ -1,5 +1,5 @@
 /** Production origin for canonical URLs and Open Graph. */
-export const SITE_ORIGIN = 'https://aura.fadosoft.com'
+export const SITE_ORIGIN = 'https://auraspace.github.io'
 
 export const SITE_NAME = 'Aura'
 

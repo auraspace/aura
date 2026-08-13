@@ -258,7 +258,7 @@ Standard library:
   share/aura/std/* — all standard-library packages used by auto-prelude and \`import std.*\`.
   Optional: export AURA_STD="\$PWD/share/aura/std"
 
-Docs: https://aura.fadosoft.com
+Docs: https://auraspace.github.io/aura
 Release notes: docs/releases/${TAG_VERSION}.md
 EOF
 

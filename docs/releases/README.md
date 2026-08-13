@@ -71,7 +71,7 @@ git tag v0.2.0-alpha
 git push origin v0.2.0-alpha
 
 # 5) Wait for Actions → GitHub Release assets, then:
-curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=0.2.0-alpha bash
+curl -fsSL https://auraspace.github.io/aura/install.sh | AURA_VERSION=0.2.0-alpha bash
 aura version
 ```
 

@@ -279,7 +279,7 @@ scaffold_notes() {
 ## Install
 
 \`\`\`bash
-curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=${VERSION} bash
+curl -fsSL https://auraspace.github.io/aura/install.sh | AURA_VERSION=${VERSION} bash
 aura version
 avm --list
 \`\`\`
@@ -337,7 +337,7 @@ print_flow_next() {
   printf '       git push origin %s\n' "${TAG}"
   printf '\n'
   printf '  4. Install smoke:\n'
-  printf '       curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=%s bash\n' "${VERSION}"
+  printf '       curl -fsSL https://auraspace.github.io/aura/install.sh | AURA_VERSION=%s bash\n' "${VERSION}"
   printf '       aura version\n'
   printf '\n'
   printf 'Flow:  prepare-release → push commit → push tag v* → CI Release → install.sh\n'

@@ -293,6 +293,6 @@ jobs:
 
       - name: Build
         env:
-          # Match production (Cloudflare custom domain at site root).
-          VITE_BASE: /
+          # Match production (GitHub Pages repository prefix).
+          VITE_BASE: /aura/
         run: pnpm site:build

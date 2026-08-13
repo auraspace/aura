@@ -2,7 +2,7 @@
  * Build public/install.sh for the CDN:
  *   scripts/install.sh  +  embed(scripts/avm)  →  site/public/install.sh
  *
- * Vite then emits https://aura.fadosoft.com/install.sh from site/dist.
+ * Vite then emits https://auraspace.github.io/aura/install.sh from site/dist.
  *
  * Source of truth:
  *   - scripts/avm         Aura Version Manager helper (plain bash)

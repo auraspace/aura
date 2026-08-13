@@ -79,7 +79,7 @@ usage() {
     '  AURA_HOME=/opt/aura avm 0.2.0' \
     '' \
     'Install a version first:' \
-    '  curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=0.1.1-alpha bash' \
+    '  curl -fsSL https://auraspace.github.io/aura/install.sh | AURA_VERSION=0.1.1-alpha bash' \
     '' \
     'PATH: put $AURA_HOME/bin (or ~/.local/bin after install) ahead of other aura binaries.' \
     'Verify:  scripts/install-smoke.sh   (see docs/guide/install.md)'
@@ -113,7 +113,7 @@ if ! valid_install "$target"; then
   die "version not installed: ${ver}
 The installation is missing its executable or metadata and cannot be activated.
 Install with:
-  curl -fsSL https://aura.fadosoft.com/install.sh | AURA_VERSION=${ver} bash
+  curl -fsSL https://auraspace.github.io/aura/install.sh | AURA_VERSION=${ver} bash
 Available:
 $(list_versions | sed 's/^/  /' || true)
 Run: avm --help"
