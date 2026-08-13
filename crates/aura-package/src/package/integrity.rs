@@ -39,8 +39,7 @@ impl ChecksumDatabase {
         let text = fs::read_to_string(&self.path)
             .map_err(|error| format!("error: read checksum database: {error}"))?;
         let mut records = Vec::new();
-        let mut expected_sequence = 1;
-        for (line_number, line) in text.lines().enumerate() {
+        for (expected_sequence, (line_number, line)) in (1u64..).zip(text.lines().enumerate()) {
             let fields = line.split('\t').collect::<Vec<_>>();
             if fields.len() != 5 {
                 return Err(format!(
@@ -69,7 +68,6 @@ impl ChecksumDatabase {
                 checksum: validate_checksum(fields[4], line_number + 1)?,
             };
             records.push(record);
-            expected_sequence += 1;
         }
         Ok(records)
     }
