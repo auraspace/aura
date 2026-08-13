@@ -14,7 +14,7 @@ summary: Common questions about install, null, errors, GC, and docs vs RFCs.
 For the current public **0.1.1-alpha.7** release, prefer the installer (versioned under `~/.aura`):
 
 ```bash
-curl -fsSL https://auraspace.github.io/aura/install.sh | bash
+curl -fsSL https://aura.pilotworks.dev/install.sh | bash
 export PATH="$HOME/.aura/bin:$HOME/.local/bin:$PATH"
 aura new hello && aura run hello
 ```

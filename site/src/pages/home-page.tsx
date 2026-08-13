@@ -323,7 +323,7 @@ export function HomePage() {
 
   const handleCopyInstall = () => {
     navigator.clipboard.writeText(
-      `curl -fsSL https://auraspace.github.io/aura/install.sh | AURA_VERSION=${RELEASE_VERSION} bash`,
+      `curl -fsSL https://aura.pilotworks.dev/install.sh | AURA_VERSION=${RELEASE_VERSION} bash`,
     )
     setCopiedInstall(true)
     setTimeout(() => setCopiedInstall(false), 2000)
@@ -398,7 +398,7 @@ export function HomePage() {
                   <div className="mt-8 inline-flex max-w-full items-center gap-3 rounded-2xl border border-border bg-card/90 px-4 py-2.5 shadow-sm backdrop-blur">
                     <span className="font-mono text-[11px] text-accent">$</span>
                     <code className="truncate font-mono text-[12.5px] text-fg">
-                      curl -fsSL https://auraspace.github.io/aura/install.sh |
+                      curl -fsSL https://aura.pilotworks.dev/install.sh |
                       AURA_VERSION={RELEASE_VERSION} bash
                     </code>
                     <button

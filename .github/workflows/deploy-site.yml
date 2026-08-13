@@ -1,6 +1,8 @@
-name: Deploy site (Cloudflare Pages - disabled)
+name: Deploy site (Cloudflare Pages)
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -17,7 +19,7 @@ jobs:
     name: Build and deploy
     environment:
       name: static-pages
-      url: https://auraspace.github.io/aura
+      url: https://aura.pilotworks.dev
     steps:
       - uses: actions/checkout@v4
 
@@ -50,6 +52,8 @@ jobs:
           # wrangler is a root devDependency (from pnpm install). Omit wranglerVersion
           # so the action uses that install via `pnpm exec` (lockfile → pnpm).
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-          # Newer wrangler no longer auto-creates Pages projects on first deploy.
-          preCommands: wrangler pages project create aura --production-branch=main || true
+          # Create the Pages project and bind the production custom domain.
+          preCommands: >-
+            wrangler pages project create aura --production-branch=main || true &&
+            wrangler pages domain add aura.pilotworks.dev --project-name=aura || true
           command: pages deploy site/dist --project-name=aura --branch=main

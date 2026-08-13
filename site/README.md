@@ -1,6 +1,6 @@
 # Aura site
 
-Marketing homepage, user guide (`docs/guide/` → `/docs`), and RFC catalog (`docs/rfc/` → `/rfc`). Built with Vite + React + Tailwind CSS v4; prerenders HTML for **GitHub Pages**.
+Marketing homepage, user guide (`docs/guide/` → `/docs`), and RFC catalog (`docs/rfc/` → `/rfc`). Built with Vite + React + Tailwind CSS v4; prerenders HTML for **Cloudflare Pages**.
 
 ## Commands
 
@@ -54,29 +54,29 @@ src/
 
 Scaffold a new section the same way: `pages/<name>/`, optional `pages/<name>/components/`, `lib/<name>/`, then mount under `<Route path="…">` in `app.tsx`.
 
-## Deploy (GitHub Pages)
+## Deploy (Cloudflare Pages)
 
-Production host: **https://auraspace.github.io/aura/**
+Production host: **https://aura.pilotworks.dev/**
 
-Workflow: `.github/workflows/deploy-github-pages.yml` builds with `VITE_BASE=/aura/` and uploads `site/dist` as a GitHub Pages artifact.
+Workflow: `.github/workflows/deploy-site.yml` builds with `VITE_BASE=/` and deploys `site/dist` to the `aura` Cloudflare Pages project.
 
 ### One-time GitHub setup
 
-1. In repository **Settings → Pages**, set the source to **GitHub Actions**.
-2. Push to `main`, or run **Actions → Deploy site (GitHub Pages)** manually.
+1. Add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as repository secrets.
+2. Push to `main`, or run **Actions → Deploy site (Cloudflare Pages)** manually.
 
-Push to `main` (or **Actions → Deploy site (GitHub Pages) → Run workflow**) to publish.
+Push to `main` (or **Actions → Deploy site (Cloudflare Pages) → Run workflow**) to publish.
 
 ### Public URLs
 
-| Path                                                  | Page               |
-| ----------------------------------------------------- | ------------------ |
-| https://auraspace.github.io/aura/                     | Marketing homepage |
-| https://auraspace.github.io/aura/docs                 | User guide hub     |
-| https://auraspace.github.io/aura/docs/getting-started | Guide article      |
-| https://auraspace.github.io/aura/rfc                  | RFC catalog        |
-| https://auraspace.github.io/aura/rfc/000              | RFC-000 detail     |
-| https://auraspace.github.io/aura/rfc/graph            | Dependency graph   |
+| Path                                             | Page               |
+| ------------------------------------------------ | ------------------ |
+| https://aura.pilotworks.dev/                     | Marketing homepage |
+| https://aura.pilotworks.dev/docs                 | User guide hub     |
+| https://aura.pilotworks.dev/docs/getting-started | Guide article      |
+| https://aura.pilotworks.dev/rfc                  | RFC catalog        |
+| https://aura.pilotworks.dev/rfc/000              | RFC-000 detail     |
+| https://aura.pilotworks.dev/rfc/graph            | Dependency graph   |
 
 Legacy `/graph` redirects to `/rfc/graph`.
 

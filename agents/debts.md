@@ -8,10 +8,9 @@ commits, RFCs, or release notes instead of appending progress for every change.
 
 ## Open
 
-- Cloudflare Pages deployment is manually disabled while the public site is
-  served from GitHub Pages at `auraspace.github.io/aura/`; restore the trigger
-  and root base path only when the Cloudflare custom domain is intentionally
-  reactivated.
+- Cloudflare Pages deployment is enabled for `aura.pilotworks.dev`; verify the
+  repository's Cloudflare secrets and DNS/custom-domain binding when rotating
+  accounts or recreating the Pages project.
 - Windows runtime CI is temporarily disabled in `.github/workflows/ci.yml`;
   re-enable `windows-platform` once the Windows runner/toolchain fixture is
   ready to be part of the active CI matrix.

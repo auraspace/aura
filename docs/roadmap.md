@@ -12,7 +12,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 
 | Track                       | Status                                                                                                                                                                                                                  |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://auraspace.github.io/aura**                                                                                                                                                    |
+| RFC static site (`site/`)   | Implemented; Cloudflare Pages → **https://aura.pilotworks.dev**                                                                                                                                                         |
 | RFC-000 … RFC-013           | **All Accepted** — open questions resolved or Deferred (2026-07-16)                                                                                                                                                     |
 | Language MVP                | RFC-001 §6.0 + post-C1; C22 syntax/barriers plus bounded await, spawn, channel, and outcome slices are covered                                                                                                          |
 | Compiler                    | **C0–C22 closed**; general await state machines, captures, typed outcomes, cancellation, and channels are covered by executable corpus/codegen gates                                                                    |
@@ -30,7 +30,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 
 - Parse and render RFCs from `docs/rfc/`
 - Prerender static HTML; selective hydration (search, filter, theme, graph)
-- Deploy to GitHub Pages (`VITE_BASE=/aura/`, repository path `auraspace.github.io/aura/`)
+- Deploy to Cloudflare Pages (`VITE_BASE=/`, custom domain `aura.pilotworks.dev`)
 
 **Exit:** public URL + green deploy workflow.
 

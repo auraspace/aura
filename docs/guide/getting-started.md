@@ -19,8 +19,8 @@ Preferred install: the **one-liner** for the current [0.1.1-alpha.7](../releases
 ## Install the CLI
 
 ```bash
-curl -fsSL https://auraspace.github.io/aura/install.sh | bash
-# pin: curl -fsSL https://auraspace.github.io/aura/install.sh | AURA_VERSION=0.1.1-alpha.7 bash
+curl -fsSL https://aura.pilotworks.dev/install.sh | bash
+# pin: curl -fsSL https://aura.pilotworks.dev/install.sh | AURA_VERSION=0.1.1-alpha.7 bash
 
 export PATH="$HOME/.aura/bin:$HOME/.local/bin:$PATH"
 aura version
