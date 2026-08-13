@@ -86,9 +86,6 @@ jobs:
           AURA_BIN: target/debug/aura
         run: bash scripts/tests/cli-compatibility.sh
 
-      - name: Website tests, production build, and bundle gate
-        run: bash scripts/tests/website-bundle.sh
-
       - name: Embedded runtime (no monorepo path)
         run: |
           set -euo pipefail
@@ -289,11 +286,8 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
-      - name: Test
-        run: pnpm site:test
-
-      - name: Build
+      - name: Website tests, production build, and bundle gate
         env:
-          # Match production (GitHub Pages repository prefix).
-          VITE_BASE: /aura/
-        run: pnpm site:build
+          # Match the Cloudflare Pages custom-domain root.
+          VITE_BASE: /
+        run: bash scripts/tests/website-bundle.sh
