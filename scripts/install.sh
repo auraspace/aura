@@ -242,8 +242,9 @@ link_user_bin() {
 download_and_install() {
   local version="$1" os="$2" arch="$3"
   validate_version "$version"
-  [[ "$os/$arch" == "linux/amd64" || "$os/$arch" == "darwin/amd64" || "$os/$arch" == "darwin/arm64" ]] \
-    || die "unsupported release target: ${os}/${arch} (supported: linux/amd64, darwin/amd64, darwin/arm64)"
+  [[ "$os/$arch" == "linux/amd64" || "$os/$arch" == "linux/arm64" || \
+     "$os/$arch" == "darwin/amd64" || "$os/$arch" == "darwin/arm64" ]] \
+    || die "unsupported release target: ${os}/${arch} (supported: linux/amd64, linux/arm64, darwin/amd64, darwin/arm64)"
   local name="aura-${version}-${os}-${arch}"
   local url="${RELEASES}/download/v${version}/${name}.tar.gz"
   local checksum_url="${url}.sha256"
