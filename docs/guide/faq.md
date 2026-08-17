@@ -11,7 +11,7 @@ summary: Common questions about install, null, errors, GC, and docs vs RFCs.
 
 ### Do I need to install Aura globally?
 
-For the current public **0.1.1-alpha.7** release, prefer the installer (versioned under `~/.aura`):
+For the current public **0.1.1-alpha.8** release, prefer the installer (versioned under `~/.aura`):
 
 ```bash
 curl -fsSL https://aura.pilotworks.dev/install.sh | bash
@@ -21,7 +21,7 @@ aura new hello && aura run hello
 
 Contributors can still `cargo install --path crates/aura-cli` from a clone, or run in-tree: `cargo run -p aura-cli -- …`.
 
-Details: [Install](./install.md). Current release notes: [0.1.1-alpha.7](../releases/0.1.1-alpha.7.md); the [0.1.0-alpha notes](../releases/0.1.0-alpha.md) are historical.
+Details: [Install](./install.md). Current release notes: [0.1.1-alpha.8](../releases/0.1.1-alpha.8.md); the [0.1.0-alpha notes](../releases/0.1.0-alpha.md) are historical.
 
 ### Why is a C compiler required?
 

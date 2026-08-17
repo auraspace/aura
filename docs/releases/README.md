@@ -2,9 +2,9 @@
 
 How Aura cuts a public toolchain release (alpha → stable uses the same path).
 
-Current release: `0.1.1-alpha.7` is prepared for publication with GitHub Release assets. The
-older `0.1.0-alpha` release remains available for compatibility and history;
-changes after `v0.1.1-alpha.7` belong to a subsequent release or maintenance
+Current release: `0.1.1-alpha.8` is prepared for publication with GitHub Release assets. The
+older `0.1.1-alpha.7` and `0.1.0-alpha` releases remain available for compatibility and history;
+changes after `v0.1.1-alpha.8` belong to a subsequent release or maintenance
 update.
 
 ## Flow
@@ -56,22 +56,22 @@ update.
 
 ```bash
 # 1) Working tree should only have intentional changes (or use --force).
-scripts/prepare-release.sh 0.2.0-alpha --message "Next alpha release"
+scripts/prepare-release.sh 0.1.1-alpha.8 --message "Release 0.1.1-alpha.8"
 
 # 2) Edit freeze notes if needed
-$EDITOR docs/releases/0.2.0-alpha.md CHANGELOG.md
+$EDITOR docs/releases/0.1.1-alpha.8.md CHANGELOG.md
 
 # 3) If you edited after the script commit:
-git add docs/releases/0.2.0-alpha.md CHANGELOG.md
+git add docs/releases/0.1.1-alpha.8.md CHANGELOG.md
 git commit --amend --no-edit   # only if not pushed yet
 
 # 4) Publish the release commit + tag
 git push origin HEAD
-git tag v0.2.0-alpha
-git push origin v0.2.0-alpha
+git tag v0.1.1-alpha.8
+git push origin v0.1.1-alpha.8
 
 # 5) Wait for Actions → GitHub Release assets, then:
-curl -fsSL https://aura.pilotworks.dev/install.sh | AURA_VERSION=0.2.0-alpha bash
+curl -fsSL https://aura.pilotworks.dev/install.sh | AURA_VERSION=0.1.1-alpha.8 bash
 aura version
 ```
 
@@ -155,10 +155,10 @@ run IDs for the following:
 
 | Concept             | Example                                  | Where                                              |
 | ------------------- | ---------------------------------------- | -------------------------------------------------- |
-| Release version     | `0.1.1-alpha.7`                          | CHANGELOG, notes, install `AURA_VERSION`           |
-| Git tag             | `v0.1.1-alpha.7`                         | Triggers CI; GitHub Release name                   |
-| Cargo workspace ver | `0.1.1-alpha.7`                          | `Cargo.toml` `[workspace.package]`; `aura version` |
-| Artifact name       | `aura-0.1.1-alpha.7-darwin-arm64.tar.gz` | GH Release assets                                  |
+| Release version     | `0.1.1-alpha.8`                          | CHANGELOG, notes, install `AURA_VERSION`           |
+| Git tag             | `v0.1.1-alpha.8`                         | Triggers CI; GitHub Release name                   |
+| Cargo workspace ver | `0.1.1-alpha.8`                          | `Cargo.toml` `[workspace.package]`; `aura version` |
+| Artifact name       | `aura-0.1.1-alpha.8-darwin-arm64.tar.gz` | GH Release assets                                  |
 
 Prerelease tags (`*alpha*`, `*beta*`, `*rc*`) create a **prerelease** on GitHub.
 
@@ -175,6 +175,6 @@ docs/releases/<version>.md
 ## Local package only (no publish)
 
 ```bash
-TAG_VERSION=0.1.1-alpha.7 bash scripts/package-release.sh
-# → dist/aura-0.1.1-alpha.7-<os>-<arch>.tar.gz
+TAG_VERSION=0.1.1-alpha.8 bash scripts/package-release.sh
+# → dist/aura-0.1.1-alpha.8-<os>-<arch>.tar.gz
 ```

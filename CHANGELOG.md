@@ -1,5 +1,94 @@
 # Changelog
 
+## 0.1.1-alpha.8 (2026-08-17)
+
+Release 0.1.1-alpha.8
+
+Full notes: [`docs/releases/0.1.1-alpha.8.md`](docs/releases/0.1.1-alpha.8.md).
+
+### Changes
+
+- fix(makefile): update runtime object dependencies to include source files
+- feat(http): Implement binary HTTP client with Content-Length and chunked support
+- refactor(ci): update website testing and production build steps for Cloudflare Pages
+- feat(deploy): transition deployment from GitHub Pages to Cloudflare Pages with updated URLs
+- fix(coverage): replace 'rg' with 'grep' for coverage report checks
+- fix(ci): update C toolchain installation to use clang for compatibility
+- refactor(integrity): simplify sequence handling in checksum record parsing
+- feat(deploy): transition site deployment from Cloudflare Pages to GitHub Pages with updated URLs
+- feat(fuzz): add fuzzing targets for lexer, parser, manifest, and lockfile
+- feat(runtime): enhance runtime archive validation with metadata requirements
+- feat(docs): update installation guide with new runtime archive structure
+- refactor: runtime handling and build process for native targets
+- feat(call): enhance string ownership handling in emitted calls
+- feat(tests): add test for generic string identity without leaking
+- feat(crypto): implement x86_64 availability check for SHA extensions
+- fix(ci): temporarily disable Windows runtime platform CI job
+- feat(platform): add Windows runtime platform CI job and native fixture tests
+- feat(ownership): trace erased spawn captures
+- docs: record platform ABI completion
+- refactor(runtime): use platform-sized file descriptors
+- docs: narrow remaining platform descriptor debt
+- refactor(runtime): keep socket waits platform-sized
+- refactor(runtime): route wake, TLS, and entropy through platform
+- refactor(runtime): abstract scheduler wake and polling
+- docs: describe remaining platform boundaries
+- docs: close concurrent GC contract debt
+- feat(gc): require typed frame storage maps
+- feat(gc): make generated heap traces fully typed
+- refactor(runtime): route platform primitives through backends
+- feat(runtime): add concurrent incremental GC safepoints
+- docs: refresh remaining runtime debt boundaries
+- feat(gc): emit C backend field barriers
+- refactor(runtime): isolate monotonic clock platform backend
+- fix(gc): synchronize task frame root registry
+- feat(gc): emit LLVM task frame stack maps
+- feat(analysis): cache incremental query stages
+- feat(runtime): make gc collection incremental and barrier-aware
+- refactor: move mir state machine and optimizer
+- refactor: extract mir data model from aura-ir
+- feat(runtime): publish typed frame map and gc barrier abi
+- refactor: extract typed hir boundary
+- refactor: extract ownership policy from aura-ir
+- refactor(llvm): simplify terminator handling and improve type checks
+- feat(mir_opt): implement small target-neutral MIR optimizations
+- refactor: code structure for improved readability and maintainability
+- refactor(llvm): centralize type emission helpers
+- fix(llvm): preserve nullable string pointer ABI
+- fix(llvm): release foreign handle class fields
+- fix(ir): specialize generic constructor call metadata
+- feat(codegen): support nested llvm arrays
+- fix(codegen): clear moved llvm ownership slots
+- fix(ir): retain interface method MIR bodies
+- fix(ir): stabilize generic and interface lowering
+- feat(codegen): lower llvm generic monomorphs
+- fix(codegen): normalize llvm nullable returns
+- refactor(codegen): move c build regressions
+- feat(codegen): support non-capturing llvm function values
+- refactor(codegen): split c json emitters
+- feat(codegen): complete llvm backend lowering
+- feat(codegen): lower llvm string and array builtins
+- fix(ir): lower foreign handles as exception payloads
+- feat(codegen): add llvm inheritance dispatch
+- feat(codegen): expose llvm exception causes
+- test(codegen): validate llvm float ffi linking
+- feat(codegen): support llvm object exceptions
+- feat(codegen): lower llvm try catch finally control flow
+- fix(codegen): coerce scalar llvm string concatenation
+- feat(codegen): add llvm primitive exception runtime
+- refactor(codegen): split llvm value emission
+- refactor(codegen): extract llvm statement emission
+- refactor(codegen): extract llvm runtime module
+- feat(codegen): emit concrete llvm generic methods
+- feat(codegen): lower llvm protocol dispatch and generic fields
+- fix(codegen): accept llvm heap pointer conversions
+- fix(ir): preserve nested call callee names
+- feat(ir): materialize top-level constants in mir
+- refactor(codegen): split llvm type helpers
+- feat(codegen): lower llvm nullable arrays and enum payloads
+- fix(ir): preserve explicit local type annotations
+- feat(codegen): lower llvm builtins and intrinsics
+
 ## 0.1.1-alpha.7 (2026-08-07)
 
 Release `0.1.1-alpha.7`.

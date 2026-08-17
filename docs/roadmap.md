@@ -18,7 +18,7 @@ Living plan for docs, language specs, and the Rust toolchain. RFCs remain the de
 | Compiler                    | **C0–C22 closed**; general await state machines, captures, typed outcomes, cancellation, and channels are covered by executable corpus/codegen gates                                                                    |
 | Runtime / packages / stdlib | GC + deterministic executor/channels; typed I/O/FFI slices and bounded HTTP/1.1 server landed; extended protocols remain gated                                                                                          |
 | Distribution contract       | **S2 complete:** Linux amd64, macOS arm64, macOS amd64; Windows amd64 deferred                                                                                                                                          |
-| Release metadata            | **0.1.1-alpha.7 prepared**; direct Git-origin package consumption and immutable lock pins are implemented; tier-2/native evidence remains a release-host gate; proxy serving is prepared but intentionally out of scope |
+| Release metadata            | **0.1.1-alpha.8 prepared**; direct Git-origin package consumption and immutable lock pins are implemented; tier-2/native evidence remains a release-host gate; proxy serving is prepared but intentionally out of scope |
 
 ## Phases
 
