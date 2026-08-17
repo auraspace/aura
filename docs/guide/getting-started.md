@@ -7,7 +7,7 @@ summary: Install aura, scaffold Hello, and run examples.
 
 # Getting started
 
-Preferred install: the **one-liner** for the current [0.1.1-alpha.7](../releases/0.1.1-alpha.7.md). Full layout and switches: [Install](./install.md).
+Preferred install: the **one-liner** for the current [0.1.1-alpha.8](../releases/0.1.1-alpha.8.md). Full layout and switches: [Install](./install.md).
 
 ## Prerequisites
 
@@ -20,7 +20,7 @@ Preferred install: the **one-liner** for the current [0.1.1-alpha.7](../releases
 
 ```bash
 curl -fsSL https://aura.pilotworks.dev/install.sh | bash
-# pin: curl -fsSL https://aura.pilotworks.dev/install.sh | AURA_VERSION=0.1.1-alpha.7 bash
+# pin: curl -fsSL https://aura.pilotworks.dev/install.sh | AURA_VERSION=0.1.1-alpha.8 bash
 
 export PATH="$HOME/.aura/bin:$HOME/.local/bin:$PATH"
 aura version

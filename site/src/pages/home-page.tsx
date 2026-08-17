@@ -26,7 +26,7 @@ import { Reveal, Stagger, StaggerItem } from '@/components/motion/reveal'
 import { ensureHighlighter, highlightCode } from '@/lib/highlight'
 import { getAllMeta } from '@/lib/rfc/load-rfcs'
 
-const RELEASE_VERSION = '0.1.1-alpha.7'
+const RELEASE_VERSION = '0.1.1-alpha.8'
 
 // Code Showcase Samples (Verified against the current alpha compiler)
 const CODE_SAMPLES = [
