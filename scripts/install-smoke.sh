@@ -185,6 +185,7 @@ verify_archive_contract() {
   for required in \
     "$expected_name/bin/aura" \
     "$expected_name/share/aura/runtime/runtime.c" \
+    "$expected_name/share/aura/runtime/aura_runtime_abi.h" \
     "$expected_name/share/aura/runtime/$target/c/dev/libaurart.a" \
     "$expected_name/share/aura/runtime/$target/c/dev/libaurart.a.meta" \
     "$expected_name/share/aura/runtime/$target/c/dev/none/libaurart.a" \

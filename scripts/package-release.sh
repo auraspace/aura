@@ -108,6 +108,7 @@ mkdir -p "$STAGE/bin" "$STAGE/share/aura/runtime" "$STAGE/share/aura/std"
 
 cp "$BIN" "$STAGE/bin/aura"
 cp "$ROOT/runtime/runtime.c" "$STAGE/share/aura/runtime/runtime.c"
+cp "$ROOT/runtime/aura_runtime_abi.h" "$STAGE/share/aura/runtime/aura_runtime_abi.h"
 cp "$ROOT/runtime/aura_ffi.h" "$STAGE/share/aura/runtime/aura_ffi.h"
 cp "$ROOT/runtime/llvm_exceptions.h" "$STAGE/share/aura/runtime/llvm_exceptions.h"
 cp -R "$ROOT/runtime/src" "$STAGE/share/aura/runtime/src"
