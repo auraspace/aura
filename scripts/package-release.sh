@@ -154,10 +154,14 @@ build_runtime_profile() {
   local profile="$1" cflags llvm_cflags plain_cflags sanitizer lto features artifact_root
   case "$profile" in
     dev)
-      cflags="-std=c11 -O0 -g -fPIC -I. -fsanitize=address,undefined $RUNTIME_TARGET_FLAGS"
+      # Keep the shipped runtime plain. Sanitizing a static runtime archive
+      # embeds the build machine's Apple Clang ASan ABI (for example 1500),
+      # which is not portable to users with another compiler version. The
+      # generated program is still linked with the host compiler's sanitizer.
+      cflags="-std=c11 -O0 -g -fPIC -I. $RUNTIME_TARGET_FLAGS"
       plain_cflags="-std=c11 -O0 -g -fPIC -I. $RUNTIME_TARGET_FLAGS"
       llvm_cflags="-std=c11 -O0 -g -fPIC -I. $RUNTIME_TARGET_FLAGS -Wno-implicit-function-declaration -DAURA_LLVM_RUNTIME -DAURA_RUNTIME_NO_MAIN"
-      sanitizer="address,undefined"
+      sanitizer="none"
       lto="off"
       features="none"
       ;;

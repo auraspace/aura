@@ -568,7 +568,6 @@ fn validate_runtime_archive(
         ("target", expected_target),
         ("backend", expected_backend.to_owned()),
         ("profile", request.profile.to_owned()),
-        ("sanitizer", request.sanitizer.to_owned()),
         ("lto", request.lto.to_owned()),
         (
             "features",
@@ -594,6 +593,12 @@ fn validate_runtime_archive(
             ));
         }
     }
+    if !sanitizer_compatible(&request.sanitizer, values.get("sanitizer").copied()) {
+        return Err(format!(
+            "error: runtime metadata mismatch for `sanitizer` in {}",
+            metadata_path.display()
+        ));
+    }
     if let Some(expected_triple) = expected_triple {
         if values.get("target_triple").copied() != Some(expected_triple) {
             return Err(format!(
@@ -615,6 +620,13 @@ fn validate_runtime_archive(
         ));
     }
     Ok(())
+}
+
+fn sanitizer_compatible(requested: &str, actual: Option<&str>) -> bool {
+    actual == Some(requested)
+        // Shipped dev archives stay plain so their sanitizer ABI comes from
+        // the user's compiler rather than the release builder's compiler.
+        || (requested == "address,undefined" && actual == Some("none"))
 }
 
 fn resolve_runtime_source() -> Result<PathBuf, String> {
@@ -884,5 +896,12 @@ mod tests {
         let mut dev = release;
         dev.profile = "dev".into();
         assert!(source_fallback_allowed(&dev));
+    }
+
+    #[test]
+    fn plain_runtime_is_compatible_with_dev_sanitizers() {
+        assert!(sanitizer_compatible("address,undefined", Some("none")));
+        assert!(!sanitizer_compatible("none", Some("address,undefined")));
+        assert!(!sanitizer_compatible("none", Some("other")));
     }
 }
