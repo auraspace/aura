@@ -94,6 +94,11 @@ assert.equal(
   'entity.name.function.aura',
 )
 assert.match(grammar.repository['comment-tasks'].patterns[0].match, /TODO/)
+const auraStringEscape = new RegExp(
+  grammar.repository.strings.patterns[0].match,
+)
+assert.ok(auraStringEscape.test('\\\\'))
+assert.ok(auraStringEscape.test('\\"'))
 for (const keyword of [
   'abstract',
   'as',
