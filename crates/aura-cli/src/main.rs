@@ -19,10 +19,11 @@ use aura_lsp::run_stdio_with_std_root;
 use aura_package as package;
 use package::{
     activate_update, add_dependency, current_target, load_package, load_package_default,
-    remove_dependency, LoadedPackage, RegistryIndex, UpdateDecision,
+    remove_dependency, LoadedPackage, RegistryIndex, UpdateDecision, DEFAULT_REGISTRY_PROXY,
 };
 use std::env;
 use std::fs;
+use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::{Command, ExitCode};
 use std::time::Instant;
@@ -499,18 +500,35 @@ fn cmd_update(args: &[String]) -> ExitCode {
         eprintln!("error: update requires --current <version>");
         return ExitCode::from(2);
     };
-    let index = match registry {
-        Some(url) => RegistryIndex::open_url(&url),
+    let using_default_proxy =
+        registry.is_none() && env::var_os(package::ENV_REGISTRY_INDEX).is_none();
+    let mut index = match registry.as_deref() {
+        Some(url) => RegistryIndex::open_url(url),
+        None if using_default_proxy => RegistryIndex::open_url(DEFAULT_REGISTRY_PROXY),
         None => RegistryIndex::from_env_or_default(),
     };
-    let index = match index {
+    if let Err(error) = &index {
+        if using_default_proxy && ask_bypass_proxy(error) {
+            index = RegistryIndex::from_env_or_default();
+        }
+    }
+    let mut index = match index {
         Ok(index) => index,
         Err(error) => {
             eprintln!("{error}");
             return ExitCode::from(1);
         }
     };
-    let decision = match index.discover_update(&package, &current, AURA_VERSION, &target) {
+    let mut decision = index.discover_update(&package, &current, AURA_VERSION, &target);
+    if let Err(error) = &decision {
+        if using_default_proxy && ask_bypass_proxy(error) {
+            if let Ok(local) = RegistryIndex::from_env_or_default() {
+                index = local;
+                decision = index.discover_update(&package, &current, AURA_VERSION, &target);
+            }
+        }
+    }
+    let decision = match decision {
         Ok(decision) => decision,
         Err(error) => {
             eprintln!("{error}");
@@ -586,6 +604,18 @@ fn cmd_update(args: &[String]) -> ExitCode {
         UpdateDecision::Revoked { .. } => ExitCode::from(3),
         _ => ExitCode::SUCCESS,
     }
+}
+
+fn ask_bypass_proxy(error: &str) -> bool {
+    eprintln!(
+        "warning: registry proxy failed: {error}\nBypass proxy and use the local registry index instead? [y/N]"
+    );
+    let _ = io::stderr().flush();
+    let mut answer = String::new();
+    if io::stdin().read_line(&mut answer).is_err() {
+        return false;
+    }
+    matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
 }
 
 fn cmd_fmt(args: &[String]) -> ExitCode {

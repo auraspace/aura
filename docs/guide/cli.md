@@ -55,6 +55,11 @@ auralsp
 aura version
 ```
 
+`aura update` uses `https://registry-proxy-aura.pilotworks.dev/` by default.
+If the proxy is unavailable, the CLI asks whether to bypass it and use the
+local registry index (`AURA_REGISTRY_INDEX` or `~/.aura/registry/index`). Use
+`--registry <https-url>` to select a different registry explicitly.
+
 ### Process arguments after `--` (C12c)
 
 `aura run` and `aura test` forward everything after `--` to the process. Programs read them with `std.io.args()` (C12b): index `0` is the program name; user flags start at index `1`.

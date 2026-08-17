@@ -29,6 +29,9 @@ use super::semver::parse_version;
 /// Env override for the index root (fixture or cache). Preferred in tests.
 pub const ENV_REGISTRY_INDEX: &str = "AURA_REGISTRY_INDEX";
 
+/// Default HTTPS registry proxy used by the CLI for update metadata.
+pub const DEFAULT_REGISTRY_PROXY: &str = "https://registry-proxy-aura.pilotworks.dev/";
+
 /// Optional index `config.json` fields (RFC-005 §6.6.2).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RegistryConfig {

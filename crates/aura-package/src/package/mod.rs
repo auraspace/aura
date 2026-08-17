@@ -36,11 +36,12 @@ pub use load::{
 pub use lock::parse_lockfile_for_fuzz;
 pub use manifest::{add_dependency, remove_dependency};
 pub use proxy::ProxyReadThrough;
-pub use registry::{activate_update, current_target, RegistryIndex, UpdateDecision};
-#[cfg(test)]
 pub use registry::{
-    default_index_path, index_root_from_env, RegistryConfig, VersionMeta, ENV_REGISTRY_INDEX,
+    activate_update, current_target, RegistryIndex, UpdateDecision, DEFAULT_REGISTRY_PROXY,
+    ENV_REGISTRY_INDEX,
 };
+#[cfg(test)]
+pub use registry::{default_index_path, index_root_from_env, RegistryConfig, VersionMeta};
 #[cfg(test)]
 pub use semver::{parse_req, parse_version, OriginLockPin, Version, VersionReq};
 pub use toml::NativeBuildConfig;
