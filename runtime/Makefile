@@ -9,13 +9,18 @@ RUNTIME_ARCHIVE := libaurart.a
 LLVM_RUNTIME_OBJECT := runtime.llvm.aura.o
 LLVM_RUNTIME_ARCHIVE := libaurart-llvm.a
 
+# runtime.c includes the implementation under src/ directly. Track those
+# included sources so a changed runtime function cannot leave a stale archive.
+RUNTIME_SOURCES := $(shell find src -type f \( -name '*.c' -o -name '*.h' \)) \
+	aura_ffi.h aura_runtime_abi.h llvm_exceptions.h
+
 .PHONY: all llvm clean
 
 all: $(RUNTIME_ARCHIVE)
 
 llvm: $(LLVM_RUNTIME_ARCHIVE)
 
-$(RUNTIME_OBJECT): runtime.c
+$(RUNTIME_OBJECT): runtime.c $(RUNTIME_SOURCES)
 	@mkdir -p "$(@D)"
 	$(CC) $(RUNTIME_CFLAGS) -c $< -o $@
 
@@ -23,7 +28,7 @@ $(RUNTIME_ARCHIVE): $(RUNTIME_OBJECT)
 	@mkdir -p "$(@D)"
 	$(AR) rcs $@ $<
 
-$(LLVM_RUNTIME_OBJECT): runtime.c
+$(LLVM_RUNTIME_OBJECT): runtime.c $(RUNTIME_SOURCES)
 	@mkdir -p "$(@D)"
 	$(CC) $(LLVM_RUNTIME_CFLAGS) -c $< -o $@
 
