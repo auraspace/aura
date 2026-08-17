@@ -218,6 +218,31 @@ const char *aura_read_file(const char *path)
   return buf;
 }
 
+/* Binary counterpart for archive and wire-payload consumers. */
+int aura_read_file_bytes(const char *path, unsigned char **out, size_t *out_length)
+{
+  if (path == NULL || path[0] == '\0' || out == NULL || out_length == NULL)
+  {
+    errno = EINVAL;
+    aura_io_throw("read_file_bytes", path);
+  }
+  FILE *f = fopen(path, "rb");
+  if (f == NULL) aura_io_throw("read_file_bytes", path);
+  if (fseek(f, 0, SEEK_END) != 0) { int e = errno; fclose(f); errno = e; aura_io_throw("read_file_bytes", path); }
+  long end = ftell(f);
+  if (end < 0 || (int64_t)end > AURA_IO_MAX_FILE) { int e = end < 0 ? errno : EFBIG; fclose(f); errno = e; aura_io_throw("read_file_bytes", path); }
+  if (fseek(f, 0, SEEK_SET) != 0) { int e = errno; fclose(f); errno = e; aura_io_throw("read_file_bytes", path); }
+  size_t length = (size_t)end;
+  unsigned char *bytes = (unsigned char *)malloc(length == 0 ? 1 : length);
+  if (bytes == NULL) { fclose(f); aura_io_throw_msg("io read_file_bytes failed: out of memory"); }
+  size_t got = fread(bytes, 1, length, f);
+  if (got != length) { int e = ferror(f) ? errno : EIO; free(bytes); fclose(f); errno = e; aura_io_throw("read_file_bytes", path); }
+  fclose(f);
+  *out = bytes;
+  *out_length = length;
+  return 1;
+}
+
 /* C12p: soft read — same constraints as aura_read_file, but returns NULL on
  * missing path / I/O error / oversize / OOM / embedded NUL (never throws). */
 const char *aura_try_read_file(const char *path)
@@ -359,6 +384,73 @@ bool aura_try_write_file(const char *path, const char *content)
   }
   return true;
 }
+
+static _Bool aura_try_write_file_atomic_bytes(const char *path,
+                                              const unsigned char *content,
+                                              size_t length)
+{
+  return aura_platform_atomic_write(path, content, length) != 0;
+}
+
+_Bool aura_try_write_file_atomic(const char *path, const char *content)
+{
+  const unsigned char *bytes = (const unsigned char *)(content ? content : "");
+  return aura_try_write_file_atomic_bytes(path, bytes, strlen((const char *)bytes));
+}
+
+_Bool aura_try_write_file_bytes_atomic(const char *path,
+                                       const unsigned char *content,
+                                       size_t length)
+{
+  return aura_try_write_file_atomic_bytes(path, content, length);
+}
+
+#if defined(AURA_LLVM_RUNTIME)
+extern int64_t aura_llvm_array_len(void *value);
+extern int64_t aura_llvm_array_get(void *value, int64_t index);
+extern void *aura_llvm_array_alloc(int64_t length, int64_t kind);
+extern void aura_llvm_array_set(void *value, int64_t index, int64_t raw);
+extern void *aura_llvm_class_alloc(uint64_t field_count, uint64_t type_id);
+
+void *aura_llvm_read_file_bytes(const char *path, int64_t class_type_id)
+{
+  unsigned char *bytes = NULL;
+  size_t length = 0;
+  void *array;
+  void *result;
+  if (class_type_id <= 0 || !aura_read_file_bytes(path, &bytes, &length)) return NULL;
+  array = aura_llvm_array_alloc((int64_t)length, 0);
+  result = aura_llvm_class_alloc(1, (uint64_t)class_type_id);
+  if (array == NULL || result == NULL)
+  {
+    free(bytes);
+    return NULL;
+  }
+  for (size_t index = 0; index < length; index++)
+    aura_llvm_array_set(array, (int64_t)index, (int64_t)bytes[index]);
+  free(bytes);
+  ((uint64_t *)result)[1] = (uint64_t)(uintptr_t)array;
+  return result;
+}
+
+_Bool aura_llvm_try_write_file_bytes_atomic(const char *path, void *array)
+{
+  int64_t length = aura_llvm_array_len(array);
+  unsigned char *bytes;
+  if (length < 0 || (uint64_t)length > SIZE_MAX) return false;
+  bytes = (unsigned char *)malloc(length == 0 ? 1 : (size_t)length);
+  if (bytes == NULL) return false;
+  for (int64_t index = 0; index < length; index++)
+  {
+    int64_t value = aura_llvm_array_get(array, index);
+    if (value < 0 || value > 255) { free(bytes); return false; }
+    bytes[index] = (unsigned char)value;
+  }
+  _Bool ok = aura_try_write_file_bytes_atomic(path, bytes, (size_t)length);
+  free(bytes);
+  return ok;
+}
+#endif
 
 /* ---- Stdin (std.io.readLine / readAllStdin) ----
  * readLine: one line without trailing \n or \r\n; NULL on EOF; empty line is "".

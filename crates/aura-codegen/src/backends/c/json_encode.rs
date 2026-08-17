@@ -691,6 +691,25 @@ pub(crate) fn emit_fun(
     if lookup_std_intrinsic(&pkg, &f.name.name)
         .is_some_and(|spec| spec.intrinsic == StdIntrinsic::Bytes)
     {
+        if f.name.name == "bufferToString" && f.params.len() == 1 {
+            let value = mangle_ident(&f.params[0].name.name);
+            let _ = writeln!(out, "  if ({value} == NULL) return NULL; size_t __length = (size_t){value}->values.len; char *__raw = (char *)malloc(__length + 1); if (__raw == NULL) return NULL; for (size_t __i = 0; __i < __length; __i++) {{ int64_t __byte = {value}->values.data[__i]; if (__byte <= 0 || __byte > 255) {{ free(__raw); return NULL; }} __raw[__i] = (char)__byte; }} __raw[__length] = '\\0'; if (!aura_encoding_is_valid_utf8(__raw)) {{ free(__raw); return NULL; }} const char *__result = aura_bytes_copy(__raw); free(__raw); return __result;");
+            out.push_str("}\n");
+            return;
+        }
+        if f.name.name == "readFileBytes" && f.params.len() == 1 {
+            let path = mangle_ident(&f.params[0].name.name);
+            let _ = writeln!(out, "  unsigned char *__raw = NULL; size_t __raw_length = 0; if (!aura_read_file_bytes({path}, &__raw, &__raw_length)) return NULL; aura_cls_Array_Int __values = aura_new_Array_Int((int64_t)__raw_length); for (int64_t __i = 0; __i < (int64_t)__raw_length; __i++) __values.data[__i] = __raw[__i]; free(__raw); return aura_new_std_bytes_Buffer(__values);");
+            out.push_str("}\n");
+            return;
+        }
+        if f.name.name == "tryWriteFileBytesAtomic" && f.params.len() == 2 {
+            let path = mangle_ident(&f.params[0].name.name);
+            let value = mangle_ident(&f.params[1].name.name);
+            let _ = writeln!(out, "  if ({value} == NULL) return false; size_t __length = (size_t){value}->values.len; unsigned char *__raw = (unsigned char *)malloc(__length == 0 ? 1 : __length); if (__raw == NULL) return false; for (size_t __i = 0; __i < __length; __i++) {{ int64_t __byte = {value}->values.data[__i]; if (__byte < 0 || __byte > 255) {{ free(__raw); return false; }} __raw[__i] = (unsigned char)__byte; }} _Bool __ok = aura_try_write_file_bytes_atomic({path}, __raw, __length); free(__raw); return __ok;");
+            out.push_str("}\n");
+            return;
+        }
         let intrinsic = match (f.name.name.as_str(), f.params.len()) {
             ("copy", 1) => Some((
                 "aura_bytes_copy",
@@ -755,6 +774,10 @@ pub(crate) fn emit_fun(
             )),
             ("isDirectory", 1) => Some((
                 "aura_fs_is_directory",
+                vec![mangle_ident(&f.params[0].name.name)],
+            )),
+            ("ensureDirectory", 1) => Some((
+                "aura_fs_ensure_directory",
                 vec![mangle_ident(&f.params[0].name.name)],
             )),
             ("fileMode", 1) => Some((
@@ -872,6 +895,13 @@ pub(crate) fn emit_fun(
                 let p = mangle_ident(&f.params[0].name.name);
                 let c = mangle_ident(&f.params[1].name.name);
                 let _ = writeln!(out, "  return aura_try_write_file({p}, {c});");
+                out.push_str("}\n");
+                return;
+            }
+            ("tryWriteFileAtomic", 2) => {
+                let p = mangle_ident(&f.params[0].name.name);
+                let c = mangle_ident(&f.params[1].name.name);
+                let _ = writeln!(out, "  return aura_try_write_file_atomic({p}, {c});");
                 out.push_str("}\n");
                 return;
             }
@@ -2333,6 +2363,19 @@ pub(crate) fn emit_fun(
                 out.push_str(" == NULL ? \"\" : ");
                 out.push_str(&body);
                 out.push_str("; _Bool __ok = aura_http_response_set_body((AuraHttpResponse *)__pin.resource, __body, strlen(__body)) == AURA_HTTP_RESPONSE_OK; (void)aura_ffi_handle_unpin(&__pin); return __ok;\n}");
+                return;
+            }
+            ("responseSetBodyBytes", 2) => {
+                let body = mangle_ident(&f.params[1].name.name);
+                out.push_str("  AuraFfiHandlePin __pin = {0}; if (!aura_http_pin_resource(");
+                out.push_str(&handle);
+                out.push_str(", &__pin)) { aura_throw_string(\"http response handle is invalid\"); return false; } if (");
+                out.push_str(&body);
+                out.push_str(" == NULL) { (void)aura_ffi_handle_unpin(&__pin); return false; } size_t __body_length = (size_t)");
+                out.push_str(&body);
+                out.push_str("->values.len; unsigned char *__body_bytes = (unsigned char *)malloc(__body_length == 0 ? 1 : __body_length); if (__body_bytes == NULL) { (void)aura_ffi_handle_unpin(&__pin); return false; } for (size_t __i = 0; __i < __body_length; __i++) __body_bytes[__i] = (unsigned char)");
+                out.push_str(&body);
+                out.push_str("->values.data[__i]; _Bool __ok = aura_http_response_set_body((AuraHttpResponse *)__pin.resource, __body_bytes, __body_length) == AURA_HTTP_RESPONSE_OK; free(__body_bytes); (void)aura_ffi_handle_unpin(&__pin); return __ok;\n}");
                 return;
             }
             ("responseAddHeader", 3) => {

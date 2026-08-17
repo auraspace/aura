@@ -131,6 +131,12 @@ pub fun tryWriteFile(path: String, content: String): Bool {
     throw "std.io tryWriteFile intrinsic"
 }
 
+/// Atomically replace `path` with `content` using a sibling temporary file.
+/// Returns false when the temporary write, flush, rename, or cleanup fails.
+pub fun tryWriteFileAtomic(path: String, content: String): Bool {
+    throw "std.io tryWriteFileAtomic intrinsic"
+}
+
 /// Non-throwing read with an explicit owned error payload.
 /// `Ok` contains the same owned String as `tryReadFile`; `Err` contains a
 /// fresh String describing the failed operation. Existing readFile and

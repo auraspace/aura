@@ -3,16 +3,16 @@ std.io	implemented	docs/api/std-alpha.md	console, files, stdin, argv, tasks, err
 std.assert	implemented	docs/api/std-alpha.md	assertion primitive
 std.collections	implemented	docs/api/std-alpha.md	linear and hash collections, iterators, HOFs
 std.error	implemented	docs/api/std-alpha.md	shared errors and Outcome
-std.bytes	implemented	docs/api/std-alpha.md	validated Byte and owned binary Buffer operations with network-order helpers
+std.bytes	implemented	docs/api/std-alpha.md	validated Byte and owned binary Buffer operations with network-order helpers, binary file reads, and atomic writes
 std.encoding	implemented	docs/api/std-alpha.md	UTF-8, hex, base64, percent encoding
 std.json	implemented	docs/api/std-alpha.md	bounded JSON validation, root values, typed decode, recursive compact aggregate encode/stringify for primitives, nested classes/structs, arrays, string-key maps, and payload enums, plus @json field names
 std.mime	implemented	docs/api/std-alpha.md	media types and filename sanitization
-std.fs	implemented	docs/api/std-alpha.md	paths and filesystem metadata
+std.fs	implemented	docs/api/std-alpha.md	paths, filesystem metadata, and bounded recursive directory creation
 std.os	implemented	docs/api/std-alpha.md	environment and process helpers
 std.net	implemented	docs/api/std-alpha.md	bounded TCP transport with exact binary I/O, deadlines, and cancellation cleanup
 std.dns	implemented	docs/api/std-alpha.md	numeric host resolution
 std.url	implemented	docs/api/std-alpha.md	URI component helpers
-std.http	implemented	docs/api/std-alpha.md	bounded HTTP/1.1 values, server/client, and typed streaming outcomes
+std.http	implemented	docs/api/std-alpha.md	bounded HTTP/1.1 values, server/client, C-backend binary Content-Length fetches over plain or verified HTTPS, binary response bodies, and typed streaming outcomes
 std.stream	implemented	docs/api/std-alpha.md	reader/writer adapters with binary Buffer I/O, deadlines, and typed transport outcomes
 std.time	implemented	docs/api/std-alpha.md	monotonic duration and deadlines
 std.task	implemented	docs/api/std-alpha.md	task lifecycle, cancellation, Select, spawnBlocking, and taskScope

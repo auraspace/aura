@@ -1,6 +1,8 @@
 #include "platform.h"
 
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #if defined(_WIN32)
 
@@ -212,6 +214,60 @@ int64_t aura_platform_file_write(AuraPlatformFile file, const void *buffer, size
 int aura_platform_file_flush(AuraPlatformFile file) { return _commit((int)file); }
 int aura_platform_file_close(AuraPlatformFile file) { return _close((int)file); }
 
+static int aura_platform_directory_exists(const char *path)
+{
+  DWORD attributes = GetFileAttributesA(path);
+  return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+}
+
+int aura_platform_ensure_directory(const char *path)
+{
+  size_t length;
+  char *copy;
+  if (path == NULL || path[0] == '\0') return 0;
+  length = strlen(path);
+  copy = (char *)malloc(length + 1);
+  if (copy == NULL) return 0;
+  memcpy(copy, path, length + 1);
+  while (length > 1 && (copy[length - 1] == '\\' || copy[length - 1] == '/')) copy[--length] = '\0';
+  for (char *cursor = copy; *cursor != '\0'; cursor++)
+  {
+    if (*cursor != '\\' && *cursor != '/') continue;
+    if (cursor == copy || (cursor == copy + 2 && copy[1] == ':')) continue;
+    *cursor = '\0';
+    if (!aura_platform_directory_exists(copy) && !CreateDirectoryA(copy, NULL) &&
+        GetLastError() != ERROR_ALREADY_EXISTS)
+    { free(copy); return 0; }
+    *cursor = '\\';
+  }
+  if (!aura_platform_directory_exists(copy) && !CreateDirectoryA(copy, NULL) &&
+      GetLastError() != ERROR_ALREADY_EXISTS)
+  { free(copy); return 0; }
+  free(copy);
+  return aura_platform_directory_exists(path);
+}
+
+int aura_platform_atomic_write(const char *path, const void *content, size_t length)
+{
+  size_t path_length;
+  char *temporary;
+  int descriptor;
+  int ok;
+  if (path == NULL || path[0] == '\0' || (content == NULL && length != 0)) return 0;
+  path_length = strlen(path);
+  temporary = (char *)malloc(path_length + 48);
+  if (temporary == NULL) return 0;
+  snprintf(temporary, path_length + 48, "%s.tmp.%lu", path, (unsigned long)GetCurrentProcessId());
+  descriptor = _open(temporary, _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY, _S_IREAD | _S_IWRITE);
+  if (descriptor < 0) { free(temporary); return 0; }
+  ok = (length == 0 || _write(descriptor, content, (unsigned)length) == (int)length) &&
+       _commit(descriptor) == 0 && _close(descriptor) == 0;
+  if (ok) ok = MoveFileExA(temporary, path, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+  if (!ok) { _close(descriptor); DeleteFileA(temporary); }
+  free(temporary);
+  return ok;
+}
+
 static int aura_platform_wsa_started;
 
 int aura_platform_socket_startup(void)
@@ -373,6 +429,62 @@ int64_t aura_platform_file_write(AuraPlatformFile file, const void *buffer, size
 { return (int64_t)write((int)file, buffer, length); }
 int aura_platform_file_flush(AuraPlatformFile file) { return fsync((int)file); }
 int aura_platform_file_close(AuraPlatformFile file) { return close((int)file); }
+
+static int aura_platform_directory_exists(const char *path)
+{
+  struct stat info;
+  return stat(path, &info) == 0 && S_ISDIR(info.st_mode);
+}
+
+int aura_platform_ensure_directory(const char *path)
+{
+  size_t length;
+  char *copy;
+  if (path == NULL || path[0] == '\0') return 0;
+  length = strlen(path);
+  copy = (char *)malloc(length + 1);
+  if (copy == NULL) return 0;
+  memcpy(copy, path, length + 1);
+  while (length > 1 && (copy[length - 1] == '/' || copy[length - 1] == '\\')) copy[--length] = '\0';
+  for (char *cursor = copy + (copy[0] == '/' ? 1 : 0); *cursor != '\0'; cursor++)
+  {
+    if (*cursor != '/' && *cursor != '\\') continue;
+    *cursor = '\0';
+    if (copy[0] != '\0' && mkdir(copy, 0755) != 0 && errno != EEXIST)
+    { free(copy); return 0; }
+    *cursor = '/';
+  }
+  if (mkdir(copy, 0755) != 0 && errno != EEXIST)
+  { free(copy); return 0; }
+  length = aura_platform_directory_exists(copy);
+  free(copy);
+  return (int)length;
+}
+
+int aura_platform_atomic_write(const char *path, const void *content, size_t length)
+{
+  size_t path_length;
+  char *temporary;
+  int descriptor;
+  FILE *file;
+  int ok;
+  if (path == NULL || path[0] == '\0' || (content == NULL && length != 0)) return 0;
+  path_length = strlen(path);
+  temporary = (char *)malloc(path_length + sizeof(".tmp.XXXXXX"));
+  if (temporary == NULL) return 0;
+  snprintf(temporary, path_length + sizeof(".tmp.XXXXXX"), "%s.tmp.XXXXXX", path);
+  descriptor = mkstemp(temporary);
+  if (descriptor < 0) { free(temporary); return 0; }
+  file = fdopen(descriptor, "wb");
+  if (file == NULL) { close(descriptor); unlink(temporary); free(temporary); return 0; }
+  ok = (length == 0 || fwrite(content, 1, length, file) == length) && fflush(file) == 0;
+  if (ok) ok = fsync(fileno(file)) == 0;
+  if (fclose(file) != 0) ok = 0;
+  if (ok) ok = rename(temporary, path) == 0;
+  if (!ok) unlink(temporary);
+  free(temporary);
+  return ok;
+}
 
 int aura_platform_socket_startup(void) { return 0; }
 void aura_platform_socket_shutdown(void) {}

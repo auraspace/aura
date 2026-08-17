@@ -207,9 +207,11 @@ Go-shaped objects:
 ```
 
 These are proxy/cache representations, not additional publication records. The
-origin remains the repository and tag. The client must resolve a version to an
-immutable commit, fetch the tagged source, calculate/verify its checksum, and
-pin `version`, `rev`, `source`, and `checksum` in `aura.lock`.
+origin remains the repository and tag. The reference implementation in
+`examples/registry-proxy-aura` serves these objects as an optional read-through
+cache; the client must still resolve a version to an immutable commit,
+fetch the tagged source, calculate/verify its checksum, and pin `version`,
+`rev`, `source`, and `checksum` in `aura.lock`.
 
 #### 6.6.3 Fetch and version selection
 
@@ -358,14 +360,14 @@ checksum database address those concerns without changing the origin contract.
 
 ## 11. Implementation plan (optional)
 
-| Phase | Scope                             | Exit criteria                            | Status                                                                         |
-| ----- | --------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------ |
-| K0    | Path deps + lock                  | Multi-package build                      | **Done** (incl. nested path lock C4j)                                          |
-| K0b   | Lock schema v0 (`registry` pins)  | Parse/verify without fetch               | **Done** (C8k)                                                                 |
-| K1    | Direct origin fetch + semver tags | Locked origin consumption and fixture    | **Done** — direct Git read/verify/cache path and offline round-trip            |
-| K1b   | Direct `github =` / `git =` deps  | Lock pins rev + checksum                 | **Done** — tag/rev selectors, commit pins, checksum verification               |
-| K2    | Origin publication (tag push)     | Round-trip public package                | **Resolved** — ordinary Git tag/push; live public-host rehearsal is acceptance |
-| K3    | Optional proxy/cache              | Same read objects served through a cache | **Prepared boundary** — serving remains deferred after origin stabilization    |
+| Phase | Scope                             | Exit criteria                            | Status                                                                                                                        |
+| ----- | --------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| K0    | Path deps + lock                  | Multi-package build                      | **Done** (incl. nested path lock C4j)                                                                                         |
+| K0b   | Lock schema v0 (`registry` pins)  | Parse/verify without fetch               | **Done** (C8k)                                                                                                                |
+| K1    | Direct origin fetch + semver tags | Locked origin consumption and fixture    | **Done** — direct Git read/verify/cache path and offline round-trip                                                           |
+| K1b   | Direct `github =` / `git =` deps  | Lock pins rev + checksum                 | **Done** — tag/rev selectors, commit pins, checksum verification                                                              |
+| K2    | Origin publication (tag push)     | Round-trip public package                | **Resolved** — ordinary Git tag/push; live public-host rehearsal is acceptance                                                |
+| K3    | Optional proxy/cache              | Same read objects served through a cache | **Example implemented** — the Aura C-backend proxy serves the `@v` read contract; CLI integration/deployment remains deferred |
 
 ## 12. References
 

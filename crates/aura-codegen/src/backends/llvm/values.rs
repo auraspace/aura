@@ -674,6 +674,36 @@ pub(super) fn emit_rvalue(
                 .collect::<Result<Vec<_>, _>>()?;
             let std_intrinsic =
                 lookup_std_intrinsic(&target.package, &target.name).map(|spec| spec.intrinsic);
+            if target.package == "std.http"
+                && target.name == "getBytes"
+                && values.len() == 2
+                && result_ty.is_some_and(|ty| matches!(ty, Ty::Task(_) | Ty::TaskHandle(_)))
+            {
+                let payload = task_payload_type(
+                    result_ty.ok_or_else(|| unsupported("std.http.getBytes result type"))?,
+                )
+                .ok_or_else(|| unsupported("std.http.getBytes result payload"))?;
+                let buffer_name = class_type_name(payload)
+                    .ok_or_else(|| unsupported("std.http.getBytes Buffer payload"))?;
+                let layout_name = context
+                    .classes
+                    .keys()
+                    .find(|name| {
+                        name == &buffer_name
+                            || name.split('@').next() == buffer_name.split('@').next()
+                    })
+                    .ok_or_else(|| unsupported("std.http.getBytes Buffer layout"))?;
+                let type_id = context
+                    .class_type_ids
+                    .get(layout_name)
+                    .copied()
+                    .ok_or_else(|| unsupported("std.http.getBytes Buffer type id"))?;
+                let executor = next_temp(out);
+                let frame = next_temp(out);
+                writeln!(out, "  {executor} = call ptr @aura_llvm_executor()").unwrap();
+                writeln!(out, "  {frame} = call ptr @aura_llvm_http_get_bytes_task(ptr {executor}, ptr {}, ptr {}, i64 {type_id})", values[0], values[1]).unwrap();
+                return Ok(frame);
+            }
             if target.name == "assert" && values.len() == 1 {
                 if body.locals[args[0].local].ty != Ty::Bool {
                     return Err(unsupported("assert condition type"));
@@ -2355,6 +2385,14 @@ pub(super) fn emit_rvalue(
             }
             if let Some(value) =
                 emit_builtin_method(out, target, args, &values, body, result_ty, context)?
+            {
+                return Ok(value);
+            }
+            if let Some(value) = emit_std_fs_intrinsic(out, target, &values)? {
+                return Ok(value);
+            }
+            if let Some(value) =
+                emit_std_bytes_intrinsic(out, target, args, &values, body, result_ty, context)?
             {
                 return Ok(value);
             }
@@ -4082,6 +4120,143 @@ fn emit_builtin_method(
     Ok(None)
 }
 
+fn emit_std_bytes_intrinsic(
+    out: &mut String,
+    target: &aura_mir::mir::CallTarget,
+    args: &[Place],
+    values: &[String],
+    body: &MirBody,
+    result_ty: Option<&Ty>,
+    context: &EmitContext,
+) -> Result<Option<String>, CodegenError> {
+    if target.package != "std.bytes" || values.len() != 1 && values.len() != 2 {
+        return Ok(None);
+    }
+    if target.name == "readFileBytes" && values.len() == 1 {
+        let buffer_ty = result_ty.ok_or_else(|| unsupported("std.bytes.Buffer result type"))?;
+        let buffer_name = class_type_name(buffer_ty)
+            .ok_or_else(|| unsupported("std.bytes.Buffer result type"))?;
+        let layout_name = context
+            .classes
+            .keys()
+            .find(|name| {
+                name == &buffer_name || name.split('@').next() == buffer_name.split('@').next()
+            })
+            .ok_or_else(|| unsupported("std.bytes.Buffer layout"))?;
+        let type_id = context
+            .class_type_ids
+            .get(layout_name)
+            .copied()
+            .ok_or_else(|| unsupported("std.bytes.Buffer type id"))?;
+        let path = next_temp(out);
+        writeln!(
+            out,
+            "  {path} = call ptr @aura_llvm_str_data(ptr {})",
+            values[0]
+        )
+        .unwrap();
+        let result = next_temp(out);
+        writeln!(
+            out,
+            "  {result} = call ptr @aura_llvm_read_file_bytes(ptr {path}, i64 {type_id})"
+        )
+        .unwrap();
+        return Ok(Some(result));
+    }
+    if target.name == "tryWriteFileBytesAtomic" && values.len() == 2 {
+        let buffer_ty = &body.locals[args[1].local].ty;
+        let buffer_name = class_type_name(buffer_ty)
+            .ok_or_else(|| unsupported("std.bytes.Buffer argument type"))?;
+        let fields = class_fields(context, buffer_name, class_type_args(buffer_ty))
+            .ok_or_else(|| unsupported("std.bytes.Buffer layout"))?;
+        let values_index = fields
+            .iter()
+            .position(|(name, ty)| name == "values" && is_array_type(ty))
+            .ok_or_else(|| unsupported("std.bytes.Buffer.values field"))?;
+        let path = next_temp(out);
+        writeln!(
+            out,
+            "  {path} = call ptr @aura_llvm_str_data(ptr {})",
+            values[0]
+        )
+        .unwrap();
+        let field = next_temp(out);
+        writeln!(
+            out,
+            "  {field} = getelementptr %AuraLlvmClass, ptr {}, i32 0, i32 1, i64 {values_index}",
+            values[1]
+        )
+        .unwrap();
+        let raw = next_temp(out);
+        writeln!(out, "  {raw} = load i64, ptr {field}").unwrap();
+        let array = next_temp(out);
+        writeln!(out, "  {array} = inttoptr i64 {raw} to ptr").unwrap();
+        let result = next_temp(out);
+        writeln!(
+            out,
+            "  {result} = call i1 @aura_llvm_try_write_file_bytes_atomic(ptr {path}, ptr {array})"
+        )
+        .unwrap();
+        return Ok(Some(result));
+    }
+    Ok(None)
+}
+
+fn emit_std_fs_intrinsic(
+    out: &mut String,
+    target: &aura_mir::mir::CallTarget,
+    values: &[String],
+) -> Result<Option<String>, CodegenError> {
+    if target.package != "std.fs" {
+        return Ok(None);
+    }
+    match (target.name.as_str(), values.len()) {
+        ("join", 2) => {
+            let base = next_temp(out);
+            let child = next_temp(out);
+            let result = next_temp(out);
+            writeln!(
+                out,
+                "  {base} = call ptr @aura_llvm_str_data(ptr {})",
+                values[0]
+            )
+            .unwrap();
+            writeln!(
+                out,
+                "  {child} = call ptr @aura_llvm_str_data(ptr {})",
+                values[1]
+            )
+            .unwrap();
+            writeln!(
+                out,
+                "  {result} = call ptr @aura_fs_join(ptr {base}, ptr {child})"
+            )
+            .unwrap();
+            let owned = next_temp(out);
+            writeln!(out, "  {owned} = call ptr @aura_llvm_str_new(ptr {result})").unwrap();
+            writeln!(out, "  call void @free(ptr {result})").unwrap();
+            Ok(Some(owned))
+        }
+        ("ensureDirectory", 1) => {
+            let path = next_temp(out);
+            let result = next_temp(out);
+            writeln!(
+                out,
+                "  {path} = call ptr @aura_llvm_str_data(ptr {})",
+                values[0]
+            )
+            .unwrap();
+            writeln!(
+                out,
+                "  {result} = call i1 @aura_fs_ensure_directory(ptr {path})"
+            )
+            .unwrap();
+            Ok(Some(result))
+        }
+        _ => Ok(None),
+    }
+}
+
 fn emit_std_io_intrinsic(
     out: &mut String,
     target: &aura_mir::mir::CallTarget,
@@ -4180,7 +4355,7 @@ fn emit_std_io_intrinsic(
             writeln!(out, "  call void @free(ptr {raw})").unwrap();
             result
         }
-        ("writeFile", 2) | ("appendFile", 2) | ("tryWriteFile", 2) => {
+        ("writeFile", 2) | ("appendFile", 2) | ("tryWriteFile", 2) | ("tryWriteFileAtomic", 2) => {
             let path = string_data(&values[0]);
             let content = string_data(&values[1]);
             let result = next_temp(out);
@@ -4201,6 +4376,11 @@ fn emit_std_io_intrinsic(
                     .unwrap();
                     return Ok(Some(String::new()));
                 }
+                "tryWriteFileAtomic" => writeln!(
+                    out,
+                    "  {result} = call i1 @aura_try_write_file_atomic(ptr {path}, ptr {content})"
+                )
+                .unwrap(),
                 _ => writeln!(
                     out,
                     "  {result} = call i1 @aura_try_write_file(ptr {path}, ptr {content})"

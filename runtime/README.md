@@ -90,7 +90,7 @@ src/crypto/crypto.c
 src/io/dns.c
 src/io/{io_file,io_tcp,io_udp,io_websocket,io_tls}.c
 src/http/{url,mime}.c
-src/http/{http_parser,http_response,http_connection}.c
+src/http/{http_client,http_parser,http_response,http_connection}.c
 src/stdlib/fs.c
 src/stdlib/stdlib_io_fs.c
 src/core/exceptions.c

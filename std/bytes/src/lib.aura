@@ -2,6 +2,17 @@
 
 package std.bytes
 
+/// Read arbitrary file bytes without applying String UTF-8/NUL restrictions.
+/// This is intended for archives and other wire payloads.
+pub fun readFileBytes(path: String): Buffer {
+  throw "std.bytes readFileBytes intrinsic"
+}
+
+/// Atomically replace `path` with the exact bytes in `value`.
+pub fun tryWriteFileBytesAtomic(path: String, value: Buffer): Bool {
+  throw "std.bytes tryWriteFileBytesAtomic intrinsic"
+}
+
 /// A validated unsigned byte. The backing Int is kept private so callers
 /// cannot accidentally pass arbitrary values as wire bytes.
 pub class Byte(pub val value: Int) {
@@ -31,7 +42,12 @@ pub fun readInt32BE(buffer: Buffer, offset: Int): Int? {
 
 /// Return an independent owned copy of the byte string.
 pub fun copy(value: String): String {
-    throw "bytes intrinsic"
+  throw "bytes intrinsic"
+}
+
+/// Convert a valid UTF-8 buffer without allowing embedded NUL bytes.
+pub fun bufferToString(value: Buffer): String {
+  throw "bytes intrinsic"
 }
 
 /// Concatenate two owned byte strings.
@@ -124,6 +140,7 @@ pub class Buffer(private val values: Array<Int>) {
     pub fun clone(): Buffer {
         return Buffer(values.clone())
     }
+
 }
 
 /// Write an unsigned 16-bit integer in network byte order.

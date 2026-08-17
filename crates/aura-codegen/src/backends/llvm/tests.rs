@@ -43,6 +43,26 @@ fn emits_calls_with_the_declared_signature() {
 }
 
 #[test]
+fn emits_shared_binary_http_readthrough_for_llvm() {
+    let mut file = parse_file(
+        r#"package std.http
+import std.bytes as ByteBuf
+pub class Buffer(private val values: Array<Int>) {}
+pub async fun getBytes(endpoint: String, target: String): ByteBuf.Buffer { throw "intrinsic" }
+async fun fetch(): ByteBuf.Buffer { return await getBytes("http://127.0.0.1:1", "/object") }
+fun main() {}
+"#,
+    )
+    .unwrap();
+    file.classes[0].origin_package = "std.bytes".into();
+    let checked = check_file(&file).unwrap();
+    let module = LlvmBackend::emit_module(&LoweredProgram::from_checked(checked)).unwrap();
+    assert!(module.contains("@aura_llvm_http_get_bytes_task"));
+    assert!(module.contains("@aura_llvm_read_file_bytes"));
+    assert_llvm_compiles(&module, "binary-http-readthrough");
+}
+
+#[test]
 fn emits_and_runs_string_operations() {
     let file = parse_file(include_str!(
         "../../../../../corpus/expr/string_concat.aura"

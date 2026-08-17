@@ -311,6 +311,11 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str("int aura_log_get_min_level(void);\n");
     out.push_str("const char *aura_read_file(const char *path);\n");
     out.push_str("const char *aura_try_read_file(const char *path);\n");
+    out.push_str(
+        "int aura_read_file_bytes(const char *path, unsigned char **out, size_t *out_length);\n",
+    );
+    out.push_str("_Bool aura_try_write_file_atomic(const char *path, const char *content);\n");
+    out.push_str("_Bool aura_try_write_file_bytes_atomic(const char *path, const unsigned char *content, size_t length);\n");
     out.push_str("void aura_write_file(const char *path, const char *content);\n");
     out.push_str("_Bool aura_try_write_file(const char *path, const char *content);\n");
     out.push_str("void aura_append_file(const char *path, const char *content);\n");
@@ -420,6 +425,7 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str("const char *aura_fs_extension(const char *path);\n");
     out.push_str("_Bool aura_fs_is_absolute(const char *path);\n");
     out.push_str("_Bool aura_fs_is_directory(const char *path);\n");
+    out.push_str("_Bool aura_fs_ensure_directory(const char *path);\n");
     out.push_str("int64_t aura_fs_file_mode(const char *path);\n");
     out.push_str("int64_t aura_fs_permissions(const char *path);\n");
     out.push_str("int64_t aura_fs_modified_millis(const char *path);\n");
@@ -541,6 +547,10 @@ fn emit_c_impl(checked: &CheckedFile, ir: Option<&CheckedIr>, opts: EmitOptions)
     out.push_str(
         "AuraTcpStatus aura_tcp_stream_read(AuraTcpStream *, void *, size_t, size_t *, int);\n",
     );
+    out.push_str("AuraTcpStatus aura_tcp_stream_read_exactly(AuraTcpStream *, void *, size_t, size_t *, int);\n");
+    out.push_str("AuraTcpStatus aura_tcp_stream_write_all(AuraTcpStream *, const void *, size_t, size_t *, int);\n");
+    out.push_str("int aura_http_client_get_bytes(const char *, const char *, size_t, unsigned char **, size_t *, char **);\n");
+    out.push_str("int aura_tls_http_client_get_bytes(const char *, const char *, size_t, unsigned char **, size_t *, char **);\n");
     out.push_str("AuraTcpStatus aura_tcp_stream_write(AuraTcpStream *, const void *, size_t, size_t *, int);\n");
     out.push_str("static void aura_destroy_tcp_stream_resource(void *resource) { if (resource != NULL) aura_tcp_stream_destroy((AuraTcpStream *)resource); }\n");
     out.push_str("static void aura_destroy_tcp_listener_resource(void *resource) { if (resource != NULL) aura_tcp_listener_destroy((AuraTcpListener *)resource); }\n");
@@ -1414,7 +1424,9 @@ pub(crate) fn emit_async_fun_decl(
             || (lowered.name.name == "serve"
                 && emit_async_fun_std_http_serve(out, lowered, checked))
             || (lowered.name.name == "readChunk"
-                && emit_async_fun_std_http_request_body_chunk(out, lowered, checked)));
+                && emit_async_fun_std_http_request_body_chunk(out, lowered, checked))
+            || (lowered.name.name == "getBytes"
+                && emit_async_fun_std_http_get_bytes(out, lowered, checked)));
     let emitted_std_time = lookup_std_intrinsic(
         &async_fun_decl_package(lowered, checked),
         &lowered.name.name,
@@ -10586,6 +10598,44 @@ fn emit_async_fun_std_http_serve(
     true
 }
 
+fn emit_async_fun_std_http_get_bytes(
+    out: &mut String,
+    f: &AsyncFunDecl,
+    checked: &CheckedFile,
+) -> bool {
+    if f.params.len() != 2
+        || type_ref_local_key_expand(&f.params[0].ty, &[], &[], checked) != "String"
+        || type_ref_local_key_expand(&f.params[1].ty, &[], &[], checked) != "String"
+        || !f.return_type.as_ref().is_some_and(|ty| {
+            let key = type_ref_local_key_expand(ty, &[], &[], checked);
+            key == "std_bytes_Buffer" || key == "Buffer"
+        })
+    {
+        return false;
+    }
+    let base = c_fun_name("std.http", "getBytes", &[]);
+    let data_ty = format!("aura_async_data_{base}");
+    let poll = format!("aura_async_poll_{base}");
+    let destroy = format!("aura_async_destroy_{base}");
+    let result_destroy = format!("aura_async_result_destroy_{base}");
+    let error_destroy = format!("aura_async_error_destroy_{base}");
+    let endpoint = mangle_ident(&f.params[0].name.name);
+    let target = mangle_ident(&f.params[1].name.name);
+    let _ = writeln!(
+        out,
+        "typedef struct {data_ty} {{ char *endpoint; char *target; }} {data_ty};"
+    );
+    let _ = writeln!(out, "static void {destroy}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data != NULL) {{ free(data->endpoint); free(data->target); }} }}");
+    let _ = writeln!(out, "static void {result_destroy}(void *raw, size_t size) {{ (void)size; if (raw != NULL) {{ aura_cls_std_bytes_Buffer **slot = (aura_cls_std_bytes_Buffer **)raw; if (*slot != NULL) aura_gc_remove_root((void **)slot); free(slot); }} }}");
+    let _ = writeln!(
+        out,
+        "static void {error_destroy}(void *raw, size_t size) {{ (void)size; free(raw); }}"
+    );
+    let _ = writeln!(out, "static AuraTaskPollState {poll}(AuraTaskFrame *frame) {{ /* AURA_TLS_REQUIRED */ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data == NULL || aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED; unsigned char *__raw = NULL; size_t __length = 0; char *__error = NULL; if (!aura_http_client_get_bytes(data->endpoint, data->target, 67108864, &__raw, &__length, &__error)) {{ if (__error == NULL) {{ const char *__message = \"upstream binary fetch failed\"; size_t __message_length = strlen(__message) + 1; __error = (char *)malloc(__message_length); if (__error != NULL) memcpy(__error, __message, __message_length); }} if (__error != NULL) {{ aura_task_frame_set_error_at(frame, __error, strlen(__error) + 1, {error_destroy}, UINT32_C(0)); aura_task_frame_set_error_type_name(frame, \"String\"); }} return AURA_TASK_FAILED; }} aura_cls_Array_Int __values = aura_new_Array_Int((int64_t)__length); if (__length > 0 && __values.data == NULL) {{ free(__raw); return AURA_TASK_FAILED; }} for (size_t __i = 0; __i < __length; __i++) __values.data[__i] = __raw[__i]; free(__raw); aura_cls_std_bytes_Buffer *__value = aura_new_std_bytes_Buffer(__values); if (__value == NULL) return AURA_TASK_FAILED; aura_cls_std_bytes_Buffer **__result = (aura_cls_std_bytes_Buffer **)malloc(sizeof(*__result)); if (__result == NULL) {{ free(__value); return AURA_TASK_FAILED; }} *__result = __value; aura_gc_add_root((void **)__result); aura_task_frame_set_result(frame, __result, sizeof(*__result), {result_destroy}); return AURA_TASK_COMPLETE; }}");
+    let _ = writeln!(out, "{} {{ AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll}, {destroy}); if (frame == NULL) return NULL; {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data == NULL) {{ aura_task_frame_destroy(frame); return NULL; }} data->endpoint = {endpoint} == NULL ? NULL : strdup({endpoint}); data->target = {target} == NULL ? NULL : strdup({target}); if (data->endpoint == NULL || data->target == NULL) {{ aura_task_frame_destroy(frame); return NULL; }} if (__aura_task_executor == NULL || !aura_task_executor_submit(__aura_task_executor, frame)) {{ aura_task_frame_destroy(frame); return NULL; }} return frame; }}", c_async_fun_signature(f, checked));
+    true
+}
+
 fn emit_async_fun_std_http_serve_connection(
     out: &mut String,
     f: &AsyncFunDecl,
@@ -10609,7 +10659,7 @@ fn emit_async_fun_std_http_serve_connection(
     let _ = writeln!(out, "typedef struct {data_ty} {{ AuraFfiOpaqueHandle *stream; AuraFfiOpaqueHandle *connection; {handler_ty} handler; AuraTaskFrame *child; aura_cls_std_http_Request *request; aura_cls_std_http_Response *response; AuraFfiOpaqueHandle *request_handle; AuraFfiOpaqueHandle *response_handle; bool rooted; }} {data_ty};");
     let _ = writeln!(out, "static void {destroy}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data == NULL) return; if (data->rooted) {{ aura_gc_remove_root((void **)&data->request); aura_gc_remove_root((void **)&data->response); }} if (data->child != NULL && __aura_task_executor != NULL) (void)aura_task_executor_release(__aura_task_executor, &data->child); if (data->request_handle != NULL) (void)aura_ffi_handle_drop(&data->request_handle); if (data->response_handle != NULL) (void)aura_ffi_handle_drop(&data->response_handle); if (data->connection != NULL) (void)aura_ffi_handle_drop(&data->connection); if (data->stream != NULL) (void)aura_ffi_handle_drop(&data->stream); if (data->handler.env != NULL) aura_fun_env_free(data->handler.env); }}");
     let _ = writeln!(out, "static AuraTaskPollState {cancel}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data != NULL && data->child != NULL && __aura_task_executor != NULL) {{ AuraTaskPollState state = aura_task_frame_state(data->child); if (state != AURA_TASK_COMPLETE && state != AURA_TASK_FAILED && state != AURA_TASK_CANCELLED) (void)aura_task_executor_cancel(__aura_task_executor, data->child); }} return AURA_TASK_CANCELLED; }}");
-    let _ = writeln!(out, "static AuraTaskPollState {bridge}(AuraTaskFrame *frame, const AuraHttpRequest *request, AuraHttpResponse *response, void *user_data) {{ {data_ty} *data = ({data_ty} *)user_data; if (data == NULL || request == NULL || response == NULL) return AURA_TASK_FAILED; if (data->child == NULL) {{ if (aura_ffi_handle_new((void *)request, NULL, &data->request_handle) != AURA_FFI_OK || aura_ffi_handle_new((void *)response, NULL, &data->response_handle) != AURA_FFI_OK) return AURA_TASK_FAILED; data->request = aura_new_std_http_Request(data->request_handle); data->response = aura_new_std_http_Response(data->response_handle, data->connection); if (data->request == NULL || data->response == NULL) return AURA_TASK_FAILED; aura_gc_add_root((void **)&data->request); aura_gc_add_root((void **)&data->response); data->rooted = true; data->child = data->handler.fn(data->handler.env, data->request, data->response); if (data->child == NULL) return AURA_TASK_FAILED; }} AuraTaskPollState state = aura_task_frame_state(data->child); if (state == AURA_TASK_READY) state = aura_task_executor_poll_inline(__aura_task_executor, data->child); if (state == AURA_TASK_PENDING) {{ if (!aura_task_frame_wait_on(frame, data->child)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }} if (state == AURA_TASK_FAILED) {{ (void)aura_task_frame_propagate_error(frame, data->child); if (__aura_task_executor != NULL) (void)aura_task_executor_release_terminal(__aura_task_executor, &data->child); return AURA_TASK_FAILED; }} if (state != AURA_TASK_COMPLETE) return state; aura_gc_remove_root((void **)&data->request); aura_gc_remove_root((void **)&data->response); data->rooted = false; if (data->request_handle != NULL) (void)aura_ffi_handle_drop(&data->request_handle); if (data->response_handle != NULL) (void)aura_ffi_handle_drop(&data->response_handle); data->request = NULL; data->response = NULL; if (__aura_task_executor != NULL) (void)aura_task_executor_release_terminal(__aura_task_executor, &data->child); return AURA_TASK_COMPLETE; }}");
+    let _ = writeln!(out, "static AuraTaskPollState {bridge}(AuraTaskFrame *frame, const AuraHttpRequest *request, AuraHttpResponse *response, void *user_data) {{ {data_ty} *data = ({data_ty} *)user_data; if (data == NULL || request == NULL || response == NULL) return AURA_TASK_FAILED; if (data->child == NULL) {{ if (data->request_handle != NULL) (void)aura_ffi_handle_drop(&data->request_handle); if (data->response_handle != NULL) (void)aura_ffi_handle_drop(&data->response_handle); if (aura_ffi_handle_new((void *)request, NULL, &data->request_handle) != AURA_FFI_OK || aura_ffi_handle_new((void *)response, NULL, &data->response_handle) != AURA_FFI_OK) return AURA_TASK_FAILED; data->request = aura_new_std_http_Request(data->request_handle); data->response = aura_new_std_http_Response(data->response_handle, data->connection); if (data->request == NULL || data->response == NULL) return AURA_TASK_FAILED; aura_gc_add_root((void **)&data->request); aura_gc_add_root((void **)&data->response); data->rooted = true; data->child = data->handler.fn(data->handler.env, data->request, data->response); if (data->child == NULL) return AURA_TASK_FAILED; }} AuraTaskPollState state = aura_task_frame_state(data->child); if (state == AURA_TASK_READY) state = aura_task_executor_poll_inline(__aura_task_executor, data->child); if (state == AURA_TASK_PENDING) {{ if (!aura_task_frame_wait_on(frame, data->child)) return AURA_TASK_FAILED; return AURA_TASK_PENDING; }} if (state == AURA_TASK_FAILED) {{ (void)aura_task_frame_propagate_error(frame, data->child); if (__aura_task_executor != NULL) (void)aura_task_executor_release_terminal(__aura_task_executor, &data->child); return AURA_TASK_FAILED; }} if (state != AURA_TASK_COMPLETE) return state; aura_gc_remove_root((void **)&data->request); aura_gc_remove_root((void **)&data->response); data->rooted = false; if (__aura_task_executor != NULL) (void)aura_task_executor_release_terminal(__aura_task_executor, &data->child); return AURA_TASK_COMPLETE; }}");
     let _ = writeln!(out, "static AuraTaskPollState {poll}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data == NULL || aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED; if (aura_task_frame_resume_state(frame) == 0) {{ void *raw = NULL; AuraHttpConnection *connection = NULL; if (aura_ffi_handle_take_owned(&data->stream, &raw) != AURA_FFI_OK || aura_http_connection_create_from_stream((AuraTcpStream *)raw, NULL, &connection) != AURA_HTTP_CONNECTION_OK || connection == NULL) return AURA_TASK_FAILED; if (aura_ffi_handle_new(connection, aura_http_connection_destroy_resource, &data->connection) != AURA_FFI_OK) {{ aura_http_connection_destroy_resource(connection); return AURA_TASK_FAILED; }} aura_task_frame_set_resume_state(frame, 1); }} return aura_http_connection_poll_async_task_handle(frame, data->connection, {bridge}, data); }}");
     let _ = writeln!(out, "{} {{ AuraTaskFrame *frame = aura_task_frame_new(sizeof({data_ty}), {poll}, {destroy}); if (frame == NULL) return NULL; aura_task_frame_set_cancel_handler(frame, {cancel}); {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); data->stream = {stream}; data->handler = {handler}; if (__aura_task_executor != NULL && !aura_task_executor_submit(__aura_task_executor, frame)) {{ aura_task_frame_destroy(frame); return NULL; }} return frame; }}", c_async_fun_signature(f, checked));
     true
@@ -10910,7 +10960,7 @@ fn emit_async_fun_std_net_binary(
     let _ = writeln!(out, "static void {destroy_data}(AuraTaskFrame *frame) {{ {data_ty} *data = ({data_ty} *)aura_task_frame_data(frame); if (data != NULL) {{ free(data->buffer); if (data->pinned) (void)aura_ffi_handle_unpin(&data->pin); }} }}");
     let _ = writeln!(out, "static void {destroy_data}_cleanup(void *raw) {{ {data_ty} *data = ({data_ty} *)raw; if (data != NULL && data->close_on_cleanup && data->pinned && data->pin.resource != NULL) (void)aura_tcp_stream_close((AuraTcpStream *)data->pin.resource); }}");
     if is_read {
-        let _ = writeln!(out, "static void {destroy_result}(void *raw, size_t size) {{ (void)size; if (raw != NULL) {{ aura_cls_std_bytes_Buffer *value = (aura_cls_std_bytes_Buffer *)raw; aura_gc_remove_root((void **)raw); free(value); }} }}");
+        let _ = writeln!(out, "static void {destroy_result}(void *raw, size_t size) {{ (void)size; if (raw != NULL) {{ aura_cls_std_bytes_Buffer **slot = (aura_cls_std_bytes_Buffer **)raw; if (*slot != NULL) {{ aura_gc_remove_root((void **)slot); free(*slot); }} free(slot); }} }}");
     } else {
         let _ = writeln!(
             out,
@@ -10942,7 +10992,7 @@ fn emit_async_fun_std_net_binary(
     out.push_str("    if (aura_ffi_handle_pin_for_boundary(data->handle, AURA_FFI_BOUNDARY_TASK, &data->pin) != AURA_FFI_OK) return AURA_TASK_FAILED; data->pinned = true; aura_task_frame_set_resume_state(frame, 1);\n");
     out.push_str("    case 1: {\n");
     if is_read {
-        out.push_str("      if (data->offset == data->length) { aura_cls_Array_Int __values = aura_new_Array_Int(data->length); if (data->length > 0 && __values.data == NULL) return AURA_TASK_FAILED; for (int64_t __i = 0; __i < data->length; __i++) __values.data[__i] = data->buffer[__i]; aura_cls_std_bytes_Buffer *__result = aura_new_std_bytes_Buffer(__values); if (__result == NULL) return AURA_TASK_FAILED; aura_gc_add_root((void **)__result); aura_task_frame_set_result(frame, __result, sizeof(*__result), ");
+        out.push_str("      if (data->offset == data->length) { aura_cls_Array_Int __values = aura_new_Array_Int(data->length); if (data->length > 0 && __values.data == NULL) return AURA_TASK_FAILED; for (int64_t __i = 0; __i < data->length; __i++) __values.data[__i] = data->buffer[__i]; aura_cls_std_bytes_Buffer *__value = aura_new_std_bytes_Buffer(__values); if (__value == NULL) return AURA_TASK_FAILED; aura_cls_std_bytes_Buffer **__result = (aura_cls_std_bytes_Buffer **)malloc(sizeof(*__result)); if (__result == NULL) { free(__value); return AURA_TASK_FAILED; } *__result = __value; aura_gc_add_root((void **)__result); aura_task_frame_set_result(frame, __result, sizeof(*__result), ");
         out.push_str(&destroy_result);
         out.push_str("); return AURA_TASK_COMPLETE; }\n");
         out.push_str("      size_t __count = 0; AuraTcpStatus __status = aura_tcp_stream_read((AuraTcpStream *)data->pin.resource, data->buffer + data->offset, (size_t)(data->length - data->offset), &__count, 0); data->offset += (int64_t)__count; if (__status == AURA_TCP_EOF) { ");

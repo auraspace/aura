@@ -10,6 +10,8 @@ package std.http
 
 import std.net
 import std.error as Errs
+import std.bytes as HttpBytes
+import std.encoding as Encoding
 
 /// An HTTP handler starts an Aura task for one request. The server owns the
 /// request/response bridge until that task reaches a terminal outcome.
@@ -45,6 +47,13 @@ pub async fun get(endpoint: String, target: String): String {
     val response: String = await readAllStream(stream, 65536)
     closeStream(stream)
     return response
+}
+
+/// Fetch a bounded binary HTTP response body. Both native backends use the
+/// shared runtime client; HTTPS uses the OpenSSL bridge and Content-Length or
+/// chunked response framing is accepted.
+pub async fun getBytes(endpoint: String, target: String): ByteBuf.Buffer {
+    throw "http binary client intrinsic"
 }
 
 /// Send one bounded HTTP/1.1 POST request to an endpoint and return
@@ -199,6 +208,10 @@ pub class Response(private val handle: ForeignHandle<Int>,
     }
     /// Replace the buffered response body before it is committed.
     pub fun setBody(body: String): Bool { return responseSetBody(this.handle, body) }
+    /// Replace the buffered response body with arbitrary bytes.
+    pub fun setBodyBytes(body: HttpBytes.Buffer): Bool {
+        return responseSetBodyBytes(this.handle, body)
+    }
     /// Add one response header before the response is committed.
     pub fun addHeader(name: String, value: String): Bool {
         return responseAddHeader(this.handle, name, value)
@@ -237,6 +250,7 @@ fun responseSetKeepAlive(response: ForeignHandle<Int>, keepAlive: Bool): Bool {
     throw "http intrinsic"
 }
 fun responseSetBody(response: ForeignHandle<Int>, body: String): Bool { throw "http intrinsic" }
+fun responseSetBodyBytes(response: ForeignHandle<Int>, body: HttpBytes.Buffer): Bool { throw "http intrinsic" }
 fun responseAddHeader(response: ForeignHandle<Int>, name: String, value: String): Bool {
     throw "http intrinsic"
 }

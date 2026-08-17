@@ -98,6 +98,10 @@ pub fn lookup(package: &str, name: &str) -> Option<AbiSpec> {
             "hexEncode" | "hexDecode" | "base64Encode" | "base64Decode" | "percentEncode"
             | "percentDecode" | "isValidUtf8",
         ) => (Intrinsic::Encoding, "aura_encoding_hex_encode"),
+        ("std.bytes", "readFileBytes") => (Intrinsic::Bytes, "aura_read_file_bytes"),
+        ("std.bytes", "tryWriteFileBytesAtomic") => {
+            (Intrinsic::Bytes, "aura_try_write_file_bytes_atomic")
+        }
         (
             "std.json",
             "isValid" | "errorOffset" | "escapeString" | "jsonArrayCount" | "jsonObjectGet"
@@ -112,7 +116,8 @@ pub fn lookup(package: &str, name: &str) -> Option<AbiSpec> {
             "args" | "readLine" | "readLineResult" | "readAllStdin" | "readAllStdinResult" | "exit"
             | "print" | "println" | "eprint" | "eprintln" | "readFile" | "tryReadFile"
             | "writeFile" | "tryWriteFile" | "readFileResult" | "writeFileResult" | "appendFile"
-            | "fileExists" | "fileExistsResult" | "fileSize" | "fileSizeResult",
+            | "tryWriteFileAtomic" | "fileExists" | "fileExistsResult" | "fileSize"
+            | "fileSizeResult",
         ) => (Intrinsic::Io, "aura_print"),
         (
             "std.crypto",
@@ -161,7 +166,7 @@ pub fn lookup(package: &str, name: &str) -> Option<AbiSpec> {
         ("std.signal", "installShutdown" | "shutdownRequested" | "clearShutdown") => {
             (Intrinsic::Signal, "aura_signal_install_shutdown")
         }
-        ("std.bytes", "copy" | "concat" | "slice" | "equals") => {
+        ("std.bytes", "copy" | "bufferToString" | "concat" | "slice" | "equals") => {
             (Intrinsic::Bytes, "aura_bytes_copy")
         }
         ("std.dns", "resolveHost" | "resolveHostList") => (Intrinsic::Dns, "aura_dns_resolve_host"),
@@ -191,9 +196,10 @@ pub fn lookup(package: &str, name: &str) -> Option<AbiSpec> {
             | "responseSetStatus"
             | "responseSetKeepAlive"
             | "responseSetBody"
+            | "responseSetBodyBytes"
             | "responseAddHeader",
         ) => (Intrinsic::HttpAccessor, "aura_http_request_method"),
-        ("std.http", "serve" | "serveConnection" | "readChunk") => {
+        ("std.http", "serve" | "serveConnection" | "readChunk" | "getBytes") => {
             (Intrinsic::HttpServe, "aura_llvm_http_serve_task")
         }
         ("std.udp", "bind" | "send" | "receive" | "close") => (Intrinsic::Udp, "aura_udp_bind"),
@@ -220,7 +226,8 @@ pub fn lookup(package: &str, name: &str) -> Option<AbiSpec> {
         (
             "std.fs",
             "join" | "basename" | "dirname" | "extension" | "isAbsolute" | "isDirectory"
-            | "fileMode" | "permissions" | "modifiedMillis" | "listNames" | "isSymlink",
+            | "ensureDirectory" | "fileMode" | "permissions" | "modifiedMillis" | "listNames"
+            | "isSymlink",
         ) => (Intrinsic::Fs, "aura_fs_join"),
         _ => return None,
     };

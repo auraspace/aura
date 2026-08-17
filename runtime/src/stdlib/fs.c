@@ -121,6 +121,13 @@ _Bool aura_fs_is_absolute(const char *path)
   return p[0] == '/';
 }
 
+_Bool aura_fs_is_directory(const char *path);
+
+_Bool aura_fs_ensure_directory(const char *path)
+{
+  return aura_platform_ensure_directory(path) != 0;
+}
+
 const char *aura_os_get_env(const char *name)
 {
   const char *key = name == NULL ? "" : name;

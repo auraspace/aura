@@ -24,6 +24,7 @@
 #endif
 #if defined(__unix__) || defined(__APPLE__)
 #include <unistd.h>
+#include <strings.h>
 #include <pthread.h>
 #endif
 #if defined(__linux__)

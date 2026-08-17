@@ -130,6 +130,10 @@ int64_t aura_platform_file_write(AuraPlatformFile file, const void *buffer, size
 int aura_platform_file_flush(AuraPlatformFile file);
 int aura_platform_file_close(AuraPlatformFile file);
 
+/* Portable filesystem operations used by std.fs and atomic file writes. */
+int aura_platform_ensure_directory(const char *path);
+int aura_platform_atomic_write(const char *path, const void *content, size_t length);
+
 int aura_platform_socket_startup(void);
 void aura_platform_socket_shutdown(void);
 AuraPlatformSocket aura_platform_socket_open(int family, int type, int protocol);

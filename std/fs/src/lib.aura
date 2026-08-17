@@ -23,6 +23,10 @@ pub fun isAbsolute(path: String): Bool { throw "fs intrinsic" }
 /// Return whether `path` exists and names a directory.
 pub fun isDirectory(path: String): Bool { throw "fs intrinsic" }
 
+/// Create `path` and any missing parent directories. Returns false on invalid
+/// paths or filesystem errors.
+pub fun ensureDirectory(path: String): Bool { throw "fs intrinsic" }
+
 /// Return a stable bounded mode: 0 missing/error, 1 regular file, 2
 /// directory, 3 other filesystem node.
 pub fun fileMode(path: String): Int { throw "fs intrinsic" }

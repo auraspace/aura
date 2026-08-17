@@ -27,6 +27,10 @@ The detailed progress log was intentionally removed from this file on
   captures.
 - 2026-08-03: backend-neutral Checked IR/MIR, state-machine validation,
   generic closure, ownership actions, and explicit C alpha fallback boundaries.
+- 2026-08-16: registry proxy binary read-through uses shared C/LLVM lowering,
+  bounded Content-Length or chunked HTTP framing, and target-neutral byte buffers.
+- 2026-08-16: recursive cache creation and atomic writes use the platform
+  filesystem contract on POSIX and Windows instead of POSIX-only stdlib paths.
 - 2026-08-04: API-003 compiler/runtime/tooling inventory closed for the
   release/tooling matrix; collector and overload-aware LSP contracts are now
   covered by their typed runtime and shared-analysis boundaries.

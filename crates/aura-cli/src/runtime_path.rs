@@ -328,12 +328,14 @@ fn resolve_runtime_input_with_request(request: RuntimeRequest) -> Result<PathBuf
         return Ok(path.canonicalize().unwrap_or(path));
     }
 
-    for candidate in archive_candidates(&request) {
-        if candidate.path.is_file()
-            && validate_runtime_archive(&candidate.path, &request, candidate.metadata_required)
-                .is_ok()
-        {
-            return Ok(candidate.path.canonicalize().unwrap_or(candidate.path));
+    if !request.rebuild_runtime {
+        for candidate in archive_candidates(&request) {
+            if candidate.path.is_file()
+                && validate_runtime_archive(&candidate.path, &request, candidate.metadata_required)
+                    .is_ok()
+            {
+                return Ok(candidate.path.canonicalize().unwrap_or(candidate.path));
+            }
         }
     }
 

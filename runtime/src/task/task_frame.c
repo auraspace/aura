@@ -528,6 +528,9 @@ extern int64_t aura_io_read_fd(AuraPlatformFile file, void *buffer, uint64_t cap
 extern int64_t aura_io_write_fd(AuraPlatformFile file, const void *buffer, uint64_t length);
 extern void *aura_llvm_str_data(void *value);
 extern void *aura_llvm_str_new(const char *source);
+extern int aura_http_client_get_bytes(const char *endpoint, const char *target,
+                                      size_t max_bytes, unsigned char **out_bytes,
+                                      size_t *out_length, char **out_error);
 extern void aura_llvm_str_release(void *value);
 
 typedef struct
@@ -1097,6 +1100,7 @@ void *aura_llvm_net_write_result_task(void *executor, void *handle, void *conten
 }
 
 extern void *aura_llvm_array_alloc(int64_t length, int64_t kind);
+extern void aura_llvm_array_release(void *value);
 extern int64_t aura_llvm_array_len(void *value);
 extern int64_t aura_llvm_array_get(void *value, int64_t index);
 extern void aura_llvm_array_set(void *value, int64_t index, int64_t raw);
@@ -1182,6 +1186,90 @@ void *aura_llvm_net_read_exact_task(void *executor, void *handle, int64_t length
   memset(data, 0, sizeof(*data)); data->handle = (AuraFfiOpaqueHandle *)handle; data->length = length; data->class_type_id = (uint64_t)class_type_id;
   if (timeout_ms > 0) { int64_t now = aura_time_monotonic_millis(); if (now <= 0 || now > INT64_MAX - timeout_ms) { aura_task_frame_destroy(frame); return NULL; } data->deadline_ms = now + timeout_ms; }
   if (!aura_task_executor_submit((AuraTaskExecutor *)executor, frame)) { aura_task_frame_destroy(frame); return NULL; }
+  return frame;
+}
+
+typedef struct
+{
+  char *endpoint;
+  char *target;
+  uint64_t class_type_id;
+} AuraLlvmHttpGetBytesData;
+
+static void aura_llvm_http_get_bytes_destroy(AuraTaskFrame *frame)
+{
+  AuraLlvmHttpGetBytesData *data = (AuraLlvmHttpGetBytesData *)aura_task_frame_data(frame);
+  if (data != NULL) { free(data->endpoint); free(data->target); }
+}
+
+static void aura_llvm_http_get_bytes_result_destroy(void *raw, size_t size)
+{
+  (void)size;
+  if (raw != NULL) { aura_llvm_class_release(*(void **)raw); free(raw); }
+}
+
+static void aura_llvm_http_get_bytes_error_destroy(void *raw, size_t size)
+{
+  (void)size;
+  free(raw);
+}
+
+static AuraTaskPollState aura_llvm_http_get_bytes_poll(AuraTaskFrame *frame)
+{
+  AuraLlvmHttpGetBytesData *data = (AuraLlvmHttpGetBytesData *)aura_task_frame_data(frame);
+  unsigned char *bytes = NULL;
+  size_t length = 0;
+  char *error = NULL;
+  void *array;
+  void *result;
+  void **slot;
+  if (data == NULL || aura_task_frame_cancel_requested(frame)) return AURA_TASK_CANCELLED;
+  if (!aura_http_client_get_bytes(data->endpoint, data->target, 67108864, &bytes, &length, &error))
+  {
+    if (error == NULL) error = strdup("upstream binary fetch failed");
+    if (error != NULL) aura_task_frame_set_error_at(frame, error, strlen(error) + 1,
+                                                     aura_llvm_http_get_bytes_error_destroy, 0);
+    return AURA_TASK_FAILED;
+  }
+  array = aura_llvm_array_alloc((int64_t)length, 0);
+  result = aura_llvm_class_alloc(1, data->class_type_id);
+  if (array == NULL || result == NULL)
+  {
+    free(bytes);
+    if (array != NULL) aura_llvm_array_release(array);
+    if (result != NULL) aura_llvm_class_release(result);
+    return AURA_TASK_FAILED;
+  }
+  for (size_t index = 0; index < length; index++)
+    aura_llvm_array_set(array, (int64_t)index, (int64_t)bytes[index]);
+  free(bytes);
+  ((uint64_t *)result)[1] = (uint64_t)(uintptr_t)array;
+  slot = (void **)malloc(sizeof(*slot));
+  if (slot == NULL) { aura_llvm_class_release(result); return AURA_TASK_FAILED; }
+  *slot = result;
+  aura_task_frame_set_result(frame, slot, sizeof(*slot), aura_llvm_http_get_bytes_result_destroy);
+  return AURA_TASK_COMPLETE;
+}
+
+void *aura_llvm_http_get_bytes_task(void *executor, void *endpoint, void *target,
+                                    int64_t class_type_id)
+{
+  AuraTaskFrame *frame;
+  AuraLlvmHttpGetBytesData *data;
+  const char *endpoint_text = (const char *)aura_llvm_str_data(endpoint);
+  const char *target_text = (const char *)aura_llvm_str_data(target);
+  if (executor == NULL || endpoint_text == NULL || target_text == NULL || class_type_id <= 0)
+    return NULL;
+  frame = aura_task_frame_new(sizeof(*data), aura_llvm_http_get_bytes_poll,
+                              aura_llvm_http_get_bytes_destroy);
+  if (frame == NULL) return NULL;
+  data = (AuraLlvmHttpGetBytesData *)aura_task_frame_data(frame);
+  data->endpoint = strdup(endpoint_text);
+  data->target = strdup(target_text);
+  data->class_type_id = (uint64_t)class_type_id;
+  if (data->endpoint == NULL || data->target == NULL ||
+      !aura_task_executor_submit((AuraTaskExecutor *)executor, frame))
+  { aura_task_frame_destroy(frame); return NULL; }
   return frame;
 }
 

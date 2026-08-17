@@ -16,6 +16,7 @@
 #include "src/io/io_tls.c"
 #include "src/http/url.c"
 #include "src/http/mime.c"
+#include "src/http/http_client.c"
 #include "src/http/http_parser.c"
 #include "src/http/http_response.c"
 #include "src/http/http_connection.c"
